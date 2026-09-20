@@ -777,7 +777,7 @@
       + '<input type="file" accept="application/json,.json" id="import-file" hidden></div>'
       + renderCloudCard()
       + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
-      + '<p class="tiny muted center mt16">Overload · v1.2</p>';
+      + '<p class="tiny muted center mt16">Overload · v1.3</p>';
   }
 
   function renderCloudCard() {
@@ -1240,7 +1240,23 @@
   render();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    // When a new service worker takes over, reload once so the new files are
+    // what is running. Everything is saved on every change, so this is safe.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return;
+      reloading = true; location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+      reg.update().catch(() => {});
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing; if (!nw) return;
+        nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) toast('Updating…'); });
+      });
+    }).catch(() => {});
+    // Also look for updates whenever the app comes back to the foreground.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {}); });
   }
 
   // API for sync.js (and console debugging).
