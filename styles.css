@@ -257,3 +257,9 @@ p { margin: 0; }
 .hist-set b { color: var(--text); }
 
 .banner { background: var(--accent-soft); color: var(--accent-2); border-radius: 12px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+
+/* Cloud sync pill in the top bar */
+.sync-pill { font-size: 12px; min-height: 28px; }
+.sync-pill.synced { color: var(--green); }
+.sync-pill.syncing, .sync-pill.offline { color: var(--amber); }
+.sync-pill.error { color: var(--accent-2); border-color: var(--accent); }

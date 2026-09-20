@@ -40,6 +40,8 @@ capped between 1 and the "Max sets" setting (default 6).
 | `index.html`           | App shell and bottom tab bar                 |
 | `app.js`               | State, progression algorithm, all screens    |
 | `styles.css`           | Dark theme with red accent                   |
+| `sync.js`              | Optional cloud sync via Firebase             |
+| `firestore.rules`      | Firestore security rules to paste in Firebase|
 | `sw.js`                | Service worker so the app opens offline      |
 | `manifest.webmanifest` | Home-screen install metadata                 |
 | `icon*.png`, `icon.svg`| App icons                                    |
@@ -64,10 +66,33 @@ works (the service worker is skipped in that case).
 
 It launches full screen, works offline, and keeps its data between launches.
 
+## Cloud sync (optional)
+
+Settings → Cloud sync lets you sign in with an email and password. After that
+every change is mirrored to Firebase (Firestore) under your account and pulled
+back on any device you sign in on. Offline changes queue and send later. The
+app works exactly the same signed out; it just stays on one phone.
+
+Data layout in Firestore:
+
+| Document                          | Contents                                          |
+| --------------------------------- | ------------------------------------------------- |
+| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program       |
+| `users/{uid}/workouts/{id}`       | one document per workout                          |
+
+Firebase project setup (one time, in the Firebase console):
+
+1. Authentication → Sign-in method → enable **Email/Password**.
+2. Firestore Database → Rules → paste the contents of `firestore.rules` → Publish.
+
+`sync.js` holds the Firebase web config. Those values identify the project;
+they are not secrets. Access is controlled by the rules above, which only let a
+signed-in user read and write their own documents.
+
 ## Backups
 
-Data lives only in that browser's storage. Settings → Export JSON saves a file
-you can re-import later. iOS can clear website data for a home-screen app if
+Without cloud sync, data lives only in that browser's storage. Settings →
+Export JSON saves a file you can re-import later. iOS can clear website data for a home-screen app if
 you delete the app, so export now and then.
 
 ## Debugging

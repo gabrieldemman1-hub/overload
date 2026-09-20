@@ -155,6 +155,16 @@
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch (e) { toast('Could not save. Storage full?'); }
+    document.dispatchEvent(new CustomEvent('overload:save'));
+  }
+  // Replace the whole state (used by cloud sync when remote data arrives).
+  function setState(next) {
+    if (!next || next.v !== 1) return;
+    state = next;
+    state.settings = Object.assign(defaultSettings(), state.settings || {});
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    if (!activeWorkout()) state.active = null;
+    render();
   }
 
   // Accessors
@@ -253,7 +263,7 @@
   // ---------------------------------------------------------------------------
   // UI state
   // ---------------------------------------------------------------------------
-  const ui = { screen: 'today', selectedDay: weekdayIndex(), sheet: null, search: '', chartEx: null };
+  const ui = { screen: 'today', selectedDay: weekdayIndex(), sheet: null, search: '', chartEx: null, sync: { status: 'off', msg: '' } };
   const timer = { end: 0, total: 0, handle: null };
 
   // ---------------------------------------------------------------------------
@@ -263,7 +273,7 @@
     const app = $('#app');
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.screen === ui.screen));
     const right = $('#topbar-right');
-    right.innerHTML = '';
+    right.innerHTML = ui.sync.status === 'off' ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
     switch (ui.screen) {
       case 'today': app.innerHTML = renderToday(); break;
       case 'program': app.innerHTML = renderProgram(); break;
@@ -272,6 +282,8 @@
       case 'settings': app.innerHTML = renderSettings(); break;
     }
   }
+
+  function syncIcon(st) { return { synced: '☁ ✓', syncing: '☁ …', offline: '☁ ⏸', error: '☁ !' }[st] || '☁'; }
 
   // ---- Today ---------------------------------------------------------------
   function renderToday() {
@@ -482,12 +494,49 @@
       + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets"></div>'
       + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets"></div>'
       + '</div>'
-      + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Everything is stored on this phone only. Export now and then so you can restore if the browser data gets cleared.</p>'
+      + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
       + '<div class="btn-row"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
       + '<input type="file" accept="application/json,.json" id="import-file" hidden></div>'
       + '<div class="group-title">Install on iPhone</div><div class="card small muted">Open this page in Safari, tap Share, then <b style="color:var(--text)">Add to Home Screen</b>. It runs full screen and works offline.</div>'
+      + renderCloudCard()
       + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
-      + '<p class="tiny muted center mt16">Overload · local-only · v1</p>';
+      + '<p class="tiny muted center mt16">Overload · v1.1</p>';
+  }
+
+  function renderCloudCard() {
+    const sync = window.__overloadSync;
+    let body;
+    if (!sync) {
+      body = '<p class="small muted">Cloud sync is loading. If this never changes, the sync module could not load (offline, or sync.js is missing).</p>';
+    } else if (sync.user) {
+      const st = ui.sync;
+      const colour = st.status === 'error' ? 'var(--accent-2)' : st.status === 'synced' ? 'var(--green)' : 'var(--amber)';
+      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill" style="color:' + colour + '">' + esc(st.msg || 'Connected') + '</span></div>'
+        + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
+        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
+    } else {
+      body = '<p class="small muted mb8">Sign in to keep your data in the cloud so it survives clearing this phone and follows you to a new one. First time here? Enter an email and password and tap Create account.</p>'
+        + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required></div>'
+        + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required></div>'
+        + '<div id="cloud-msg" class="small mb8" style="color:var(--accent-2)"></div>'
+        + '<div class="btn-row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-action="cloud-signup">Create account</button></div>'
+        + '<button class="btn subtle block mt8" type="button" data-action="cloud-reset">Forgot password</button></form>';
+    }
+    return '<div class="group-title">Cloud sync</div><div class="card">' + body + '</div>';
+  }
+
+  async function cloudAction(kind) {
+    const sync = window.__overloadSync; if (!sync) return;
+    const form = $('#cloud-form'); const msg = $('#cloud-msg');
+    const email = form ? form.elements.email.value : ''; const password = form ? form.elements.password.value : '';
+    const say = (t) => { if (msg) msg.textContent = t; else toast(t); };
+    try {
+      if (kind === 'signin') { if (!email || !password) return say('Enter your email and password.'); await sync.signIn(email, password); toast('Signed in'); }
+      if (kind === 'signup') { if (!email || !password) return say('Enter an email and a password of at least 6 characters.'); await sync.createAccount(email, password); toast('Account created'); }
+      if (kind === 'reset') { if (!email) return say('Enter your email first.'); await sync.resetPassword(email); say('Reset email sent. Check your inbox.'); }
+      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud.')) { await sync.signOut(); toast('Signed out'); } }
+      if (kind === 'push') { await sync.pushNow(); toast('Sync requested'); }
+    } catch (e) { say(e.message || 'Something went wrong.'); }
   }
 
   // ---------------------------------------------------------------------------
@@ -749,10 +798,18 @@
       case 'reset': if (confirm('Erase all exercises, program and history on this phone?') && confirm('Really erase everything?')) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
 
       case 'sheet-close': closeSheet(); break;
+
+      // Cloud
+      case 'goto-settings': ui.screen = 'settings'; render(); window.scrollTo(0, 0); break;
+      case 'cloud-signup': cloudAction('signup'); break;
+      case 'cloud-reset': cloudAction('reset'); break;
+      case 'cloud-signout': cloudAction('signout'); break;
+      case 'cloud-push': cloudAction('push'); break;
     }
   });
 
   document.addEventListener('submit', (e) => {
+    if (e.target.closest('#cloud-form')) { e.preventDefault(); cloudAction('signin'); return; }
     const form = e.target.closest('#ex-form'); if (!form) return;
     e.preventDefault();
     const f = new FormData(form);
@@ -827,6 +884,16 @@
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 
-  // Expose for debugging in the console.
-  window.__overload = { get state() { return state; }, computeNext, save, render };
+  // API for sync.js (and console debugging).
+  window.__overload = {
+    get state() { return state; },
+    setState, computeNext, save, render, toast,
+    setSyncStatus(status, msg) {
+      ui.sync = { status, msg: msg || '' };
+      const pill = $('.sync-pill');
+      if (pill) { pill.className = 'pill sync-pill ' + status; pill.textContent = syncIcon(status); pill.title = ui.sync.msg; }
+      else if (status !== 'off') render();
+      if (ui.screen === 'settings') render();
+    }
+  };
 })();
