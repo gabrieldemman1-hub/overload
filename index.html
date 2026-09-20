@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>Overload</title>
+  <meta name="description" content="Personal hypertrophy tracker with rep-range progression.">
+  <meta name="theme-color" content="#111214">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Overload">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-mark"></span>Overload</div>
+      <div id="topbar-right" class="topbar-right"></div>
+    </div>
+  </header>
+
+  <main id="app" class="screen"></main>
+
+  <div id="rest-timer" class="rest-timer" hidden>
+    <div class="rest-timer-inner">
+      <div>
+        <div class="rest-label">Rest</div>
+        <div id="rest-time" class="rest-time">2:00</div>
+      </div>
+      <div class="rest-actions">
+        <button class="btn ghost small" data-action="rest-add">+30s</button>
+        <button class="btn small" data-action="rest-skip">Skip</button>
+      </div>
+    </div>
+    <div class="rest-bar"><div id="rest-bar-fill" class="rest-bar-fill"></div></div>
+  </div>
+
+  <nav class="tabbar">
+    <button class="tab" data-screen="today"><span class="tab-icon">▶</span>Today</button>
+    <button class="tab" data-screen="program"><span class="tab-icon">☰</span>Program</button>
+    <button class="tab" data-screen="exercises"><span class="tab-icon">◆</span>Exercises</button>
+    <button class="tab" data-screen="history"><span class="tab-icon">▤</span>History</button>
+    <button class="tab" data-screen="settings"><span class="tab-icon">⚙</span>Settings</button>
+  </nav>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-action="sheet-close"></div>
+    <div class="sheet-panel" id="sheet-panel"></div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
