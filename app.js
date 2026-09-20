@@ -294,8 +294,9 @@
     const strip = WEEKDAYS.map((d, i) => {
       const dayId = state.program.schedule[i];
       const cls = ['day-chip', i === ti ? 'today' : '', i === ui.selectedDay ? 'selected' : '', dayId ? '' : 'rest'].join(' ');
-      return '<button class="' + cls + '" data-action="select-day" data-i="' + i + '">' + d + '<span class="dot"></span></button>';
+      return '<button class="' + cls + '" data-action="select-day" data-i="' + i + '" aria-label="' + WEEKDAYS_LONG[i] + '">' + d[0] + '<span class="dot"></span></button>';
     }).join('');
+    const stripHtml = '<div class="day-strip">' + strip + '</div>';
 
     const dayId = state.program.schedule[ui.selectedDay];
     const day = dayId ? dayById(dayId) : null;
@@ -314,7 +315,7 @@
     }
     const last = state.workouts.filter((x) => x.finishedAt).slice(-1)[0];
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
-    return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + strip + body + lastLine;
+    return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + stripHtml + body + lastLine;
   }
 
   function prescText(ex, p) {
@@ -352,13 +353,12 @@
     const p = prescFor(en.exId);
     const r = repRange(ex);
     const last = lastEntryFor(en.exId);
-    const lastText = last ? 'Last: ' + last.entry.sets.filter((s) => s.done).map((s) => fmtW(s.weight) + '×' + s.reps).join(', ') : 'First time logging this';
+    const lastText = last ? 'Last time: ' + last.entry.sets.filter((s) => s.done).map((s) => fmtW(s.weight) + '×' + s.reps).join(', ') : 'First time logging this';
     const reason = (!en.done && p.reasons && p.reasons.length) ? '<div class="ex-reason ' + (/\+/.test(p.reasons[0]) ? 'green' : '') + '">' + esc(p.reasons[0]) + '</div>' : '';
 
     const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : '') + '">'
       + '<td class="n">' + (i + 1) + '</td>'
       + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + '<td class="goal">' + en.targetReps + '</td>'
       + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="reps" data-field="reps" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
       + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>✓</button></td>'
       + '</tr>').join('');
@@ -380,14 +380,15 @@
 
     const body = en.done
       ? '<div class="ex-body">' + nextBox + '<div class="card-actions"><button class="btn small subtle" data-action="reopen-entry" data-e="' + idx + '">Edit</button></div></div>'
-      : '<div class="ex-body"><table class="set-table"><thead><tr><th class="n">Set</th><th>' + state.settings.units + (ex.equipment === 'Dumbbell' ? ' (each)' : '') + '</th><th class="goal">Goal</th><th>Reps</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
+      : '<div class="ex-body"><table class="set-table"><thead><tr><th class="n">Set</th><th>' + state.settings.units + (ex.equipment === 'Dumbbell' ? ' (each)' : '') + '</th><th>Reps</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
         + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">+ Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>− Set</button><span class="grow"></span><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
         + feedback
         + '<button class="btn block mt12 ' + (allDone ? '' : 'ghost') + '" data-action="finish-entry" data-e="' + idx + '" ' + (en.sets.some((s) => s.done) ? '' : 'disabled') + '>Done with ' + esc(ex.name) + '</button></div>';
 
     return '<div class="card ex-card ' + (en.done ? 'done' : '') + '"><div class="ex-head">'
       + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="pill">' + esc(ex.muscle) + '</span></div>'
-      + '<div class="ex-presc">' + p.sets + ' × ' + r.min + '–' + r.max + ' · goal <strong>' + en.targetReps + ' reps</strong> · ' + esc(lastText) + '</div>'
+      + '<div class="ex-presc">' + p.sets + ' sets × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ <strong>' + fmtW(p.weight) + ' ' + state.settings.units + '</strong>' : '') + ' · goal <strong>' + en.targetReps + ' reps</strong></div>'
+      + '<div class="ex-last">' + esc(lastText) + '</div>'
       + reason + '</div>' + body + '</div>';
   }
 
