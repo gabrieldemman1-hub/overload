@@ -29,7 +29,7 @@ const firebaseConfig = {
 };
 
 const SYNC_KEY = 'overload.sync.v1';
-const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active'];
+const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'templates'];
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig);

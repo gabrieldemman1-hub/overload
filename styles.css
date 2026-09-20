@@ -292,3 +292,43 @@ p { margin: 0; }
 .sync-pill.synced { color: var(--green); }
 .sync-pill.syncing, .sync-pill.offline { color: var(--amber); }
 .sync-pill.error { color: var(--accent-2); border-color: var(--accent); }
+
+/* Reps in reserve */
+.set-table .rir { width: 48px; text-align: center; }
+.rir-btn { width: 44px; height: 50px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-2); color: var(--muted); font-weight: 700; font-size: 17px; }
+.rir-btn.on { color: var(--text); border-color: var(--amber); background: var(--amber-soft); }
+
+/* Warm-ups */
+.warmups { background: var(--bg-2); border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+.warmup-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 15px; color: var(--muted); }
+.warmup-row b { color: var(--text); }
+.warmup-row .n { width: 30px; font-weight: 700; }
+.warmup-row.done { opacity: 0.6; }
+.check.small { width: 40px; height: 40px; font-size: 18px; }
+
+/* PR pill */
+.pill.pr { background: var(--green-soft); color: var(--green); border-color: transparent; }
+
+/* Weekly volume */
+.vol-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.vol-name { width: 92px; font-size: 14px; }
+.vol-bar { flex: 1; height: 10px; background: var(--bg-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
+.vol-fill { display: block; height: 100%; border-radius: 999px; }
+.vol-fill.low { background: var(--amber); } .vol-fill.ok { background: var(--green); } .vol-fill.high { background: var(--accent); }
+.vol-n { width: 28px; text-align: right; font-weight: 700; font-size: 14px; }
+.vol-n.low { color: var(--amber); } .vol-n.ok { color: var(--green); } .vol-n.high { color: var(--accent-2); }
+
+/* Calendar */
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-head { text-align: center; font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+.cal-cell { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--text); background: var(--bg-2); border: 1px solid var(--border); padding: 0; }
+.cal-cell.empty { background: transparent; border: 0; }
+.cal-cell.rest { opacity: 0.4; }
+.cal-cell.future { opacity: 0.35; }
+.cal-cell.hit { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+.cal-cell.today { box-shadow: 0 0 0 2px var(--accent); }
+
+/* Lists in cards */
+.review-list { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+.review-list div { padding: 3px 0; }
+.chart .pt.faint { opacity: 0.5; }

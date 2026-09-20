@@ -33,6 +33,18 @@ Moderate joint pain blocks a weight increase for that session. "A lot" of joint
 pain drops the weight two jumps and suggests swapping the exercise. Sets are
 capped between 1 and the "Max sets" setting (default 6).
 
+## Also in the app
+
+- **Reps in reserve.** Optional RIR column per set. Three or more on every set moves the weight up a session early.
+- **Warm-up generator.** One tap builds a 50 / 70 / 85 percent ramp from your working weight, with its own shorter rest timer. Warm-ups never affect progression.
+- **Swap.** Replace an exercise for today only, without touching the program.
+- **PR alerts.** Heaviest set, best estimated one-rep max, or most reps at a weight, flagged when you finish an exercise and listed under the progress chart.
+- **Weekly volume.** Sets per muscle this week against a target range you set.
+- **Body weight.** Weigh-in reminder at a frequency you choose, with a running-average chart and 30-day change.
+- **Program templates.** Save a split and switch between them later.
+- **Consistency calendar and streak.** Training days by month, rest days faded, streak counted across scheduled days only.
+- **Weekly review.** Workouts, sets, tonnage, weight increases, PRs and body weight trend for this week or last, with a Share button.
+
 ## Files
 
 | File                   | Purpose                                      |
