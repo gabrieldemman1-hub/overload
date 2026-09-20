@@ -18,6 +18,31 @@
   --topbar-h: 56px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --bar-bg: rgba(17, 18, 20, 0.92);
+  --shadow: rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+/* Light palette. Applies when the user picks Light, or picks System and the phone is in light mode. */
+:root[data-theme="light"],
+:root:not([data-theme="dark"]).system-light {
+  --bg: #f3f3f5;
+  --bg-2: #ffffff;
+  --card: #ffffff;
+  --card-2: #ececf0;
+  --border: #d9d9df;
+  --text: #16171a;
+  --muted: #676a74;
+  --accent: #dc2f2a;
+  --accent-2: #c4231f;
+  --accent-soft: rgba(220, 47, 42, 0.12);
+  --green: #1e9a4e;
+  --green-soft: rgba(30, 154, 78, 0.14);
+  --amber: #a8720f;
+  --amber-soft: rgba(168, 114, 15, 0.14);
+  --bar-bg: rgba(243, 243, 245, 0.92);
+  --shadow: rgba(0, 0, 0, 0.18);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -40,7 +65,7 @@ p { margin: 0; }
 .topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 20;
   padding-top: var(--safe-top);
-  background: rgba(17, 18, 20, 0.92);
+  background: var(--bar-bg);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -63,7 +88,7 @@ p { margin: 0; }
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
   display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: rgba(17, 18, 20, 0.95);
+  background: var(--bar-bg);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
 }
@@ -196,9 +221,11 @@ p { margin: 0; }
 .field-row { display: flex; gap: 10px; }
 .field-row .field { flex: 1; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.toggle-row > :first-child { min-width: 0; flex: 1; }
+.toggle-row > .input { flex-shrink: 0; }
 .toggle-row:last-child { border-bottom: 0; }
-.seg { display: flex; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.seg button { background: none; border: 0; padding: 8px 14px; color: var(--muted); font-weight: 700; font-size: 13px; min-height: 40px; }
+.seg { display: flex; flex-shrink: 0; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg button { background: none; border: 0; padding: 8px 12px; color: var(--muted); font-weight: 700; font-size: 13px; min-height: 40px; }
 .seg button.on { background: var(--accent); color: #fff; }
 
 /* Lists */
@@ -216,7 +243,7 @@ p { margin: 0; }
 .rest-timer {
   position: fixed; left: 12px; right: 12px; bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 10px); z-index: 25;
   background: var(--card-2); border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 30px var(--shadow);
 }
 .rest-timer-inner { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; }
 .rest-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
@@ -227,7 +254,7 @@ p { margin: 0; }
 
 /* Sheet */
 .sheet { position: fixed; inset: 0; z-index: 40; }
-.sheet-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); }
+.sheet-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); }
 .sheet-panel {
   position: absolute; left: 0; right: 0; bottom: 0; max-height: 88vh; overflow-y: auto;
   background: var(--bg-2); border-top-left-radius: 20px; border-top-right-radius: 20px;
@@ -240,7 +267,7 @@ p { margin: 0; }
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 20px);
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px; z-index: 50;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 
 /* Chart */

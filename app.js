@@ -121,7 +121,7 @@
   let state = null;
 
   function defaultSettings() {
-    return { units: 'lb', increment: 2.5, repMin: 10, repMax: 12, restSec: 120, maxSets: 6, defaultSets: 3 };
+    return { units: 'lb', increment: 2.5, repMin: 10, repMax: 12, restSec: 120, maxSets: 6, defaultSets: 3, theme: 'system' };
   }
 
   function seedState() {
@@ -157,6 +157,16 @@
     catch (e) { toast('Could not save. Storage full?'); }
     document.dispatchEvent(new CustomEvent('overload:save'));
   }
+  // Theme: 'system' follows the phone, 'dark' / 'light' force one.
+  function applyTheme() {
+    const t = state.settings.theme || 'system';
+    const root = document.documentElement;
+    if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+    const light = t === 'light' || (t === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+    root.classList.toggle('system-light', t === 'system' && light);
+    try { localStorage.setItem('overload.theme', t); } catch (e) { /* ignore */ }
+    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f3f3f5' : '#111214';
+  }
   // Replace the whole state (used by cloud sync when remote data arrives).
   function setState(next) {
     if (!next || next.v !== 1) return;
@@ -164,6 +174,7 @@
     state.settings = Object.assign(defaultSettings(), state.settings || {});
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
     if (!activeWorkout()) state.active = null;
+    applyTheme();
     render();
   }
 
@@ -488,6 +499,7 @@
     const s = state.settings;
     return '<div class="screen-title"><h1>Settings</h1></div>'
       + '<div class="card">'
+      + '<div class="toggle-row"><div><div>Appearance</div><div class="small muted">System follows your phone</div></div><div class="seg">' + ['system', 'dark', 'light'].map((t) => '<button class="' + ((s.theme || 'system') === t ? 'on' : '') + '" data-action="set-theme" data-v="' + t + '">' + t[0].toUpperCase() + t.slice(1) + '</button>').join('') + '</div></div>'
       + '<div class="toggle-row"><div><div>Units</div><div class="small muted">Labels only, no conversion</div></div><div class="seg"><button class="' + (s.units === 'lb' ? 'on' : '') + '" data-action="set-units" data-v="lb">lb</button><button class="' + (s.units === 'kg' ? 'on' : '') + '" data-action="set-units" data-v="kg">kg</button></div></div>'
       + '<div class="toggle-row"><div><div>Weight jump</div><div class="small muted">Default increase, per exercise override in Exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment"></div>'
       + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax"></div></div>'
@@ -498,7 +510,6 @@
       + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
       + '<div class="btn-row"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
       + '<input type="file" accept="application/json,.json" id="import-file" hidden></div>'
-      + '<div class="group-title">Install on iPhone</div><div class="card small muted">Open this page in Safari, tap Share, then <b style="color:var(--text)">Add to Home Screen</b>. It runs full screen and works offline.</div>'
       + renderCloudCard()
       + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
       + '<p class="tiny muted center mt16">Overload · v1.1</p>';
@@ -794,6 +805,7 @@
 
       // Settings
       case 'set-units': state.settings.units = d.v; save(); render(); break;
+      case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
       case 'import': $('#import-file').click(); break;
       case 'reset': if (confirm('Erase all exercises, program and history on this phone?') && confirm('Really erase everything?')) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
@@ -877,6 +889,8 @@
   // Boot
   // ---------------------------------------------------------------------------
   state = load();
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   save();
   if (activeWorkout()) ui.screen = 'today';
   render();

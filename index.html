@@ -13,6 +13,19 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icon-180.png">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <script>
+    // Apply the saved theme before first paint so there is no flash.
+    (function () {
+      try {
+        var t = localStorage.getItem('overload.theme') || 'system';
+        var root = document.documentElement;
+        if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t);
+        var mq = window.matchMedia('(prefers-color-scheme: light)');
+        var apply = function () { root.classList.toggle('system-light', t === 'system' && mq.matches); };
+        apply(); mq.addEventListener('change', function () { t = localStorage.getItem('overload.theme') || 'system'; apply(); });
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
