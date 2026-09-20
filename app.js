@@ -83,6 +83,32 @@
     ['Plank', 'Abs', 'Bodyweight']
   ];
 
+  // Additions after v1 shipped. Existing saves pick these up once via normalize().
+  const LIBRARY_V2 = [
+    // Curl Fitness Costa Mesa: Newtech OnHim line, plate-loaded and cable pieces.
+    ['Newtech Lat Pulldown', 'Back', 'Machine'],
+    ['Newtech Seated Row (Inward grip)', 'Back', 'Machine'],
+    ['Newtech Seated Row (Outward grip)', 'Back', 'Machine'],
+    ['Plate-Loaded High Row', 'Back', 'Machine'],
+    ['Plate-Loaded Low Row', 'Back', 'Machine'],
+    ['Plate-Loaded Iso-Lateral Row', 'Back', 'Machine'],
+    ['Plate-Loaded Lat Pulldown', 'Back', 'Machine'],
+    ['Machine Pullover', 'Back', 'Machine'],
+    ['Cable Pullover (rope)', 'Back', 'Cable'],
+    ['Wide-Grip Lat Pulldown', 'Back', 'Cable'],
+    ['Close-Grip Lat Pulldown (V-bar)', 'Back', 'Cable'],
+    ['Single-Arm Cable Row', 'Back', 'Cable'],
+    ['Machine Biceps Curl', 'Biceps', 'Machine'],
+    ['EZ-Bar Curl', 'Biceps', 'Barbell'],
+    ['Cable Bayesian Curl', 'Biceps', 'Cable'],
+    ['Spider Curl', 'Biceps', 'Dumbbell'],
+    ['Concentration Curl', 'Biceps', 'Dumbbell'],
+    ['Reverse Curl', 'Biceps', 'Barbell'],
+    ['Cable Rope Hammer Curl', 'Biceps', 'Cable']
+  ];
+  const LIB_VERSION = 2;
+  const ONE_OFF_DAY = { name: 'Back & Biceps', exercises: ['Newtech Lat Pulldown', 'Newtech Seated Row (Outward grip)', 'Plate-Loaded High Row', 'Straight-Arm Pulldown', 'EZ-Bar Curl', 'Incline Dumbbell Curl', 'Preacher Curl', 'Cable Rope Hammer Curl'] };
+
   // Default program: Mon chest/back, Tue legs, Wed shoulders/arms, repeat Thu-Sat, Sun rest.
   const DEFAULT_DAYS = [
     { name: 'Chest & Back', exercises: ['Incline Dumbbell Press', 'Flat Barbell Bench Press', 'Cable Fly', 'Lat Pulldown', 'Chest-Supported Row', 'Seated Cable Row'] },
@@ -140,7 +166,8 @@
       s.program.days.push({ id: uid(), name: d.name, exercises: d.exercises.map((n) => byName[n]).filter(Boolean) });
     });
     s.program.schedule = DEFAULT_SCHEDULE.map((i) => (i == null ? null : s.program.days[i].id));
-    return s;
+    s.libVersion = 1;
+    return normalize(s);
   }
 
   function load() {
@@ -160,6 +187,19 @@
     st.settings = Object.assign(defaultSettings(), st.settings || {});
     if (!Array.isArray(st.bodyweight)) st.bodyweight = [];
     if (!Array.isArray(st.templates)) st.templates = [];
+    if ((st.libVersion || 1) < 2) {
+      const byName = {};
+      st.exercises.forEach((e) => { byName[e.name.toLowerCase()] = e.id; });
+      LIBRARY_V2.forEach(([name, muscle, equipment]) => {
+        if (byName[name.toLowerCase()]) return;
+        const ex = { id: uid(), name, muscle, equipment, increment: null, repMin: null, repMax: null, custom: false };
+        st.exercises.push(ex); byName[name.toLowerCase()] = ex.id;
+      });
+      if (!st.program.days.some((d) => d.name === ONE_OFF_DAY.name)) {
+        st.program.days.push({ id: uid(), name: ONE_OFF_DAY.name, exercises: ONE_OFF_DAY.exercises.map((n) => byName[n.toLowerCase()]).filter(Boolean) });
+      }
+      st.libVersion = 2;
+    }
     return st;
   }
   function save() {
@@ -359,9 +399,11 @@
 
     const dayId = state.program.schedule[ui.selectedDay];
     const day = dayId ? dayById(dayId) : null;
+    const others = state.program.days.filter((d) => !day || d.id !== day.id);
+    const otherHtml = others.length ? '<div class="group-title">Start a different day</div><div class="list">' + others.map((d) => '<div class="list-item"><div class="grow"><div class="title">' + esc(d.name) + '</div><div class="sub">' + plural(d.exercises.length, 'exercise') + (state.program.schedule.includes(d.id) ? '' : ' · not on the schedule') + '</div></div><button class="btn small ghost" data-action="start-workout" data-day="' + d.id + '" ' + (d.exercises.length ? '' : 'disabled') + '>Start</button></div>').join('') + '</div>' : '';
     let body;
     if (!day) {
-      body = '<div class="card"><div class="empty">Rest day.<br><span class="small">Pick another day above, or change the schedule in Program.</span></div></div>';
+      body = '<div class="card"><div class="empty">Rest day.<br><span class="small">Nothing scheduled. Start any day below if you feel like lifting.</span></div></div>' + otherHtml;
     } else {
       const items = day.exercises.map((exId) => {
         const ex = exById(exId); if (!ex) return '';
@@ -370,7 +412,7 @@
       }).join('');
       body = '<div class="card flat"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div></div>'
         + '<div class="list">' + (items || '<div class="empty">No exercises yet. Add some in Program.</div>') + '</div>'
-        + '<button class="btn block mt12" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start workout</button></div>';
+        + '<button class="btn block mt12" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start workout</button></div>' + otherHtml;
     }
     const last = state.workouts.filter((x) => x.finishedAt).slice(-1)[0];
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
