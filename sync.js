@@ -100,6 +100,7 @@ async function push() {
   const s = host().state;
   const now = Date.now();
   const ops = [];
+  const before = JSON.stringify(known);   // what the cloud held before this push, for rollback on failure
 
   const cj = coreJson(s);
   if (cj !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = cj; }
@@ -115,11 +116,14 @@ async function push() {
   saveKnown();
   if (!ops.length) return;
 
+  // If a batch is rejected (rules, quota), forget that the cloud has it so the
+  // next push sends it again. Sets are idempotent, so re-sending is harmless.
+  const rollback = () => { if (known && known.uid === user.uid) { known = JSON.parse(before); saveKnown(); } };
   for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
     const b = writeBatch(db);
     ops.slice(i, i + BATCH_LIMIT).forEach((op) => op(b));
     inflight++; report();
-    b.commit().then(() => { lastSync = Date.now(); lastError = ''; }, (e) => { lastError = friendly(e); })
+    b.commit().then(() => { lastSync = Date.now(); lastError = ''; }, (e) => { lastError = friendly(e); rollback(); setTimeout(schedulePush, 60000); })
       .finally(() => { inflight--; report(); });
   }
 }

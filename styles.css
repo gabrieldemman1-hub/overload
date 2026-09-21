@@ -334,3 +334,7 @@ p { margin: 0; }
 .review-list { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
 .review-list div { padding: 3px 0; }
 .chart .pt.faint { opacity: 0.5; }
+
+/* Exercise notes (seat height, handle, pin) shown during a workout */
+.ex-note { display: inline-block; margin-top: 6px; font-size: 13px; color: var(--text); background: var(--card-2); border: 1px solid var(--border); padding: 5px 9px; border-radius: 8px; line-height: 1.35; }
+.ex-note::before { content: "✎ "; color: var(--muted); }

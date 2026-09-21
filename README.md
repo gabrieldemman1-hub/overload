@@ -4,8 +4,8 @@ A personal hypertrophy tracker for one phone. Log weight, sets and reps; the app
 tells you what to lift next time based on the rep range and how you recovered.
 Modelled on the RP Hypertrophy app's flow, but without mesocycles or deloads.
 
-No backend, no accounts, no build step. Everything is stored in the browser on
-the device it runs on.
+No build step. Data lives in the browser on the phone, and optionally mirrors to
+a Firebase account (see Cloud sync below) so it survives clearing the phone.
 
 ## Progression rules
 
@@ -44,6 +44,10 @@ capped between 1 and the "Max sets" setting (default 6).
 - **Program templates.** Save a split and switch between them later.
 - **Consistency calendar and streak.** Training days by month, rest days faded, streak counted across scheduled days only.
 - **Weekly review.** Workouts, sets, tonnage, weight increases, PRs and body weight trend for this week or last, with a Share button.
+- **Equipment-aware jumps.** Barbell, dumbbell, machine and cable each have their own default weight jump (2.5 / 5 / 5 / 5 lb), with a per-exercise override.
+- **Exercise notes and rest.** Seat height, handle, pin position, and a per-exercise rest time, shown and used during the workout.
+- **Fix a past workout.** Edit the sets of any finished workout. Deleting the latest workout for an exercise rolls its next-time weight back.
+- **Sound when rest is over.** A short beep, since iPhones ignore web vibration. The phone's mute switch silences it, and no web app can alert you while the phone is locked.
 
 ## Files
 
@@ -55,6 +59,7 @@ capped between 1 and the "Max sets" setting (default 6).
 | `sync.js`              | Optional cloud sync via Firebase             |
 | `firestore.rules`      | Firestore security rules to paste in Firebase|
 | `sw.js`                | Service worker so the app opens offline      |
+| `bump.sh`              | Bumps the version string everywhere at once  |
 | `manifest.webmanifest` | Home-screen install metadata                 |
 | `icon*.png`, `icon.svg`| App icons                                    |
 
