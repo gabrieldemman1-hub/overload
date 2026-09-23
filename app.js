@@ -8,7 +8,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '1.4';
+  const VERSION = '1.5';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -212,9 +212,22 @@
     return st;
   }
   function save() {
+    let ok = true;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch (e) { toast('Could not save. Storage full?'); }
+    catch (e) { ok = false; }
+    if (ok !== !ui.saveFailed) {
+      // Stays on screen until a save works: a toast is too easy to miss when data is at stake.
+      ui.saveFailed = !ok;
+      renderSaveWarning();
+    }
     document.dispatchEvent(new CustomEvent('overload:save'));
+  }
+  function renderSaveWarning() {
+    const el = $('#save-warning'); if (!el) return;
+    el.hidden = !ui.saveFailed;
+    el.innerHTML = ui.saveFailed ? '<div class="banner danger"><b>This phone refused to save.</b> Your latest changes are only in memory and are lost if the app closes. '
+      + ((window.__overloadSync && window.__overloadSync.user) ? 'Cloud sync still has them once it shows ☁ ✓. ' : '')
+      + 'Export a backup now, then free up storage on the phone.<div class="btn-row mt8"><button class="btn small" data-action="export">Export backup</button></div></div>' : '';
   }
   // Theme: 'system' follows the phone, 'dark' / 'light' force one.
   function applyTheme() {
@@ -230,7 +243,9 @@
   function setState(next) {
     if (!next || next.v !== 1) return;
     state = normalize(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    let ok = true;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+    if (ok !== !ui.saveFailed) { ui.saveFailed = !ok; renderSaveWarning(); }
     if (!activeWorkout()) state.active = null;
     applyTheme();
     render();
@@ -300,9 +315,10 @@
     const prs = [];
     const done = entry.sets.filter((st) => st.done && st.reps > 0);
     const top = done.reduce((a, b) => (b.weight > a.weight ? b : a), { weight: 0, reps: 0 });
-    if (top.weight > best.weight) prs.push({ kind: 'weight', text: 'Heaviest ever: ' + fmtW(top.weight) + ' ' + state.settings.units + ' × ' + top.reps });
+    const assisted = isAssisted(exById(exId));
+    if (top.weight > best.weight && !assisted) prs.push({ kind: 'weight', text: 'Heaviest ever: ' + fmtW(top.weight) + ' ' + state.settings.units + ' × ' + top.reps });
     const bestE = done.reduce((a, b) => (e1rm(b.weight, b.reps) > e1rm(a.weight, a.reps) ? b : a));
-    if (e1rm(bestE.weight, bestE.reps) > best.e1rm + 0.01 && !prs.length) prs.push({ kind: 'e1rm', text: 'Best set ever: ' + fmtW(bestE.weight) + ' × ' + bestE.reps });
+    if (e1rm(bestE.weight, bestE.reps) > best.e1rm + 0.01 && !prs.length && !assisted) prs.push({ kind: 'e1rm', text: 'Best set ever: ' + fmtW(bestE.weight) + ' × ' + bestE.reps });
     done.forEach((st) => { if (best.repsAt[st.weight] && st.reps > best.repsAt[st.weight] && !prs.some((x) => x.kind === 'reps')) prs.push({ kind: 'reps', text: 'Most reps at ' + fmtW(st.weight) + ': ' + st.reps + ' (was ' + best.repsAt[st.weight] + ')' }); });
     return prs;
   }
@@ -310,84 +326,132 @@
   // ---------------------------------------------------------------------------
   // Progression algorithm
   // ---------------------------------------------------------------------------
+  // Assisted moves (the machine takes weight off you): less weight is progress.
+  function isAssisted(ex) { return !!ex && /assist/i.test(ex.name); }
+  // Planned working sets per week for a muscle: prescribed sets × how often each exercise is scheduled.
+  function plannedWeeklySets(muscle) {
+    let n = 0;
+    state.program.schedule.forEach((dayId) => {
+      const day = dayId && dayById(dayId); if (!day) return;
+      day.exercises.forEach((id) => { const ex = exById(id); if (ex && ex.muscle === muscle) n += (state.presc[id] ? state.presc[id].sets : state.settings.defaultSets); });
+    });
+    return n;
+  }
+  function timesPerWeek(exId) {
+    let n = 0;
+    state.program.schedule.forEach((dayId) => { const day = dayId && dayById(dayId); if (day) n += day.exercises.filter((id) => id === exId).length; });
+    return n;
+  }
   /**
    * Given the exercise, its current prescription, the logged sets and feedback,
-   * return the next prescription { weight, targetReps, sets, reasons[] } or null
-   * if nothing was logged.
+   * return the next prescription { weight, targetReps, sets, soreCut, reasons[] }
+   * or null if nothing was logged.
    *
-   * Weight rule (rep-range progression):
-   *   - every set >= repMax           -> weight + increment, target back to repMin
+   * Weight rule (rep-range progression), judged on the sets at the top weight
+   * used, so lighter back-off sets never drag the next weight down:
+   *   - every top set >= repMax       -> weight + increment, target back to repMin
    *   - some sets hit repMax          -> hold weight, target repMax ("push the rest")
    *   - all sets >= repMin            -> hold weight, target = lowest reps + 1
    *   - any set < repMin              -> hold weight, target repMin
-   * Joint pain "moderate" blocks the weight increase; "a lot" drops the weight.
+   * When one increment is more than 10% of the weight (light dumbbells), the
+   * top of the range stretches by 2 reps before the jump.
+   * Bodyweight moves with no added load progress by reps only. Assisted moves
+   * progress by taking assistance off.
+   * Joint pain "moderate" blocks the weight increase; "a lot" backs the load off.
    *
    * Set rule (recovery feedback):
    *   - still sore / joint pain >= moderate / workload too much -> -1 set
+   *   - a set cut for soreness last time and soreness has cleared -> +1 set back
    *   - recovered early AND low pump                            -> +1 set
    *   - never sore AND workload easy                            -> +1 set
+   * A +1 never pushes the muscle's planned weekly sets past the volume target.
    */
   function computeNext(ex, presc, entry, soreness) {
-    const done = entry.sets.filter((s) => s.done && s.reps > 0);
-    if (!done.length) return null;
+    const logged = entry.sets.filter((s) => s.done && s.reps > 0);
+    if (!logged.length) return null;
     const inc = incFor(ex);
     const { min: repMin, max: repMax } = repRange(ex);
-    const weight = done[done.length - 1].weight;
+    const assisted = isAssisted(ex);
+    // Top weight = heaviest load for normal lifts, least assistance for assisted ones.
+    const weight = assisted ? Math.min(...logged.map((s) => s.weight)) : Math.max(...logged.map((s) => s.weight));
+    const done = logged.filter((s) => s.weight === weight);
     const fb = { pump: entry.pump, joint: entry.joint, workload: entry.workload, soreness };
     const reasons = [];
-    const next = { weight, targetReps: presc.targetReps, sets: presc.sets, reasons, updatedAt: Date.now() };
+    const next = { weight, targetReps: presc.targetReps, sets: presc.sets, soreCut: !!presc.soreCut, reasons, updatedAt: Date.now() };
     const unit = state.settings.units;
+    const repsOnly = weight === 0 && (ex.equipment === 'Bodyweight' || assisted);
+    // A jump over 10% of the load needs more reps first (5 lb on a 25 lb dumbbell is 20%).
+    const big = !assisted && !repsOnly && weight > 0 && inc / weight > 0.1;
+    const top = big ? repMax + 2 : repMax;
+    const stepped = assisted ? Math.max(0, round(weight - inc, 0.01)) : round(weight + inc, 0.01);
+    const stepText = assisted ? '−' + fmtW(inc) + ' ' + unit + ' assistance' : '+' + fmtW(inc) + ' ' + unit;
 
     const lowest = Math.min(...done.map((s) => s.reps));
-    const allTop = done.every((s) => s.reps >= repMax);
+    const allTop = done.every((s) => s.reps >= top);
     const anyTop = done.some((s) => s.reps >= repMax);
     const jointHold = fb.joint != null && fb.joint >= 2;
     const rirs = done.map((st) => st.rir).filter((v) => v != null);
     const easy = rirs.length === done.length && rirs.every((v) => v >= 3);
+    const backoff = done.length < logged.length ? ' (judged on your ' + fmtW(weight) + ' ' + unit + ' sets)' : '';
 
-    if (allTop && !jointHold) {
-      next.weight = round(weight + inc, 0.01);
+    if (repsOnly) {
+      // No load to add: keep adding reps past the range. Log added weight (belt, vest) to switch to load.
+      if (jointHold && lowest >= repMin) { next.targetReps = Math.max(presc.targetReps, repMin); reasons.push('Holding reps because of joint pain'); }
+      else if (lowest >= repMin) { next.targetReps = lowest + 1; reasons.push('Bodyweight: every set ≥ ' + lowest + ' → aim for ' + next.targetReps + '. Enter added weight when you want to load it'); }
+      else { next.targetReps = repMin; reasons.push('A set fell below ' + repMin + ' → build back to ' + repMin); }
+    } else if (allTop && !jointHold) {
+      next.weight = stepped;
       next.targetReps = repMin;
-      reasons.push('Hit ' + repMax + ' on every set → +' + fmtW(inc) + ' ' + unit + ', aim for ' + repMin);
+      reasons.push('Hit ' + top + ' on every set → ' + stepText + ', aim for ' + repMin + backoff);
     } else if (allTop && jointHold) {
-      next.targetReps = repMax;
-      reasons.push('Hit ' + repMax + ' on every set, but holding weight because of joint pain');
-    } else if (lowest >= repMin && easy && !jointHold) {
-      next.weight = round(weight + inc, 0.01);
+      next.targetReps = top;
+      reasons.push('Hit ' + top + ' on every set, but holding weight because of joint pain');
+    } else if (lowest >= repMin && easy && !jointHold && !big) {
+      next.weight = stepped;
       next.targetReps = repMin;
-      reasons.push('Every set had 3+ reps in reserve → +' + fmtW(inc) + ' ' + unit + ' early, aim for ' + repMin);
+      reasons.push('Every set had 3+ reps in reserve → ' + stepText + ' early, aim for ' + repMin);
+    } else if (big && done.every((s) => s.reps >= repMax)) {
+      next.targetReps = clamp(lowest + 1, repMax + 1, top);
+      reasons.push(fmtW(inc) + ' ' + unit + ' is a big jump from ' + fmtW(weight) + ' → earn it with ' + top + ' on every set, aim for ' + next.targetReps);
     } else if (anyTop) {
       next.targetReps = repMax;
-      reasons.push('Some sets hit ' + repMax + ' → hold weight, push every set to ' + repMax);
+      reasons.push('Some sets hit ' + repMax + ' → hold weight, push every set to ' + repMax + backoff);
     } else if (lowest >= repMin) {
       next.targetReps = clamp(lowest + 1, repMin, repMax);
-      reasons.push('Every set ≥ ' + lowest + ' → hold weight, aim for ' + next.targetReps);
+      reasons.push('Every set ≥ ' + lowest + ' → hold weight, aim for ' + next.targetReps + backoff);
     } else {
       next.targetReps = repMin;
-      reasons.push('A set fell below ' + repMin + ' → hold weight, build back to ' + repMin);
+      reasons.push('A set fell below ' + repMin + ' → hold weight, build back to ' + repMin + backoff);
     }
 
     if (fb.joint === 3) {
-      next.weight = Math.max(0, round(weight - 2 * inc, 0.01));
       next.targetReps = repMin;
-      reasons.push('A lot of joint pain → dropped ' + fmtW(2 * inc) + ' ' + unit + '. Consider swapping this exercise');
+      if (repsOnly) reasons.push('A lot of joint pain → back to ' + repMin + ' reps. Consider swapping this exercise');
+      else if (assisted) { next.weight = round(weight + 2 * inc, 0.01); reasons.push('A lot of joint pain → +' + fmtW(2 * inc) + ' ' + unit + ' assistance. Consider swapping this exercise'); }
+      else { next.weight = Math.max(0, round(weight - 2 * inc, 0.01)); reasons.push('A lot of joint pain → dropped ' + fmtW(2 * inc) + ' ' + unit + '. Consider swapping this exercise'); }
     }
 
-    let delta = 0;
-    if (fb.soreness === 3) { delta = -1; reasons.push('Still sore → −1 set'); }
+    let delta = 0, restore = false, capped = false;
+    if (fb.soreness === 3) { delta = -1; next.soreCut = !!presc.soreCut || presc.sets > 1; reasons.push('Still sore → −1 set'); }
     else if (fb.joint != null && fb.joint >= 2) { delta = -1; reasons.push('Joint pain → −1 set'); }
     else if (fb.workload === 3) { delta = -1; reasons.push('Too much → −1 set'); }
+    else if (presc.soreCut && fb.soreness != null) { delta = 1; restore = true; next.soreCut = false; reasons.push('Soreness cleared → the set it cut is back'); }
     else if ((fb.soreness === 0 || fb.soreness === 1) && fb.pump === 0) { delta = 1; reasons.push('Recovered early with a low pump → +1 set'); }
     else if (fb.soreness === 0 && fb.workload === 0) { delta = 1; reasons.push('Never sore and felt easy → +1 set'); }
+    if (delta > 0 && !restore) {
+      // Weekly volume cap: adding a set here adds it every time the exercise is scheduled.
+      const planned = plannedWeeklySets(ex.muscle), add = Math.max(1, timesPerWeek(ex.id)), cap = state.settings.volumeMax;
+      if (cap > 0 && planned + add > cap) { delta = 0; capped = true; reasons.pop(); reasons.push(ex.muscle + ' is already at ' + planned + ' planned sets a week (target up to ' + cap + ') → keep ' + presc.sets + ' sets'); }
+    }
     next.sets = clamp(presc.sets + delta, 1, state.settings.maxSets);
-    if (delta === 0 && fb.soreness != null) reasons.push('Recovery looks right → keep ' + next.sets + ' sets');
+    if (delta === 0 && fb.soreness != null && !capped) reasons.push('Recovery looks right → keep ' + next.sets + ' sets');
     return next;
   }
 
   // ---------------------------------------------------------------------------
   // UI state
   // ---------------------------------------------------------------------------
-  const ui = { screen: 'today', selectedDay: weekdayIndex(), sheet: null, search: '', chartEx: null, sync: { status: 'off', msg: '' }, calOffset: 0, reviewOffset: 0, showOthers: false, updateReady: false };
+  const ui = { screen: 'today', selectedDay: weekdayIndex(), dayKey: todayKey(), saveFailed: false, sheet: null, search: '', chartEx: null, sync: { status: 'off', msg: '' }, calOffset: 0, reviewOffset: 0, showOthers: false, updateReady: false };
   const timer = { end: 0, total: 0, handle: null };
 
   // ---------------------------------------------------------------------------
@@ -395,6 +459,8 @@
   // ---------------------------------------------------------------------------
   function render() {
     const app = $('#app');
+    // Opened yesterday and still open: the selected day moves on with the date.
+    if (ui.dayKey !== todayKey()) { ui.dayKey = todayKey(); ui.selectedDay = weekdayIndex(); ui.showOthers = false; }
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.screen === ui.screen));
     renderTopbar();
     switch (ui.screen) {
@@ -527,8 +593,8 @@
     const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : '') + '">'
       + '<td class="n">' + (i + 1) + '</td>'
       + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="reps" data-field="reps" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + (rir ? '<td class="rir"><button class="rir-btn ' + (s.rir != null ? 'on' : '') + '" data-action="cycle-rir" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>' + (s.rir != null ? s.rir : '–') + '</button></td>' : '')
+      + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="' + (en.targetReps || 'reps') + '" data-field="reps" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
+      + (rir ? '<td class="rir"><button class="rir-btn ' + (s.rir != null ? 'on' : '') + '" data-action="cycle-rir" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>' + rirText(s.rir) + '</button></td>' : '')
       + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>✓</button></td>'
       + '</tr>').join('');
 
@@ -561,7 +627,7 @@
         + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">+ Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>− Set</button><button class="btn small subtle" data-action="gen-warmup" data-e="' + idx + '" ' + (en.warmups && en.warmups.length ? 'disabled' : '') + '>Warm-up</button></div>'
         + '<div class="set-tools secondary"><button class="btn small subtle" data-action="swap-entry" data-e="' + idx + '">Swap exercise</button><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
         + feedback
-        + '<button class="btn block mt12 ' + (allDone ? '' : 'ghost') + '" data-action="finish-entry" data-e="' + idx + '" ' + (en.sets.some((s) => s.done) ? '' : 'disabled') + '>Finish exercise</button></div>';
+        + '<button class="btn block mt12 ' + (allDone ? '' : 'ghost') + '" data-action="finish-entry" data-e="' + idx + '" ' + (en.sets.some((s) => s.done || s.reps > 0) ? '' : 'disabled') + '>Finish exercise</button></div>';
 
     return '<div class="card ex-card ' + (en.done ? 'done' : '') + '"><div class="ex-head">'
       + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="row" style="gap:6px">' + prPill + '<span class="pill">' + esc(ex.muscle) + '</span></span></div>'
@@ -571,6 +637,10 @@
       + (en.done && en.prs && en.prs.length ? '<div class="ex-reason green">🏆 ' + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
       + reason + '</div>' + body + '</div>';
   }
+
+  // RIR: 3 means "3 or more" (enough to count as easy), so the button reads 3+.
+  function rirText(v) { return v == null ? '–' : v >= 3 ? '3+' : String(v); }
+  function nextRir(v) { return v == null ? 3 : v >= 3 ? 2 : v === 0 ? null : v - 1; }
 
   function choiceRow(label, opts, val, idx, field) {
     return '<div class="tiny muted mt8 mb8" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em">' + label + '</div><div class="choice-grid">'
@@ -965,17 +1035,24 @@
     window.scrollTo(0, 0);
   }
 
+  // Sets with reps typed in but never ticked were still lifted. Count them.
+  function tickTyped(en) {
+    let n = 0;
+    en.sets.forEach((s) => { if (!s.done && s.reps > 0) { s.done = true; n++; } });
+    return n;
+  }
   function finishEntry(w, idx) {
     const en = w.entries[idx];
     const ex = exById(en.exId);
-    if (!ex) { toast('That exercise was deleted'); return; }
+    if (!ex) { toast('That exercise was deleted'); return 0; }
+    const ticked = tickTyped(en);
     const p = prescFor(en.exId);
     // "Still sore" costs one set per muscle per session, on the first exercise finished for it.
     let sore = w.soreness[ex.muscle];
     const alreadyCut = sore === 3 && w.entries.some((o, j) => j !== idx && o.done && o.soreCut && exById(o.exId) && exById(o.exId).muscle === ex.muscle);
     if (alreadyCut) sore = undefined;
     const next = computeNext(ex, p, en, sore);
-    if (!next) { toast('Log at least one set first'); return; }
+    if (!next) { toast('Log at least one set first'); return 0; }
     if (alreadyCut) next.reasons.push('Still sore → the set cut already landed on an earlier ' + ex.muscle.toLowerCase() + ' exercise');
     en.soreCut = sore === 3;
     en.prevPresc = JSON.parse(JSON.stringify(p));
@@ -983,7 +1060,9 @@
     en.done = true;
     en.prs = detectPrs(en.exId, en, w.id);
     if (en.prs.length) toast('🏆 PR! ' + en.prs[0].text);
-    state.presc[en.exId] = { weight: next.weight, targetReps: next.targetReps, sets: next.sets, reasons: next.reasons, updatedAt: next.updatedAt };
+    else if (ticked) toast('Counted ' + plural(ticked, 'set') + ' you typed but did not tick');
+    state.presc[en.exId] = { weight: next.weight, targetReps: next.targetReps, sets: next.sets, soreCut: next.soreCut, reasons: next.reasons, updatedAt: next.updatedAt };
+    return ticked;
   }
 
   function reopenEntry(w, idx) {
@@ -1044,8 +1123,9 @@
 
   function finishWorkout() {
     const w = activeWorkout(); if (!w) return;
-    // Auto-finish anything with logged sets that wasn't marked done.
-    w.entries.forEach((en, i) => { if (!en.done && exById(en.exId) && en.sets.some((s) => s.done && s.reps > 0)) finishEntry(w, i); });
+    // Auto-finish anything with logged sets that wasn't marked done, counting typed-but-unticked sets.
+    let ticked = 0;
+    w.entries.forEach((en, i) => { if (!en.done && exById(en.exId) && en.sets.some((s) => s.reps > 0)) ticked += finishEntry(w, i); });
     const logged = w.entries.some((en) => en.done);
     if (!logged) {
       if (!confirm('Nothing logged. Discard this workout?')) return;
@@ -1056,7 +1136,7 @@
     }
     state.active = null;
     stopTimer(); save(); ui.screen = 'today'; render();
-    if (logged) toast('Workout saved');
+    if (logged) toast(ticked ? 'Workout saved. Counted ' + plural(ticked, 'set') + ' you typed but did not tick' : 'Workout saved');
     window.scrollTo(0, 0);
   }
 
@@ -1125,13 +1205,30 @@
   // ---------------------------------------------------------------------------
   // Import / export
   // ---------------------------------------------------------------------------
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  // On iPhone the share sheet is the reliable way out of a home-screen app (Save to Files, AirDrop, Mail).
+  async function exportJson() {
+    const name = 'overload-backup-' + todayKey() + '.json';
+    const text = JSON.stringify(state, null, 2);
+    try {
+      const file = new File([text], name, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Overload backup' });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+    const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'overload-backup-' + todayKey() + '.json';
+    a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+  // Signed in, a reset or import syncs out and replaces the cloud copy too. Say so.
+  function cloudNote(verb) {
+    const sync = window.__overloadSync;
+    return sync && sync.user ? '\n\nYou are signed in to cloud sync, so the copy in your account (' + sync.user.email + ') is ' + verb + ' too.' : '';
   }
   function importJson(file) {
     const r = new FileReader();
@@ -1139,7 +1236,7 @@
       try {
         const parsed = JSON.parse(r.result);
         if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
-        if (!confirm('Replace everything on this phone with the backup?')) return;
+        if (!confirm('Replace everything on this phone with the backup?' + cloudNote('replaced'))) return;
         state = normalize(parsed);
         if (!activeWorkout()) state.active = null;
         applyTheme(); save(); render(); toast('Backup restored');
@@ -1169,13 +1266,14 @@
       case 'toggle-set': {
         const en = w.entries[+d.e], s = en.sets[+d.s];
         if (!s.done) {
-          if (!(s.reps > 0)) { toast('Enter reps first'); return; }
+          // Empty reps box: one tap logs the goal shown in it.
+          if (!(s.reps > 0)) { if (!(en.targetReps > 0)) { toast('Enter reps first'); return; } s.reps = en.targetReps; }
           s.done = true; startTimer(restFor(exById(en.exId)));
         } else { s.done = false; }
         save(); render(); break;
       }
       case 'add-set': { const en = w.entries[+d.e]; const last = en.sets[en.sets.length - 1]; en.sets.push({ weight: last ? last.weight : 0, reps: 0, done: false, rir: null }); save(); render(); break; }
-      case 'cycle-rir': { const s = w.entries[+d.e].sets[+d.s]; s.rir = s.rir == null ? 0 : s.rir >= 4 ? null : s.rir + 1; save(); btn.textContent = s.rir == null ? '–' : s.rir; btn.classList.toggle('on', s.rir != null); break; }
+      case 'cycle-rir': { const s = w.entries[+d.e].sets[+d.s]; s.rir = nextRir(s.rir); save(); btn.textContent = rirText(s.rir); btn.classList.toggle('on', s.rir != null); break; }
       case 'gen-warmup': genWarmups(w.entries[+d.e]); save(); render(); break;
       case 'clear-warmup': w.entries[+d.e].warmups = null; save(); render(); break;
       case 'toggle-warmup': { const wu = w.entries[+d.e].warmups[+d.s]; wu.done = !wu.done; if (wu.done) startTimer(state.settings.warmupRest); save(); render(); break; }
@@ -1248,7 +1346,7 @@
       case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
       case 'import': $('#import-file').click(); break;
-      case 'reset': if (confirm('Erase all exercises, program and history on this phone?') && confirm('Really erase everything?')) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
+      case 'reset': if (confirm('Erase all exercises, program and history on this phone?' + cloudNote('erased')) && confirm('Really erase everything?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
 
       case 'sheet-close': closeSheet(); break;
 
@@ -1324,7 +1422,10 @@
           // Carry the new weight to later, not-yet-done sets that still had the old value.
           en.sets.forEach((x, j) => { if (j > i && !x.done && x.weight === old) x.weight = v; });
           document.querySelectorAll('[data-field="weight"][data-e="' + el.dataset.e + '"]').forEach((inp) => { inp.value = en.sets[+inp.dataset.s].weight || ''; });
-        } else s.reps = Math.round(v);
+        } else {
+          s.reps = Math.round(v);
+          const fin = $('[data-action="finish-entry"][data-e="' + el.dataset.e + '"]'); if (fin && s.reps > 0) fin.disabled = false;
+        }
         save(); break;
       }
       case 'schedule': state.program.schedule[+el.dataset.i] = el.value || null; save(); render(); break;
@@ -1354,6 +1455,7 @@
   if (activeWorkout()) ui.screen = 'today';
   render();
   setInterval(() => { const el = $('#elapsed'); const w = activeWorkout(); if (el && w) el.textContent = durationText(w); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.dayKey !== todayKey() && !ui.sheet) render(); });
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // When a new service worker takes over, reload once so the new files are

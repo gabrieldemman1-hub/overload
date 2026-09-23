@@ -18,6 +18,17 @@ Rep range defaults to 10–12 (change it in Settings, or per exercise).
 | Every set at least 10              | Same weight, goal is your lowest set + 1         |
 | A set fell below 10                | Same weight, build back to 10                    |
 
+Details:
+
+- The rules are judged on the sets at the heaviest weight you used. Lighter
+  back-off sets are logged but do not pull the next weight down.
+- When one jump is more than 10% of the weight (5 lb on a 25 lb dumbbell), the
+  top of the range stretches by 2 reps first: 14 on every set, then the jump.
+- Bodyweight moves with no added weight progress by reps only: the goal keeps
+  going up past the range. Enter added weight (belt, vest) to switch to load.
+- Assisted moves (any exercise with "assist" in the name) go the other way: the
+  logged weight is the assistance, and progress takes it off.
+
 Feedback after each exercise (pump, joint pain, workload) and a soreness
 check-in at the start of the next session for that muscle adjust the number of
 sets:
@@ -27,15 +38,19 @@ sets:
 | Still sore, or moderate+ joint pain, or "too much" | −1   |
 | Recovered early and low pump                  | +1   |
 | Never sore and workload felt easy             | +1   |
+| A set was cut for soreness and soreness has cleared | +1 (the cut set comes back) |
 | Anything else                                 | keep |
 
 Moderate joint pain blocks a weight increase for that session. "A lot" of joint
 pain drops the weight two jumps and suggests swapping the exercise. Sets are
-capped between 1 and the "Max sets" setting (default 6).
+capped between 1 and the "Max sets" setting (default 6). A +1 is also skipped
+when the muscle's planned weekly sets (prescribed sets × times scheduled) would
+go past the top of the weekly sets target in Settings (default 20).
 
 ## Also in the app
 
-- **Reps in reserve.** Optional RIR column per set. Three or more on every set moves the weight up a session early.
+- **Fast logging.** The reps box shows the goal. Tap ✓ on an empty box to log the goal as done; type a number only when you missed or beat it. Sets you typed but did not tick are counted when you finish.
+- **Reps in reserve.** Optional RIR column per set. Taps go – → 3+ → 2 → 1 → 0. 3+ on every set moves the weight up a session early (not when the jump is a big one).
 - **Warm-up generator.** One tap builds a 50 / 70 / 85 percent ramp from your working weight, with its own shorter rest timer. Warm-ups never affect progression.
 - **Swap.** Replace an exercise for today only, without touching the program.
 - **PR alerts.** Heaviest set, best estimated one-rep max, or most reps at a weight, flagged when you finish an exercise and listed under the progress chart.
@@ -90,6 +105,11 @@ every change is mirrored to Firebase (Firestore) under your account and pulled
 back on any device you sign in on. Offline changes queue and send later. The
 app works exactly the same signed out; it just stays on one phone.
 
+The first sign-in on a phone reads the account from the server before sending
+anything. If that read fails (no signal, rules), nothing is uploaded and it
+retries, so a bad connection cannot overwrite the cloud copy. Reset and Import
+say so when you are signed in, because they replace the cloud copy too.
+
 Data layout in Firestore:
 
 | Document                          | Contents                                          |
@@ -109,8 +129,10 @@ signed-in user read and write their own documents.
 ## Backups
 
 Without cloud sync, data lives only in that browser's storage. Settings →
-Export JSON saves a file you can re-import later. iOS can clear website data for a home-screen app if
-you delete the app, so export now and then.
+Export JSON opens the share sheet (Save to Files, AirDrop, Mail) with a file
+you can re-import later. iOS can clear website data for a home-screen app if
+you delete the app, so export now and then. If the phone ever refuses to save,
+a banner stays on screen with an Export button until saving works again.
 
 ## Debugging
 

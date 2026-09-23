@@ -16,7 +16,7 @@ import {
   signOut, sendPasswordResetEmail
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  initializeFirestore, persistentLocalCache, doc, collection, getDoc, getDocs, onSnapshot, writeBatch
+  initializeFirestore, persistentLocalCache, doc, collection, getDocFromServer, getDocsFromServer, onSnapshot, writeBatch
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -38,17 +38,43 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
 const host = () => window.__overload;
 let user = null;
-let known = null;          // { uid, core: json|null, workouts: { id: json } } — what the cloud is known to hold
+let known = null;          // { uid, core: hash|null, workouts: { id: hash } } — what the cloud is known to hold
 let unsubs = [];
 let pushTimer = null;
 let inflight = 0;
 let lastSync = null;
 let lastError = '';
+let linking = null;        // uid of the account whose first read is in flight
+let linkTimer = null;
+let linkTries = 0;
 
 // ---------------------------------------------------------------------------
 // Bookkeeping
 // ---------------------------------------------------------------------------
-function loadKnown() { try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || null; } catch (e) { return null; } }
+// The bookkeeping keeps a short hash of each document, not a second full copy of
+// the data, so it does not eat into the phone's storage for the app itself.
+function hash(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 'h' + (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36) + '.' + str.length.toString(36);
+}
+const isHash = (v) => typeof v === 'string' && /^h[0-9a-z]+\.[0-9a-z]+$/.test(v);
+const toHash = (v) => (v == null || isHash(v) ? v : hash(v));
+function loadKnown() {
+  try {
+    const k = JSON.parse(localStorage.getItem(SYNC_KEY));
+    if (!k || !k.workouts) return null;
+    // Older versions stored full JSON copies. Shrink them to hashes.
+    k.core = toHash(k.core);
+    Object.keys(k.workouts).forEach((id) => { k.workouts[id] = toHash(k.workouts[id]); });
+    return k;
+  } catch (e) { return null; }
+}
 function saveKnown() { try { known ? localStorage.setItem(SYNC_KEY, JSON.stringify(known)) : localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
 function coreOf(s) { const o = {}; CORE_KEYS.forEach((k) => { o[k] = s[k]; }); return o; }
 function coreJson(s) { return JSON.stringify(coreOf(s)); }
@@ -81,6 +107,7 @@ function friendly(e) {
     'auth/network-request-failed': 'No connection. Try again when you are online.',
     'auth/too-many-requests': 'Too many attempts. Wait a minute and try again.',
     'auth/operation-not-allowed': 'Email/password sign-in is not enabled in Firebase yet.',
+    'unavailable': 'Could not reach the cloud.',
     'permission-denied': 'Firestore rules are blocking this account. Check the rules in Firebase.'
   };
   return map[code] || (e && e.message) || 'Something went wrong.';
@@ -102,13 +129,13 @@ async function push() {
   const ops = [];
   const before = JSON.stringify(known);   // what the cloud held before this push, for rollback on failure
 
-  const cj = coreJson(s);
-  if (cj !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = cj; }
+  const cj = coreJson(s), ch = hash(cj);
+  if (ch !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = ch; }
 
   const seen = {};
   s.workouts.forEach((w) => {
-    const j = JSON.stringify(w); seen[w.id] = true;
-    if (known.workouts[w.id] !== j) { ops.push((b) => b.set(workoutRef(w.id), { data: j, updatedAt: now, v: 1 })); known.workouts[w.id] = j; }
+    const j = JSON.stringify(w), h = hash(j); seen[w.id] = true;
+    if (known.workouts[w.id] !== h) { ops.push((b) => b.set(workoutRef(w.id), { data: j, updatedAt: now, v: 1 })); known.workouts[w.id] = h; }
   });
   Object.keys(known.workouts).forEach((id) => {
     if (!seen[id]) { ops.push((b) => b.delete(workoutRef(id))); delete known.workouts[id]; }
@@ -136,10 +163,10 @@ function listen() {
   unsubs.push(onSnapshot(metaRef(), { includeMetadataChanges: false }, (snap) => {
     if (!snap.exists() || snap.metadata.hasPendingWrites) return;
     const remote = snap.data().core;
-    if (typeof remote !== 'string' || remote === known.core) return;
+    if (typeof remote !== 'string' || hash(remote) === known.core) return;
     let core; try { core = JSON.parse(remote); } catch (e) { return; }
     const next = Object.assign({}, host().state, core);
-    known.core = remote; saveKnown();
+    known.core = hash(remote); saveKnown();
     host().setState(next);
   }, (e) => { lastError = friendly(e); report(); }));
 
@@ -156,11 +183,11 @@ function listen() {
         delete known.workouts[id]; changed = true;
       } else {
         const j = ch.doc.data().data;
-        if (typeof j !== 'string' || known.workouts[id] === j) return;
+        if (typeof j !== 'string' || known.workouts[id] === hash(j)) return;
         let w; try { w = JSON.parse(j); } catch (e) { return; }
         const i = list.findIndex((x) => x.id === id);
         if (i >= 0) list[i] = w; else list.push(w);
-        known.workouts[id] = j; changed = true;
+        known.workouts[id] = hash(j); changed = true;
       }
     });
     if (!changed) return;
@@ -177,32 +204,40 @@ function stopListening() { unsubs.forEach((u) => u()); unsubs = []; }
 // ---------------------------------------------------------------------------
 async function link() {
   const h = host();
+  clearTimeout(linkTimer);
   const stored = loadKnown();
-  if (stored && stored.uid === user.uid && stored.workouts) {
+  if (stored && stored.uid === user.uid) {
     known = stored;
     listen();
     schedulePush();
     report();
     return;
   }
+  if (linking === user.uid) return;
 
-  known = { uid: user.uid, core: null, workouts: {} };
+  // First link: read what the account already holds, from the server itself
+  // (not the offline cache). Until that read succeeds nothing is uploaded, so
+  // a bad connection can never make this phone overwrite the cloud copy.
+  const uid = user.uid;
+  const fresh = { uid, core: null, workouts: {} };
+  linking = uid;
   inflight++; report();
   try {
-    const [meta, ws] = await Promise.all([getDoc(metaRef()), getDocs(workoutsCol())]);
+    const [meta, ws] = await Promise.all([getDocFromServer(metaRef()), getDocsFromServer(workoutsCol())]);
+    if (!user || user.uid !== uid) return;
     const local = h.state;
     const localHasHistory = local.workouts.some((w) => w.finishedAt);
     let next = JSON.parse(JSON.stringify(local));
 
     if (meta.exists() && typeof meta.data().core === 'string') {
       // Cloud already has data: it wins for settings/program; workouts are merged.
-      known.core = meta.data().core;
-      Object.assign(next, JSON.parse(known.core));
+      fresh.core = hash(meta.data().core);
+      Object.assign(next, JSON.parse(meta.data().core));
       if (!localHasHistory) next.workouts = [];
     }
     ws.forEach((d) => {
       const j = d.data().data; if (typeof j !== 'string') return;
-      known.workouts[d.id] = j;
+      fresh.workouts[d.id] = hash(j);
       const w = JSON.parse(j);
       const i = next.workouts.findIndex((x) => x.id === d.id);
       if (i >= 0) next.workouts[i] = w; else next.workouts.push(w);
@@ -210,14 +245,24 @@ async function link() {
     next.workouts.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
     if (next.active && !next.workouts.some((w) => w.id === next.active)) next.active = null;
 
+    known = fresh;
     saveKnown();
     h.setState(next);
     lastError = '';
+    linkTries = 0;
   } catch (e) {
-    lastError = friendly(e);
+    if (!user || user.uid !== uid) return;
+    // Leave known unset: no listeners and no pushes until a read works.
+    known = null;
+    lastError = (friendly(e) || 'Could not reach the cloud.') + ' Nothing was uploaded; retrying.';
+    const wait = Math.min(300, 15 * 2 ** linkTries++) * 1000;
+    linkTimer = setTimeout(() => { if (user && user.uid === uid && !known) link(); }, wait);
+    return;
   } finally {
+    if (linking === uid) linking = null;
     inflight--; report();
   }
+  if (!user || user.uid !== uid) return;
   listen();
   push();
 }
@@ -244,13 +289,17 @@ window.__overloadSync = {
     catch (e) { throw new Error(friendly(e)); }
   },
   async signOut() {
-    clearTimeout(pushTimer);
+    clearTimeout(pushTimer); clearTimeout(linkTimer); linkTries = 0;
     stopListening();
     known = null; saveKnown();
     lastSync = null; lastError = '';
     await signOut(auth);
   },
-  pushNow() { clearTimeout(pushTimer); return push(); }
+  pushNow() {
+    clearTimeout(pushTimer);
+    if (user && !known) { linkTries = 0; return link(); }
+    return push();
+  }
 };
 
 onAuthStateChanged(auth, (u) => {
@@ -261,5 +310,5 @@ onAuthStateChanged(auth, (u) => {
 });
 
 document.addEventListener('overload:save', schedulePush);
-window.addEventListener('online', () => { report(); schedulePush(); });
+window.addEventListener('online', () => { report(); if (user && !known && !linking) { linkTries = 0; link(); } else schedulePush(); });
 window.addEventListener('offline', report);

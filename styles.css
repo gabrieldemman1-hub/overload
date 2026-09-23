@@ -288,6 +288,11 @@ p { margin: 0; }
 .hist-set b { color: var(--text); }
 
 .banner { background: var(--accent-soft); color: var(--accent-2); border-radius: 12px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+/* Shown while saves to this phone fail. Pinned under the top bar so it cannot scroll away. */
+.save-warning { position: fixed; z-index: 30; top: calc(var(--topbar-h) + var(--safe-top) + 8px); left: 0; right: 0; max-width: 640px; margin: 0 auto; padding: 0 16px; }
+.save-warning[hidden] { display: none; }
+.banner.danger { background: var(--card, #1b1c20); color: var(--text); border: 1px solid var(--accent); box-shadow: 0 6px 24px rgba(0,0,0,.35); font-weight: 500; margin: 0; }
+.banner.danger b { color: var(--accent-2); }
 
 /* Cloud sync pill in the top bar */
 .sync-pill { font-size: 12px; min-height: 28px; }

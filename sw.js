@@ -1,11 +1,11 @@
 // Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v9';
+const CACHE = 'overload-v10';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=1.4',
-  './app.js?v=1.4',
-  './sync.js?v=1.4',
+  './styles.css?v=1.5',
+  './app.js?v=1.5',
+  './sync.js?v=1.5',
   './manifest.webmanifest',
   './icon.svg',
   './icon-180.png',
@@ -16,11 +16,17 @@ const ASSETS = [
 // max-age, and going through the HTTP cache would hand back stale copies.
 const fresh = (req) => new Request(req, { cache: 'no-cache' });
 
+// All or nothing: if any file fails to download, the install fails and the
+// version already on the phone keeps running (and keeps its cache). The next
+// update check tries again. A half-filled cache would break the app offline.
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      .then((c) => Promise.all(ASSETS.map((a) => fetch(new Request(a, { cache: 'reload' })).then((res) => { if (res.ok) return c.put(a, res); }).catch(() => {}))))
-      .then(() => self.skipWaiting())
+      .then((c) => Promise.all(ASSETS.map((a) => fetch(new Request(a, { cache: 'reload' })).then((res) => {
+        if (!res.ok) throw new Error(a + ' ' + res.status);
+        return c.put(a, res);
+      }))))
+      .then(() => self.skipWaiting(), (err) => caches.delete(CACHE).then(() => { throw err; }))
   );
 });
 
@@ -33,19 +39,32 @@ self.addEventListener('activate', (e) => {
 });
 
 // Network first so updates show up; fall back to cache when offline.
+// Gym wifi and one bar of signal are worse than offline: the request hangs.
+// If the network has not answered in NET_WAIT ms and a cached copy exists,
+// use the cached copy (the network reply still refreshes the cache).
 // Only our own files and the Firebase SDK scripts are cached; API traffic is not.
+const NET_WAIT = 3000;
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   const sameOrigin = url.origin === self.location.origin;
   const cacheable = sameOrigin || url.hostname === 'www.gstatic.com';
+  if (!cacheable) return;
   const isPage = e.request.mode === 'navigate';
-  e.respondWith(
-    fetch(sameOrigin ? fresh(e.request) : e.request)
-      .then((res) => {
-        if (cacheable && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {}); }
-        return res;
-      })
-      .catch(() => caches.match(e.request).then((hit) => hit || (isPage ? caches.match('./index.html') : Response.error())))
-  );
+  const cached = () => caches.match(e.request).then((hit) => hit || (isPage ? caches.match('./index.html') : undefined));
+  const net = fetch(sameOrigin ? fresh(e.request) : e.request).then((res) => {
+    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {}); }
+    return res;
+  });
+  e.waitUntil(net.catch(() => {}));
+  e.respondWith(new Promise((resolve) => {
+    let settled = false;
+    const done = (res) => { if (!settled && res) { settled = true; resolve(res); } };
+    const fallback = () => cached().then((hit) => { if (hit) done(hit); return hit; });
+    const t = setTimeout(fallback, NET_WAIT);
+    net.then((res) => { clearTimeout(t); done(res); }, () => {
+      clearTimeout(t);
+      fallback().then((hit) => { if (!hit) done(Response.error()); });
+    });
+  }));
 });
