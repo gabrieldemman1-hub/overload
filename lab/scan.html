@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scan test">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="../icon-180.png">
+<title>Scan Test</title>
+<!-- Step 0 of calorie tracking: checks that barcode scanning and the
+     Open Food Facts lookup work on this phone. Not part of the app. -->
+<style>
+  :root {
+    --bg: #f4f4f6; --card: #ffffff; --text: #16161a; --muted: #6b6b76;
+    --line: #e2e2e8; --accent: #2f6fed; --ok: #1f8a4c; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f0f12; --card: #1b1b20; --text: #f2f2f5; --muted: #9a9aa6;
+            --line: #2c2c34; --accent: #6b9bff; --ok: #4cc47f; --bad: #ff6b5e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         padding: calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 24px); }
+  h1 { font-size: 22px; margin: 4px 0 2px; }
+  p.sub { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button, .filebtn { appearance: none; border: 0; border-radius: 10px; padding: 12px 14px; font: inherit; font-weight: 600;
+           background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary, .filebtn { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  input[type="text"] { flex: 1; min-width: 0; font: inherit; padding: 11px 12px; border-radius: 10px;
+           border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .viewer { position: relative; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; display: none; margin-top: 10px; }
+  .viewer.on { display: block; }
+  .viewer video { width: 100%; height: 100%; object-fit: cover; }
+  .viewer .guide { position: absolute; left: 10%; right: 10%; top: 32%; bottom: 32%; border: 2px solid rgba(255,255,255,.85); border-radius: 10px; }
+  .status { margin-top: 10px; font-size: 14px; color: var(--muted); min-height: 20px; }
+  .product h2 { font-size: 18px; margin: 0 0 2px; }
+  .product .brand { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .diag { font-size: 13px; color: var(--muted); margin: 0; padding-left: 18px; }
+  .diag li { margin: 2px 0; }
+  .diag b { color: var(--text); font-weight: 600; }
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+  <h1>Scan test</h1>
+  <p class="sub">Checks that barcode scanning works on this phone before calorie tracking is built. Nothing here is saved.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="start">Start camera</button>
+      <button id="stop" class="secondary" hidden>Stop</button>
+      <label class="filebtn" for="photo">Scan a photo</label>
+      <input id="photo" type="file" accept="image/*" capture="environment">
+    </div>
+    <div class="viewer" id="viewer"><video id="video" playsinline muted></video><div class="guide"></div></div>
+    <div class="status" id="status" role="status">Point the camera at a barcode on any package.</div>
+  </div>
+
+  <div class="card">
+    <form class="row" id="manual">
+      <input type="text" id="code" inputmode="numeric" autocomplete="off" placeholder="Or type the barcode number">
+      <button type="submit" class="secondary">Look up</button>
+    </form>
+  </div>
+
+  <div class="card product" id="product" hidden></div>
+
+  <div class="card">
+    <strong>What this phone reported</strong>
+    <ul class="diag" id="diag"></ul>
+    <div class="row" style="margin-top:10px"><button id="copy" class="secondary">Copy report</button></div>
+  </div>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE'];
+  const diag = {};
+  const log = [];
+
+  function setDiag(key, value) { diag[key] = value; renderDiag(); }
+  function renderDiag() {
+    $('diag').innerHTML = '';
+    for (const [k, v] of Object.entries(diag)) {
+      const li = document.createElement('li');
+      const b = document.createElement('b');
+      b.textContent = k + ': ';
+      li.append(b, String(v));
+      $('diag').append(li);
+    }
+  }
+  function status(text, cls) { const s = $('status'); s.textContent = text; s.className = 'status ' + (cls || ''); }
+
+  const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  const ios = (navigator.userAgent.match(/OS (\d+)_(\d+)/) || []).slice(1).join('.');
+  setDiag('Device', ios ? 'iPhone/iPad, iOS ' + ios : navigator.platform || 'unknown');
+  setDiag('Opened from home screen', standalone ? 'yes' : 'no (Safari tab)');
+  setDiag('Built-in barcode reader', 'BarcodeDetector' in window ? 'yes' : 'no, using the add-on reader');
+  setDiag('Camera API', navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'available' : 'missing');
+
+  // Scanner engine: the phone's own BarcodeDetector if it has one, otherwise zxing-wasm (self-hosted).
+  let engine = null;
+  async function getEngine() {
+    if (engine) return engine;
+    const t0 = performance.now();
+    if ('BarcodeDetector' in window) {
+      try {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const want = ['ean_13', 'ean_8', 'upc_a', 'upc_e'].filter((f) => supported.includes(f));
+        if (want.length) {
+          const det = new window.BarcodeDetector({ formats: want });
+          engine = { name: 'built-in', read: async (src) => (await det.detect(src)).map((r) => r.rawValue) };
+        }
+      } catch (e) { /* fall through to zxing */ }
+    }
+    if (!engine) {
+      const zx = await import('./zxing/reader/index.js');
+      await zx.prepareZXingModule({
+        overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? new URL('./zxing/' + path, location.href).href : prefix + path) },
+        fireImmediately: true,
+      });
+      const opts = { formats: FORMATS, tryHarder: true, maxNumberOfSymbols: 1 };
+      engine = { name: 'zxing', read: async (img) => (await zx.readBarcodes(img, opts)).filter((r) => r.isValid !== false).map((r) => r.text) };
+    }
+    setDiag('Scanner', engine.name + ', ready in ' + Math.round(performance.now() - t0) + ' ms');
+    return engine;
+  }
+
+  // Live camera
+  let stream = null, scanning = false, camStart = 0;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  async function startCamera() {
+    status('Starting camera…');
+    try {
+      const eng = getEngine();
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      const v = $('video');
+      v.srcObject = stream;
+      await v.play();
+      $('viewer').classList.add('on');
+      $('start').hidden = true; $('stop').hidden = false;
+      const track = stream.getVideoTracks()[0];
+      const s = track.getSettings ? track.getSettings() : {};
+      setDiag('Camera', 'on' + (s.width ? ', ' + s.width + '×' + s.height : ''));
+      await eng;
+      status('Hold the barcode inside the box, about a hand-width away.');
+      camStart = performance.now();
+      scanning = true;
+      loop();
+    } catch (e) {
+      setDiag('Camera', 'failed: ' + (e.name || '') + ' ' + (e.message || e));
+      status('Camera did not start: ' + (e.name === 'NotAllowedError' ? 'permission was denied.' : (e.message || e.name)), 'bad');
+      stopCamera();
+    }
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    $('viewer').classList.remove('on');
+    $('start').hidden = false; $('stop').hidden = true;
+  }
+
+  async function loop() {
+    const v = $('video');
+    let frames = 0;
+    while (scanning) {
+      if (v.readyState >= 2 && v.videoWidth) {
+        // Read the middle band of the frame, where the guide box is. Smaller image, faster read.
+        const sw = v.videoWidth, sh = Math.round(v.videoHeight * 0.5);
+        const sy = Math.round((v.videoHeight - sh) / 2);
+        const scale = Math.min(1, 960 / sw);
+        canvas.width = Math.round(sw * scale); canvas.height = Math.round(sh * scale);
+        ctx.drawImage(v, 0, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        frames++;
+        try {
+          const src = engine.name === 'built-in' ? canvas : ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const codes = await engine.read(src);
+          if (codes.length && scanning) {
+            const secs = ((performance.now() - camStart) / 1000).toFixed(1);
+            setDiag('Live scan', 'read ' + codes[0] + ' in ' + secs + ' s (' + frames + ' frames)');
+            stopCamera();
+            if (navigator.vibrate) navigator.vibrate(60);
+            lookup(codes[0], 'camera');
+            return;
+          }
+        } catch (e) {
+          setDiag('Scanner error', e.message || String(e));
+        }
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
+
+  // Photo fallback: iOS opens the camera app, the photo is read once.
+  async function scanPhoto(file) {
+    if (!file) return;
+    status('Reading the photo…');
+    try {
+      const eng = await getEngine();
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const src = eng.name === 'built-in' ? canvas : ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const codes = await eng.read(src);
+      if (!codes.length) {
+        setDiag('Photo scan', 'no barcode found');
+        status('No barcode found in that photo. Try closer, flat, and in good light.', 'bad');
+        return;
+      }
+      setDiag('Photo scan', 'read ' + codes[0]);
+      lookup(codes[0], 'photo');
+    } catch (e) {
+      setDiag('Photo scan', 'failed: ' + (e.message || e));
+      status('Could not read the photo: ' + (e.message || e), 'bad');
+    } finally {
+      $('photo').value = '';
+    }
+  }
+
+  // Open Food Facts lookup. A 12-digit UPC-A is also tried as a 13-digit EAN.
+  const OFF_FIELDS = 'code,product_name,brands,serving_size,serving_quantity,nutriments';
+  async function fetchProduct(code) {
+    const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json?fields=' + OFF_FIELDS);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('Open Food Facts answered ' + res.status);
+    const data = await res.json();
+    return data.status === 1 || data.product ? data.product : null;
+  }
+
+  async function lookup(raw, how) {
+    const code = String(raw).replace(/\D/g, '');
+    if (code.length < 8) { status('That does not look like a barcode number.', 'bad'); return; }
+    $('code').value = code;
+    status('Looking up ' + code + '…');
+    const t0 = performance.now();
+    try {
+      let p = await fetchProduct(code);
+      if (!p && code.length === 12) p = await fetchProduct('0' + code);
+      const ms = Math.round(performance.now() - t0);
+      setDiag('Lookup (' + how + ')', code + ': ' + (p ? 'found' : 'not in database') + ', ' + ms + ' ms');
+      log.push({ code, how, found: !!p, name: p ? p.product_name || '' : '', kcal: p ? kcal100(p) : null, ms });
+      showProduct(code, p);
+      status(p ? 'Found it. Check the numbers against the label.' : 'Scanned fine, but this product is not in Open Food Facts.', p ? 'ok' : 'bad');
+    } catch (e) {
+      setDiag('Lookup (' + how + ')', code + ': failed, ' + (e.message || e));
+      log.push({ code, how, found: false, error: e.message || String(e) });
+      status('Lookup failed: ' + (e.message || e) + '. Check the connection.', 'bad');
+    }
+  }
+
+  function kcal100(p) {
+    const n = p.nutriments || {};
+    if (n['energy-kcal_100g'] != null) return +n['energy-kcal_100g'];
+    if (n['energy-kj_100g'] != null) return n['energy-kj_100g'] / 4.184;
+    return null;
+  }
+  const fmt = (v, d = 0) => (v == null || isNaN(v) ? '–' : Number(v).toFixed(d).replace(/\.0$/, ''));
+
+  function showProduct(code, p) {
+    const box = $('product');
+    box.hidden = false;
+    box.innerHTML = '';
+    const h = document.createElement('h2');
+    const b = document.createElement('div'); b.className = 'brand';
+    if (!p) {
+      h.textContent = 'Not found';
+      b.textContent = 'Barcode ' + code + ' is not in Open Food Facts yet. In the real app you would type the label in once and the barcode would be remembered.';
+      box.append(h, b);
+      return;
+    }
+    const n = p.nutriments || {};
+    h.textContent = p.product_name || '(no name)';
+    b.textContent = [p.brands, 'barcode ' + code].filter(Boolean).join(' · ');
+    const t = document.createElement('table');
+    const grams = p.serving_quantity ? +p.serving_quantity : null;
+    const per = (key100, keyServ) => {
+      if (n[keyServ] != null) return +n[keyServ];
+      return grams && n[key100] != null ? n[key100] * grams / 100 : null;
+    };
+    const k100 = kcal100(p);
+    const rows = [
+      ['Calories', k100, n['energy-kcal_serving'] != null ? +n['energy-kcal_serving'] : (grams && k100 != null ? k100 * grams / 100 : null), 0],
+      ['Protein (g)', n.proteins_100g, per('proteins_100g', 'proteins_serving'), 1],
+      ['Carbs (g)', n.carbohydrates_100g, per('carbohydrates_100g', 'carbohydrates_serving'), 1],
+      ['Fat (g)', n.fat_100g, per('fat_100g', 'fat_serving'), 1],
+    ];
+    const head = document.createElement('tr');
+    for (const txt of ['', 'Per 100 g', 'Per serving' + (p.serving_size ? ' (' + p.serving_size + ')' : '')]) {
+      const th = document.createElement('th'); th.textContent = txt; head.append(th);
+    }
+    t.append(head);
+    for (const [label, a, s, d] of rows) {
+      const tr = document.createElement('tr');
+      for (const txt of [label, fmt(a, d), fmt(s, d)]) { const td = document.createElement('td'); td.textContent = txt; tr.append(td); }
+      t.append(tr);
+    }
+    box.append(h, b, t);
+  }
+
+  async function copyReport() {
+    const lines = ['Overload scan test', new Date().toISOString(), navigator.userAgent];
+    for (const [k, v] of Object.entries(diag)) lines.push(k + ': ' + v);
+    for (const r of log) lines.push('- ' + r.how + ' ' + r.code + ': ' + (r.found ? 'found "' + r.name + '" ' + fmt(r.kcal) + ' kcal/100g' : (r.error || 'not found')) + (r.ms ? ' (' + r.ms + ' ms)' : ''));
+    const text = lines.join('\n');
+    try { await navigator.clipboard.writeText(text); status('Report copied. Paste it into the chat.', 'ok'); }
+    catch (e) { prompt('Copy this report:', text); }
+  }
+
+  $('start').addEventListener('click', startCamera);
+  $('stop').addEventListener('click', () => { stopCamera(); status('Camera stopped.'); });
+  $('photo').addEventListener('change', (e) => scanPhoto(e.target.files[0]));
+  $('manual').addEventListener('submit', (e) => { e.preventDefault(); lookup($('code').value, 'typed'); });
+  $('copy').addEventListener('click', copyReport);
+  window.addEventListener('pagehide', stopCamera);
+  window.__scanTest = { lookup, getEngine, diag, log };
+</script>
+</body>
+</html>
