@@ -1,0 +1,720 @@
+# Popular packaged foods (Costco and California grocery stores) to include in
+# the food list. One per line:   Name shown in the app | brand | words
+# "brand" must appear in the USDA brand owner or brand name, and every one of
+# "words" must start a word in the product description. tools/pick_branded.py
+# finds the best USDA Branded Foods match for each line and writes
+# tools/branded.tsv, which the food list build reads.
+
+## Frozen breakfast
+Eggo Protein Waffles, Buttermilk | ~eggo | protein waffles buttermilk
+Eggo Protein Waffles, Chocolate Chip | ~eggo | protein waffles chocolate
+Eggo Homestyle Waffles | ~eggo | homestyle waffles
+Eggo Buttermilk Waffles | ~eggo | buttermilk waffles
+Eggo Blueberry Waffles | ~eggo | blueberry waffles
+Eggo Chocolatey Chip Waffles | ~eggo | chocolatey chip waffles
+Eggo Nutri-Grain Low Fat Waffles | ~eggo | nutri grain waffles
+Eggo Buttermilk Pancakes | ~eggo | buttermilk pancakes
+Eggo Thick & Fluffy Waffles | ~eggo | thick fluffy waffles -toast
+Kodiak Power Waffles, Buttermilk | kodiak | waffles buttermilk
+Kodiak Power Waffles, Chocolate Chip | kodiak | waffles chocolate
+Kodiak Power Cakes Mix, Buttermilk | kodiak | buttermilk mix
+Kodiak Power Cakes Mix, Chocolate Chip | kodiak | chocolate chip mix
+Kodiak Oatmeal Cup, Maple Brown Sugar | kodiak | oatmeal maple
+Van's Protein Waffles | van's | protein waffles
+Jimmy Dean Delights Turkey Sausage Egg White Muffin | jimmy dean | delights turkey
+Jimmy Dean Sausage Egg & Cheese Biscuit | jimmy dean | sausage egg cheese biscuit
+Jimmy Dean Sausage Egg & Cheese Croissant | jimmy dean | sausage egg cheese croissant
+Jimmy Dean Pancakes & Sausage on a Stick | jimmy dean | pancakes sausage stick
+Jimmy Dean Meat Lovers Breakfast Bowl | jimmy dean | meat lovers bowl
+Jimmy Dean Fully Cooked Turkey Sausage Links | jimmy dean | turkey sausage links
+Jimmy Dean Premium Pork Sausage | jimmy dean | premium pork sausage
+Jimmy Dean Turkey Sausage Crumbles | jimmy dean | turkey sausage crumbles
+Just Egg Plant-Based Egg | just egg | plant based egg -sous -folded -bites
+Egg Beaters Original | egg beaters | original
+All Whites Liquid Egg Whites | all whites | egg whites
+Real Good Foods Meat Lovers Breakfast Bowl | real good | meat lovers breakfast bowl
+Evol Bean & Cheddar Burrito | evol | bean cheddar burrito
+Red's Braised Chicken Burrito | red's | chicken burrito
+
+## Bread, bagels, tortillas
+Dave's Killer Bread 21 Whole Grains and Seeds | dave's killer | 21 whole grains bread -thin -buns -rolls -bagels
+Dave's Killer Bread Thin-Sliced 21 Whole Grains | dave's killer | thin 21
+Dave's Killer Bread Good Seed | dave's killer | good seed bread -thin -rolls -buns
+Dave's Killer Bread White Bread Done Right | dave's killer | white bread
+Dave's Killer Bread Powerseed | dave's killer | powerseed
+Dave's Killer Bread Plain Awesome Bagels | dave's killer | plain awesome
+Dave's Killer Bread Epic Everything Bagels | dave's killer | epic everything
+Dave's Killer Bread Rockin' Grains English Muffins | dave's killer | english muffins
+Nature's Own 100% Whole Wheat Bread | nature's own | 100 whole wheat
+Nature's Own Butterbread | nature's own | butterbread
+Nature's Own Honey Wheat Bread | nature's own | honey wheat
+Sara Lee Classic White Bread | sara lee | classic white
+Sara Lee Honey Wheat Bread | sara lee | honey wheat
+Sara Lee Delightful Wheat Bread | sara lee | delightful wheat
+Oroweat Whole Wheat Bread | oroweat | 100 whole wheat
+Oroweat 12 Grain Bread | oroweat | 12 grain
+Oroweat Country Buttermilk Bread | oroweat | buttermilk
+Oroweat Sourdough Bread | oroweat | sourdough
+Wonder Classic White Bread | wonder | classic white
+King's Hawaiian Original Sweet Rolls | king's hawaiian | original sweet rolls
+King's Hawaiian Sweet Hamburger Buns | king's hawaiian | hamburger
+Thomas' Plain Bagels | thomas | plain bagels -mini
+Thomas' Everything Bagels | thomas | everything bagels -mini
+Thomas' Original English Muffins | thomas | original english muffins
+Thomas' Whole Wheat English Muffins | thomas | whole wheat english
+Food for Life Ezekiel 4:9 Sprouted Bread | food for life | ezekiel sprouted bread -waffles -muffins -tortillas -buns
+Pepperidge Farm Farmhouse Hearty White | pepperidge farm | farmhouse white
+Martin's Potato Rolls | martin's | potato rolls
+Mission Carb Balance Flour Tortillas | mission | carb balance flour
+Mission Flour Tortillas, Soft Taco | mission | flour tortillas soft taco
+Mission Flour Tortillas, Burrito | mission | flour tortillas burrito
+Mission Street Taco Corn Tortillas | mission | street taco
+Mission Yellow Corn Tortillas | mission | yellow corn tortillas
+Mission Tortilla Triangles | mission | tortilla triangles
+Guerrero Flour Tortillas | guerrero | flour tortillas
+Guerrero White Corn Tortillas | guerrero | white corn
+La Banderita Carb Counter Tortillas | la banderita | carb counter
+Tortilla Land Uncooked Flour Tortillas | tortilla land | flour
+Siete Almond Flour Tortillas | siete | almond flour tortillas
+Siete Cassava Flour Tortillas | siete | cassava flour tortillas
+Kirkland Signature Butter Croissants | kirkland | butter croissant
+
+## Chips, popcorn, crackers
+PopCorners Sea Salt | popcorners | corn sea salt -bean
+PopCorners White Cheddar | popcorners | white cheddar
+PopCorners Kettle Corn | popcorners | kettle
+PopCorners Sweet Chili | popcorners | sweet chili
+PopCorners Spicy Queso | popcorners | spicy queso
+SkinnyPop Original Popcorn | skinnypop | popcorn -cheddar -kettle -sweet -butter -sea
+SkinnyPop White Cheddar Popcorn | skinnypop | white cheddar
+Boom Chicka Pop Sea Salt Popcorn | boomchickapop | sea salt
+Angie's Boom Chicka Pop Sweet & Salty Kettle Corn | boomchickapop | sweet salty
+Smartfood White Cheddar Popcorn | smartfood | white cheddar
+LesserEvil Himalayan Sweetness Popcorn | lesserevil | himalayan sweetness
+Orville Redenbacher's Super Butter Popcorn | orville | super butter
+Pop Secret Movie Theater Butter Popcorn | pop secret | movie theater butter
+Pirate's Booty Aged White Cheddar | pirate's booty | aged white cheddar
+Lay's Classic Potato Chips | lay's | classic
+Lay's Barbecue Potato Chips | lay's | barbecue
+Lay's Sour Cream & Onion | lay's | sour cream onion
+Baked Lay's Original | lay's | baked original
+Lay's Kettle Cooked Original | lay's | kettle cooked original
+Kettle Brand Sea Salt Potato Chips | kettle brand | potato chips sea salt -vinegar -popcorn
+Kettle Brand Salt & Pepper Potato Chips | kettle brand | potato chips salt pepper -popcorn
+Cape Cod Original Kettle Cooked Chips | cape cod | original potato chips -thins -reduced -less
+Ruffles Original | ruffles | original
+Ruffles Cheddar & Sour Cream | ruffles | cheddar sour cream
+Doritos Nacho Cheese | doritos | nacho cheese -flamin -spicy | chips
+Doritos Cool Ranch | doritos | cool ranch
+Doritos Spicy Sweet Chili | doritos | sweet chili
+Cheetos Crunchy | cheetos | crunchy cheese
+Cheetos Crunchy Flamin' Hot | cheetos | flamin hot crunchy
+Cheetos Puffs | cheetos | puffs
+Takis Fuego | takis | fuego -mix -nitro -popcorn | chips
+Fritos Original Corn Chips | fritos | original
+SunChips Harvest Cheddar | sunchips | harvest cheddar
+Funyuns Onion Flavored Rings | funyuns | onion
+Pringles Original | pringles | original
+Pringles Sour Cream & Onion | pringles | sour cream onion -cheddar
+Tostitos Original Restaurant Style | tostitos | restaurant style
+Tostitos Scoops | tostitos | scoops
+Tostitos Hint of Lime | tostitos | tortilla chips lime -salsa
+Mission Restaurant Style Tortilla Chips | mission | restaurant style tortilla chips
+Late July Multigrain Tortilla Chips, Sea Salt | late july | multigrain tortilla chips sea salt
+Siete Sea Salt Grain Free Tortilla Chips | siete | sea salt tortilla chips
+Siete Lime Tortilla Chips | siete | lime
+Kirkland Signature Organic Tortilla Chips | kirkland | tortilla chips
+Kirkland Signature Krinkle Cut Potato Chips | kirkland | krinkle cut potato chips
+Quest Protein Chips, Nacho Cheese | quest | nacho
+Quest Protein Chips, Ranch | quest | ranch
+Quest Tortilla Style Protein Chips, Loaded Taco | quest | taco
+Quest Protein Chips, Sour Cream & Onion | quest | sour cream onion
+Harvest Snaps Lightly Salted | harvest snaps | lightly salted
+Hippeas White Cheddar Chickpea Puffs | hippeas | white cheddar
+Sensible Portions Garden Veggie Straws | sensible portions | veggie straws
+Goldfish Cheddar Crackers | goldfish | cheddar
+Cheez-It Original | cheez-it | original
+Cheez-It White Cheddar | cheez-it | white cheddar -popcorn | cracker
+Ritz Original Crackers | ritz | original crackers
+Triscuit Original | triscuit | original
+Wheat Thins Original | wheat thins | original
+Club Crackers Original | club | original crackers
+Simple Mills Almond Flour Crackers, Sea Salt | simple mills | almond flour crackers sea salt
+Mary's Gone Crackers Original | mary's gone | original
+Snyder's Mini Pretzels | snyder's | mini pretzels
+Snyder's Honey Mustard & Onion Pretzel Pieces | snyder's | pretzel honey mustard onion
+Rold Gold Tiny Twists | rold gold | tiny twists -cheddar
+Dot's Homestyle Pretzels | dot's | pretzels
+Rice cakes, Quaker Lightly Salted | quaker | rice cakes lightly salted
+Lundberg Brown Rice Cakes, Lightly Salted | lundberg | brown rice cakes salted
+Stacy's Simply Naked Pita Chips | stacy's | simply naked
+Blue Diamond Nut-Thins, Hint of Sea Salt | blue diamond | nut thins sea salt
+Chex Mix Traditional | chex mix | traditional -potato | snack
+Gardetto's Original | gardetto's | original
+
+## Jerky, nuts, dried fruit
+Chomps Original Beef Stick | chomps | beef
+Jack Link's Original Beef Jerky | jack link's | original beef jerky
+Jack Link's Teriyaki Beef Jerky | jack link's | teriyaki beef jerky
+Jack Link's Beef Steak Original | jack link's | steak
+Slim Jim Original | slim jim | original
+Country Archer Original Beef Jerky | country archer | original
+People's Choice Carne Seca Beef Jerky | people's choice | carne seca
+Kirkland Signature Turkey Jerky | kirkland | turkey jerky
+Kirkland Signature Steak Strips | kirkland | steak strips
+Kirkland Signature Extra Fancy Mixed Nuts | kirkland | mixed nuts
+Kirkland Signature Trek Mix | kirkland | trek mix
+Kirkland Signature Whole Cashews | kirkland | cashews
+Kirkland Signature Dry Roasted Almonds, Sea Salt | kirkland | dry roasted almonds
+Kirkland Signature Praline Pecans | kirkland | praline pecans
+Kirkland Signature Walnuts | kirkland | walnuts
+Wonderful Pistachios Roasted & Salted | wonderful | pistachios roasted salted
+Wonderful Pistachios No Shells | wonderful | no shells -bbq -chili -honey -sweet
+Blue Diamond Smokehouse Almonds | blue diamond | smokehouse
+Blue Diamond Whole Natural Almonds | blue diamond | whole natural
+Blue Diamond Lightly Salted Almonds | blue diamond | lightly salted
+Planters Dry Roasted Peanuts | planters | dry roasted peanuts
+Planters Deluxe Mixed Nuts | planters | deluxe mixed
+Planters Honey Roasted Peanuts | planters | honey roasted peanuts
+Sun-Maid Raisins | sun-maid | raisins
+Welch's Mixed Fruit Snacks | welch's | fruit snacks mixed
+Mott's Tropical Fruit Snacks | mott's | tropical fruit snacks
+That's It Apple + Mango Fruit Bar | that's it | mango
+Bare Crunchy Apple Chips | bare | apple chips
+Made Good Strawberry Granola Minis | made good | strawberry granola minis
+
+## Protein and snack bars
+Quest Bar, Chocolate Chip Cookie Dough | quest | chocolate chip cookie dough bar
+Quest Bar, Cookies & Cream | quest | cookies cream bar
+Quest Bar, Birthday Cake | quest | birthday cake bar
+Quest Bar, Peanut Butter | quest | peanut butter bar
+Quest Bar, Chocolate Brownie | quest | chocolate brownie bar
+Quest Bar, S'mores | quest | smores
+Quest Hero Bar, Blueberry Cobbler | quest | blueberry cobbler bar
+ONE Bar, Birthday Cake | one brands | birthday cake
+ONE Bar, Peanut Butter Pie | one brands | peanut butter pie
+ONE Bar, Maple Glazed Doughnut | one brands | maple glazed
+Barebells Salty Peanut Protein Bar | barebells | salty peanut
+Barebells Cookies & Cream Protein Bar | barebells | cookies cream
+Barebells Caramel Cashew Protein Bar | barebells | caramel cashew
+Built Puff, Coconut | built | coconut puff
+RXBAR Chocolate Sea Salt | rxbar | chocolate sea salt
+RXBAR Peanut Butter Chocolate | rxbar | peanut butter chocolate
+RXBAR Blueberry | rxbar | blueberry
+Pure Protein Bar, Chocolate Deluxe | pure protein | chocolate deluxe
+Pure Protein Bar, Chocolate Peanut Butter | pure protein | chocolate peanut butter
+Premier Protein Bar, Chocolate Peanut Butter | premier protein | chocolate peanut butter bar
+Kirkland Signature Chewy Protein Bar, Peanut Butter & Chocolate Chip | kirkland | chewy protein bars peanut butter
+Kirkland Signature Protein Bar, Chocolate Peanut Butter Chunk | kirkland | protein chocolate peanut butter
+Clif Bar Chocolate Chip | clif | chocolate chip energy bar -goblin -brownie -mini
+Clif Bar Crunchy Peanut Butter | clif | crunchy peanut butter energy bar -brownie -mini
+Clif Bar White Chocolate Macadamia | clif | white chocolate macadamia
+KIND Dark Chocolate Nuts & Sea Salt | kind | dark chocolate nuts sea salt
+KIND Protein Bar, Crunchy Peanut Butter | kind | protein crunchy peanut butter
+KIND Caramel Almond & Sea Salt | kind | caramel almond
+Nature Valley Crunchy Oats 'n Honey | nature valley | oats honey
+Nature Valley Sweet & Salty Peanut | nature valley | sweet salty peanut
+Nature Valley Protein Peanut Butter Dark Chocolate | nature valley | protein peanut butter dark chocolate
+Larabar Peanut Butter Chocolate Chip | larabar | peanut butter chocolate chip
+Larabar Cashew Cookie | larabar | cashew cookie
+Perfect Bar Dark Chocolate Chip Peanut Butter | perfect bar | dark chocolate chip peanut butter
+Think! High Protein Bar, Brownie Crunch | think | brownie crunch
+Fiber One Chewy Bar, Oats & Chocolate | fiber one | oats chocolate
+Fiber One Brownie, Chocolate Fudge | fiber one | brownies chocolate fudge
+Quaker Chewy Chocolate Chip Granola Bar | quaker | chewy chocolate chip
+Rice Krispies Treats, Original | kellogg | rice krispies treats original -mini | bar
+Lenny & Larry's Complete Cookie, Chocolate Chip | lenny & larry's | chocolate chip
+Lenny & Larry's Complete Cookie, Birthday Cake | lenny & larry's | birthday cake
+Legendary Foods Protein Pastry, Brown Sugar Cinnamon | legendary | brown sugar cinnamon
+Nature's Bakery Fig Bar, Original | nature's bakery | fig
+belVita Blueberry Breakfast Biscuits | belvita | blueberry
+Kind Minis Dark Chocolate | kind | minis dark chocolate
+
+## Protein shakes and powders
+Premier Protein Shake, Chocolate | premier protein | chocolate shake
+Premier Protein Shake, Vanilla | premier protein | vanilla shake
+Premier Protein Shake, Caramel | premier protein | caramel
+Premier Protein Shake, Cafe Latte | premier protein | cafe latte shake -powder
+Premier Protein Shake, Cookies & Cream | premier protein | cookies cream
+Premier Protein Powder, Chocolate Milkshake | premier protein | powder chocolate
+Fairlife Core Power 26g, Chocolate | fairlife | 26 chocolate -elite -42
+Fairlife Core Power 26g, Vanilla | fairlife | 26 vanilla -elite -42
+Fairlife Core Power Elite 42g, Chocolate | fairlife | 42 elite chocolate
+Fairlife Nutrition Plan 30g Protein Shake, Vanilla | fairlife | protein 30 nutrition shake vanilla
+Fairlife 2% Ultra-Filtered Milk | fairlife | 2 reduced fat -chocolate -strawberry | =milk
+Fairlife DHA Omega-3 Whole Milk | fairlife | whole | =milk
+Fairlife 2% Chocolate Milk | fairlife | chocolate 2 reduced fat | =milk
+Muscle Milk Genuine Protein Shake, Chocolate | muscle milk | genuine chocolate shake -powder
+Muscle Milk Pro Series, Knockout Chocolate | muscle milk | pro series chocolate
+Kirkland Signature Protein Shake, Chocolate | kirkland | protein chocolate shake
+Kirkland Signature Protein Shake, Vanilla | kirkland | protein vanilla shake
+Orgain Organic Protein Shake, Creamy Chocolate | orgain | protein shake chocolate
+Orgain Organic Protein Powder, Chocolate | orgain | protein powder chocolate
+OWYN Elite Pro Chocolate Shake | owyn | chocolate shake
+Ensure Max Protein, Milk Chocolate | ensure | max protein chocolate
+Oikos Pro Shake, Vanilla | oikos | pro vanilla drink
+Chobani Protein Drink, Vanilla | chobani | protein vanilla drink
+Slate Chocolate Milk | slate | chocolate
+Optimum Nutrition Gold Standard Whey, Double Rich Chocolate | optimum nutrition | whey double rich chocolate
+Optimum Nutrition Gold Standard Whey, Vanilla Ice Cream | optimum nutrition | whey vanilla ice cream
+Dymatize ISO100 Whey Isolate, Chocolate | dymatize | chocolate isolate
+Isopure Protein Powder, Dark Chocolate | isopure | dark chocolate powder
+Ghost Whey Protein, Nutter Butter | ghost | whey nutter butter
+Muscle Milk Protein Powder, Chocolate | muscle milk | powder chocolate
+Body Fortress Protein Shake, Chocolate | body fortress | chocolate shake
+PB2 Powdered Peanut Butter | pb2 | powdered peanut butter
+PBfit Peanut Butter Powder | pbfit | peanut butter powder
+
+## Drinks
+Celsius Sparkling Orange | celsius | orange
+Red Bull Energy Drink | red bull | energy drink
+Red Bull Sugarfree | red bull | sugarfree
+Monster Energy Original | monster | energy
+Monster Energy Zero Ultra | monster | zero ultra
+Ghost Energy, Orange Cream | ghost | orange cream energy
+Alani Nu Energy, Breezeberry | alani | breezeberry energy
+C4 Energy, Skittles | c4 | skittles energy
+Bang Energy, Miami Cola | bang | miami cola energy
+Gatorade Thirst Quencher, Lemon-Lime | gatorade | lemon lime
+Gatorade Thirst Quencher, Fruit Punch | gatorade | fruit punch thirst quencher -berry -zero
+Gatorade Thirst Quencher, Cool Blue | gatorade | cool blue -zero
+Gatorade Zero, Glacier Freeze | gatorade | zero glacier -protein
+Gatorade G2 | gatorade | g2
+BodyArmor Sports Drink, Strawberry Banana | bodyarmor | strawberry banana
+BodyArmor Lyte | bodyarmor | lyte
+Powerade Mountain Berry Blast | powerade | mountain berry
+Prime Hydration, Glowberry | prime | glowberry hydration
+Liquid I.V. Hydration Multiplier, Lemon Lime | liquid i.v | lemon lime
+Coca-Cola | coca-cola | cola -diet -zero -cherry -vanilla -mini -dream kcal>30 | soda
+Diet Coke | coca-cola | diet cola -cherry -mini | soda
+Coca-Cola Zero Sugar | coca-cola | zero sugar -dream -cherry -vanilla -mini kcal<5 | soda
+Pepsi | pepsi | cola -diet -zero -wild -mini | soda
+Sprite | sprite | sprite
+Dr Pepper | dr pepper | soda -diet -zero -cherry -cream | soda
+Mountain Dew | mountain dew | soda -diet -supernova -real -zero | soda
+Olipop Vintage Cola | olipop | cola
+Poppi Strawberry Lemon | poppi | strawberry lemon | soda
+LaCroix Sparkling Water | lacroix | sparkling
+Bubly Sparkling Water | bubly | sparkling
+AriZona Green Tea with Ginseng and Honey | arizona | green tea ginseng honey
+Snapple Peach Tea | snapple | peach tea -mix | bottle tea
+Pure Leaf Sweet Tea | pure leaf | sweet
+Starbucks Frappuccino, Mocha | starbucks | frappuccino mocha
+Starbucks Doubleshot Energy, White Chocolate | starbucks | doubleshot energy white chocolate
+Starbucks Cold Brew, Black | starbucks | cold brew
+La Colombe Draft Latte | la colombe | draft latte
+Kirkland Signature Cold Brew Coffee | kirkland | cold brew
+Coffee mate Original Creamer | coffee mate | original
+Coffee mate French Vanilla Creamer | coffee mate | french vanilla
+Coffee mate Natural Bliss Sweet Cream | natural bliss | sweet cream
+International Delight French Vanilla Creamer | international delight | french vanilla creamer
+Chobani Coffee Creamer, Sweet Cream | chobani | sweet cream
+Nutpods Original Oat Creamer | nutpods | original oat creamer
+Oatly Oat Milk, Original | oatly | original
+Oatly Oat Milk, Barista Edition | oatly | barista
+Silk Unsweetened Almond Milk | silk | unsweetened almond
+Silk Original Almond Milk | silk | original almondmilk -light -vanilla
+Silk Original Soymilk | silk | original soy
+Califia Farms Unsweetened Almond Milk | califia | unsweetened almond
+Califia Farms Vanilla Oatmilk | califia | vanilla oatmilk
+Chobani Oat Milk, Plain | chobani | oat plain
+Planet Oat Original Oatmilk | planet oat | original
+Kirkland Signature Unsweetened Almond Milk | kirkland | original unsweetened almond
+Lactaid 2% Reduced Fat Milk | lactaid | 2 reduced fat
+Clover Sonoma Organic Whole Milk | clover | whole milk
+Nesquik Chocolate Milk | nesquik | chocolate milk -syrup -powder | milk
+Simply Orange Pulp Free | simply | orange pulp free
+Tropicana Pure Premium Original | tropicana | original
+Minute Maid Apple Juice | minute maid | apple
+Naked Green Machine | naked | green machine kcal>30 | juice
+Naked Mighty Mango | naked | mighty mango
+Bolthouse Farms Green Goodness | bolthouse | green goodness
+Suja Mighty Dozen | suja | dozen
+GT's Synergy Kombucha, Gingerade | gt's | gingerade
+GT's Synergy Kombucha, Trilogy | gt's | trilogy
+Kirkland Signature Organic Coconut Water | kirkland | coconut water
+Vita Coco Coconut Water | vita coco | coconut water
+Capri Sun Pacific Cooler | capri sun | pacific cooler
+
+## Yogurt, cheese, dairy
+Chobani Greek Yogurt, Plain Nonfat | chobani | plain non fat
+Chobani Greek Yogurt, Vanilla | chobani | vanilla greek
+Chobani Greek Yogurt, Strawberry | chobani | strawberry
+Chobani Greek Yogurt, Blueberry | chobani | blueberry
+Chobani Less Sugar Greek Yogurt, Mango | chobani | less sugar mango
+Chobani Flip, Clover Honey | chobani | flip honey
+Chobani Complete, Vanilla | chobani | complete vanilla
+Oikos Triple Zero, Vanilla | oikos | triple zero vanilla
+Oikos Triple Zero, Mixed Berry | oikos | triple zero mixed berry -smoothie
+Oikos Pro Yogurt, Vanilla | oikos | pro vanilla
+Fage Total 0% Plain Greek Yogurt | fage | 0
+Fage Total 2% Greek Yogurt, Blackberry | fage | 2 greek blackberry
+Fage Total 5% Greek Yogurt | fage | 5 | =yogurt
+Siggi's Icelandic Skyr, Vanilla | siggi's | vanilla
+Yoplait Original, Strawberry | yoplait | original strawberry -frozen
+Yoplait Light, Strawberry | yoplait | light strawberry
+Light + Fit Zero Sugar Vanilla Yogurt | light + fit | zero sugar vanilla
+Two Good Strawberry & Vanilla Greek Yogurt | two good | strawberry vanilla
+Activia Strawberry | activia | strawberry
+Good Culture Cottage Cheese, 2% | good culture | 2 cottage -pineapple -strawberry -blueberry
+Good Culture Cottage Cheese, 4% | good culture | 4 cottage | =cheese
+Daisy Cottage Cheese, 4% | daisy | cottage cheese 4
+Daisy Sour Cream | daisy | sour cream
+Knudsen Cottage Cheese, Lowfat | knudsen | cottage cheese low fat
+Knudsen Hampshire Sour Cream | knudsen | hampshire sour cream
+Hood Cottage Cheese | hood | cottage cheese
+Tillamook Medium Cheddar | tillamook | medium cheddar
+Tillamook Sharp Cheddar | tillamook | sharp cheddar
+Tillamook Pepper Jack | tillamook | pepper jack
+Tillamook Colby Jack | tillamook | colby jack
+Tillamook Shredded Mexican Blend | tillamook | shredded mexican | =cheese
+Kirkland Signature Shredded Sharp Cheddar | kirkland | shredded sharp cheddar
+Kirkland Signature Shredded Mozzarella | kirkland | mozzarella shredded
+Kraft Singles American | kraft | singles american
+Kraft Shredded Mozzarella | kraft | shredded mozzarella
+Sargento Sliced Provolone | sargento | provolone
+Sargento Light String Cheese | sargento | light string
+Frigo Cheese Heads Light String Cheese | frigo | light string
+Babybel Original | babybel | original
+The Laughing Cow Light Creamy Swiss | laughing cow | light creamy swiss
+Philadelphia Original Cream Cheese | philadelphia | original cream cheese
+Philadelphia Whipped Cream Cheese | philadelphia | whipped
+Kerrygold Pure Irish Butter | kerrygold | butter
+Land O Lakes Salted Butter | land o lakes | salted butter
+Kirkland Signature Salted Butter | kirkland | salted butter
+I Can't Believe It's Not Butter Spray | i can't believe | spray
+Reddi-wip Original | reddi-wip | original
+Horizon Organic Whole Milk | horizon | whole milk
+
+## Ice cream and frozen treats
+Halo Top Vanilla Bean | halo top | vanilla bean
+Halo Top Birthday Cake | halo top | birthday cake
+Halo Top Chocolate | halo top | chocolate
+Ben & Jerry's Half Baked | ben & jerry's | half baked
+Ben & Jerry's Chocolate Chip Cookie Dough | ben & jerry's | chocolate chip cookie dough ice cream -bars -snackable
+Ben & Jerry's Cherry Garcia | ben & jerry's | cherry garcia
+Häagen-Dazs Vanilla | haagen | vanilla
+Tillamook Vanilla Bean Ice Cream | tillamook | vanilla bean
+Tillamook Mudslide Ice Cream | tillamook | mudslide
+Dreyer's Slow Churned Vanilla | dreyer's | slow churned vanilla -yogurt
+Breyers Natural Vanilla | breyers | natural vanilla
+Kirkland Signature Vanilla Ice Cream | kirkland | vanilla ice cream
+Yasso Frozen Greek Yogurt, Vanilla | yasso | greek vanilla
+Enlightened Monkey Business Bars | enlightened | monkey business
+My/Mo Mochi Ice Cream, Strawberry | my/mo | strawberry
+Drumstick Vanilla Cone | drumstick | vanilla cone
+Klondike Original | klondike | original
+Outshine Strawberry Fruit Bar | outshine | strawberry -yogurt
+Magnum Double Chocolate | magnum | double chocolate
+Talenti Sea Salt Caramel Gelato | talenti | sea salt caramel
+
+## Meat, deli, seafood
+Just Bare Lightly Breaded Chicken Breast Strips | just bare | breaded
+Just Bare Chicken Breast Fillets | just bare | fillets
+Kirkland Signature Chicken Breast, Canned | kirkland | chunk chicken breast
+Kirkland Signature Albacore Tuna | kirkland | albacore
+Kirkland Signature Pulled Pork | kirkland | pulled pork
+Kirkland Signature Hardwood Smoked Bacon | kirkland | smoked bacon
+Kirkland Signature Sliced Turkey Breast | kirkland | turkey breast
+Kirkland Signature Panko Breaded Shrimp | kirkland | panko shrimp
+Foster Farms Grilled Chicken Breast Strips | foster farms | grilled strips
+Foster Farms Crispy Chicken Strips | foster farms | strips
+Foster Farms Chicken Corn Dogs | foster farms | corn dogs
+Foster Farms Honey Roasted Turkey Breast | foster farms | honey roasted turkey
+Tyson Grilled & Ready Chicken Breast Strips | tyson | grilled ready strips
+Tyson Chicken Nuggets | tyson | chicken nuggets
+Tyson Crispy Chicken Strips | tyson | crispy chicken strips
+Perdue Short Cuts Grilled Chicken | perdue | short cuts
+Perdue Simply Smart Lightly Breaded Chicken Nuggets | perdue | simply smart nuggets
+Applegate Naturals Oven Roasted Turkey Breast | applegate | oven roasted turkey
+Applegate Uncured Beef Hot Dogs | applegate | beef hot dog
+Applegate Chicken Nuggets | applegate | chicken nuggets
+Oscar Mayer Classic Uncured Wieners | oscar mayer | wieners
+Oscar Mayer Deli Fresh Oven Roasted Turkey | oscar mayer | oven roasted turkey -blackened
+Oscar Mayer Hardwood Smoked Bacon | oscar mayer | hardwood smoked bacon -dogs -bits -turkey
+Lunchables Turkey & Cheddar Cracker Stackers | lunchables | turkey cheddar
+Hillshire Farm Ultra Thin Oven Roasted Turkey | hillshire farm | oven roasted turkey
+Hillshire Farm Smoked Sausage | hillshire farm | smoked sausage
+Hormel Original Pepperoni | hormel | pepperoni
+Hormel Natural Choice Oven Roasted Deli Turkey | hormel | natural choice oven roasted turkey
+Hormel Lower Sodium Bacon | hormel | lower sodium bacon
+Hormel Chili with Beans | hormel | chili beans -no
+Aidells Chicken & Apple Sausage | aidells | chicken apple sausage -burgers
+Aidells Italian Style Chicken Sausage with Mozzarella | aidells | italian mozzarella
+Johnsonville Original Brats | johnsonville | original brat
+Johnsonville Mild Italian Sausage | johnsonville | mild italian
+Ball Park Beef Franks | ball park | beef franks
+Hebrew National Beef Franks | hebrew national | beef franks
+Nathan's Famous Skinless Beef Franks | nathan's | beef franks
+Impossible Burger | impossible | burger
+Beyond Burger | beyond meat | burger
+Morningstar Farms Grillers Original | morningstar | grillers -crumbles
+Gardein Chick'n Tenders | gardein | tenders
+Bibigo Chicken & Vegetable Mini Wontons | bibigo | wontons chicken
+Bibigo Pork & Vegetable Potstickers | bibigo | pork
+StarKist Chunk Light Tuna in Water | starkist | chunk light water
+StarKist Tuna Creations, Lemon Pepper | starkist | lemon pepper
+Bumble Bee Solid White Albacore | bumble bee | solid white albacore
+Wild Planet Albacore Tuna | wild planet | albacore
+Trident Seafoods Salmon Burgers | trident | salmon burger
+Gorton's Crunchy Breaded Fish Sticks | gorton's | fish sticks
+SeaPak Popcorn Shrimp | seapak | popcorn shrimp
+
+## Frozen meals, pizza, sides
+Amy's Bean, Rice & Cheese Burrito | amy's | bean rice cheese burrito -snacks -light
+Amy's Black Bean Vegetable Enchilada | amy's | black bean enchilada
+Amy's Macaroni & Cheese | amy's | macaroni cheese
+Amy's Cheese Pizza | amy's | cheese pizza
+Amy's Vegetable Lasagna | amy's | vegetable lasagna
+Lean Cuisine Chicken Fettuccini Alfredo | lean cuisine | alfredo
+Lean Cuisine Herb Roasted Chicken | lean cuisine | herb roasted chicken
+Healthy Choice Power Bowls, Chicken Feta & Farro | healthy choice | feta farro
+Healthy Choice Café Steamers, Sweet Sesame Chicken | healthy choice | sesame chicken
+Stouffer's Macaroni & Cheese | stouffer's | macaroni cheese
+Stouffer's Meat Lovers Lasagna | stouffer's | meat lovers lasagna
+Marie Callender's Chicken Pot Pie | marie callender's | chicken pot pie
+Banquet Mega Strips, Buffalo Style | banquet | mega strips buffalo
+El Monterey Beef & Bean Burritos | el monterey | beef bean
+El Monterey Chicken & Cheese Taquitos | el monterey | chicken taquitos
+Delimex Beef Taquitos | delimex | beef
+José Olé Chicken & Cheese Chimichanga | jose ole | chimichanga chicken
+Evol Vegetable Enchiladas | evol | vegetable enchiladas
+Real Good Foods Chicken Enchiladas | real good | enchiladas
+DiGiorno Rising Crust Pepperoni Pizza | digiorno | pepperoni rising
+DiGiorno Detroit Style Four Cheese Pizza | digiorno | four cheese pizza -bites -stuffed
+Tombstone Pepperoni Pizza | tombstone | pepperoni
+Red Baron Classic Crust Pepperoni | red baron | pepperoni
+Totino's Party Pizza, Pepperoni | totino's | party pizza pepperoni
+Totino's Pizza Rolls, Pepperoni | totino's | pizza rolls pepperoni
+Hot Pockets Pepperoni Pizza | hot pockets | pepperoni
+Caulipower Margherita Pizza | caulipower | margherita
+Kirkland Signature Supreme Cauliflower Crust Pizza | kirkland | cauliflower crust pizza
+Ling Ling Chicken Yakisoba | ling ling | chicken yakisoba
+InnovAsian Sesame Orange Chicken | innovasian | orange chicken
+P.F. Chang's Home Menu Chicken Fried Rice | p.f. chang's | fried rice
+Ajinomoto Combination Fried Rice | ajinomoto | fried rice
+Birds Eye Steamfresh Broccoli Florets | birds eye | steamfresh broccoli
+Birds Eye Steamfresh Mixed Vegetables | birds eye | steamfresh mixed
+Green Giant Riced Cauliflower | green giant | riced cauliflower -stuffing -risotto
+Ore-Ida Golden Crinkles | ore-ida | golden crinkles
+Ore-Ida Tater Tots | ore-ida | tater tots
+Alexia Sweet Potato Fries | alexia | sweet potato fries
+Kirkland Signature Three Berry Blend | kirkland | berry blend
+Dole Frozen Mango Chunks | dole | mango
+
+## Rice, pasta, soups, beans
+Ben's Original Ready Rice, Long Grain & Wild | ben's original | ready rice long grain
+Minute Ready to Serve White Rice | minute | ready to serve white rice
+Seeds of Change Quinoa, Brown & Red Rice | seeds of change | quinoa brown rice
+Barilla Spaghetti | barilla | spaghetti -veggie -protein -gluten -whole | pasta
+Barilla Penne | barilla | penne -marinara -veggie -protein -gluten -whole | pasta
+Banza Chickpea Penne | banza | penne
+Rao's Homemade Marinara Sauce | rao's | marinara
+Prego Traditional Italian Sauce | prego | traditional
+Ragu Old World Style Traditional | ragu | traditional
+Kirkland Signature Organic Tomato Sauce | kirkland | tomato sauce
+Kraft Macaroni & Cheese Original | kraft | macaroni cheese original
+Annie's Shells & White Cheddar | annie's | shells white cheddar
+Velveeta Shells & Cheese | velveeta | shells cheese
+Maruchan Ramen Noodle Soup, Chicken | maruchan | ramen chicken
+Nissin Cup Noodles, Chicken | nissin | cup noodles chicken -tomato -spicy
+Nongshim Shin Big Bowl Noodle Soup | nongshim | shin
+Nissin Top Ramen, Chicken | top ramen | chicken
+Campbell's Chicken Noodle Soup | campbell's | chicken noodle
+Progresso Chicken Noodle Soup | progresso | chicken noodle
+Pacific Foods Organic Unsalted Chicken Bone Broth | pacific | chicken bone broth
+Kettle & Fire Chicken Bone Broth | kettle & fire | chicken bone broth
+Bush's Original Baked Beans | bush's | original baked beans
+Bush's Black Beans | bush's | black beans
+Rosarita Traditional Refried Beans | rosarita | refried
+Old El Paso Taco Shells | old el paso | taco shells
+Old El Paso Taco Seasoning | old el paso | taco seasoning
+Near East Couscous | near east | couscous
+Quaker Old Fashioned Oats | quaker | old fashioned oats
+Quaker Instant Oatmeal, Maple & Brown Sugar | quaker | instant maple brown sugar
+Bob's Red Mill Old Fashioned Rolled Oats | bob's red mill | old fashioned rolled oats
+
+## Cereal and granola
+Cheerios | cheerios | cheerios
+Honey Nut Cheerios | cheerios | honey nut
+Frosted Flakes | frosted flakes | cereal | cereal
+Froot Loops | froot loops | cereal -marshmallow | cereal
+Cinnamon Toast Crunch | cinnamon toast crunch | cereal | cereal
+Lucky Charms | lucky charms | cereal | cereal
+Special K Original | special k | original
+Raisin Bran | kellogg | raisin bran | cereal
+Rice Krispies | rice krispies | cereal -treats | cereal
+Cap'n Crunch | cap'n crunch | cereal -berries -peanut | cereal
+Life Original Cereal | quaker | life original | cereal
+Frosted Mini-Wheats | frosted mini | cereal | cereal
+Honey Bunches of Oats with Almonds | honey bunches | almonds | cereal
+Kashi GO Original | kashi | go original
+Magic Spoon Frosted | magic spoon | frosted
+Catalina Crunch Honey Graham | catalina crunch | honey graham
+Grape-Nuts Original | grape-nuts | original
+Corn Chex | chex | corn
+Nature's Path Organic Heritage Flakes | nature's path | heritage
+Bear Naked Granola, Vanilla Almond | bear naked | vanilla almond
+Kirkland Signature Organic Ancient Grains Granola | kirkland | granola
+Purely Elizabeth Original Ancient Grain Granola | purely elizabeth | granola original
+
+## Spreads, sauces, condiments
+Jif Creamy Peanut Butter | jif | creamy peanut butter -honey -reduced -natural -omega
+Skippy Creamy Peanut Butter | skippy | creamy
+Smucker's Natural Creamy Peanut Butter | smucker's | natural creamy
+Justin's Classic Almond Butter | justin's | classic almond butter
+Justin's Dark Chocolate Peanut Butter Cups | justin's | dark chocolate peanut butter cups
+Kirkland Signature Organic Peanut Butter | kirkland | peanut butter
+Nutella Hazelnut Spread | nutella | hazelnut -breadsticks -pretzel
+Smucker's Strawberry Jam | smucker's | strawberry jam
+Bonne Maman Strawberry Preserves | bonne maman | strawberry
+Sabra Classic Hummus | sabra | classic hummus
+Hope Original Hummus | hope | original hummus
+Wholly Guacamole Classic | wholly | classic
+Yucatan Authentic Guacamole | yucatan | guacamole
+Tostitos Chunky Salsa, Mild | tostitos | chunky salsa mild -lime
+Pace Mild Picante Sauce | pace | picante
+Herdez Salsa Casera | herdez | casera
+Heinz Tomato Ketchup | heinz | tomato ketchup
+French's Classic Yellow Mustard | french's | yellow mustard
+Best Foods Real Mayonnaise | best foods | real mayonnaise
+Hellmann's Real Mayonnaise | hellmann's | real mayonnaise
+Kewpie Mayonnaise | kewpie | mayonnaise
+Sir Kensington's Classic Mayonnaise | sir kensington's | mayonnaise
+Primal Kitchen Avocado Oil Mayo | primal kitchen | avocado oil mayo -egg -chipotle -garlic -buffalo -spread
+Hidden Valley Original Ranch | hidden valley | original ranch
+Primal Kitchen Ranch Dressing | primal kitchen | ranch dressing -dip
+Bolthouse Farms Classic Ranch Yogurt Dressing | bolthouse | ranch yogurt dressing
+Ken's Steak House Caesar | ken's | caesar
+Newman's Own Balsamic Vinaigrette | newman's own | balsamic
+Kraft Zesty Italian | kraft | zesty italian
+Sweet Baby Ray's Barbecue Sauce | sweet baby ray's | barbecue
+Stubb's Original Bar-B-Q Sauce | stubb's | original
+Kikkoman Soy Sauce | kikkoman | soy sauce
+Kikkoman Teriyaki Baste & Glaze | kikkoman | teriyaki
+Huy Fong Sriracha | huy fong | sriracha
+Tapatío Hot Sauce | tapatio | hot sauce
+Cholula Original | cholula | original
+Mrs. Butterworth's Original Syrup | mrs. butterworth's | original
+Pearl Milling Company Original Syrup | pearl milling | original
+Log Cabin Original Syrup | log cabin | original
+Kirkland Signature Organic Honey | kirkland | organic honey -raw
+Kirkland Signature Greek Olive Oil | kirkland | greek olive oil
+Chosen Foods Avocado Oil | chosen | avocado oil
+Pam Original Cooking Spray | pam | cooking spray original
+Taylor Farms Sweet Kale Chopped Salad Kit | taylor farms | sweet kale
+Taylor Farms California Caesar Salad Kit | taylor farms | caesar
+Eat Smart Sweet Kale Salad Kit | eat smart | sweet kale
+Fresh Express Caesar Salad Kit | fresh express | caesar
+
+## Cookies, candy, sweets
+Oreo Chocolate Sandwich Cookies | oreo | chocolate sandwich cookies
+Oreo Double Stuf | oreo | double stuf
+Chips Ahoy! Original | chips ahoy | cookies -chewy -mini -chunky -muffins -reese -cereal | cookie
+Nutter Butter | nutter butter | sandwich cookies -bites | cookie
+Lotus Biscoff Cookies | lotus | biscoff
+Pepperidge Farm Milano Dark Chocolate | pepperidge farm | milano dark chocolate -mint -orange -lemon
+Famous Amos Chocolate Chip Cookies | famous amos | chocolate chip
+Nilla Wafers | nilla | wafers
+Honey Maid Graham Crackers | honey maid | graham
+Teddy Grahams, Honey | teddy grahams | honey
+Annie's Bunny Grahams | annie's | bunny grahams
+Little Debbie Oatmeal Creme Pies | little debbie | oatmeal creme
+Little Debbie Swiss Rolls | little debbie | swiss rolls
+Hostess Twinkies | hostess | golden sponge cake
+Hostess Triple Fudge Ding Dongs | hostess | ding dongs -latte
+Pop-Tarts Frosted Strawberry | ~pop-tarts | frosted strawberry -crisps
+Pop-Tarts Frosted Brown Sugar Cinnamon | ~pop-tarts | frosted brown sugar cinnamon -crisps
+Entenmann's Frosted Chocolate Donuts | entenmann's | chocolate frosted donuts
+Kirkland Signature Chocolate Chip Cookies | kirkland | chocolate chip cookies
+Reese's Peanut Butter Cups | reese's | peanut butter cups
+Kit Kat | kit kat | wafer milk chocolate -lemon -white -dark -mini -big | candy
+Snickers | snickers | bar -minis -almond -peanut -ice -protein -crisper | candy
+M&M's Milk Chocolate | m&m's | milk chocolate
+M&M's Peanut | m&m's | peanut
+Twix | twix | cookie bars -peanut -minis -ice -creme
+Hershey's Milk Chocolate Bar | hershey's | milk chocolate bar
+Butterfinger | butterfinger | bar -minis -bites -cup | candy
+Skittles Original, Bite Size | skittles | original candies -cotton | candy
+Sour Patch Kids | sour patch | candy -watermelon -tropical -lolli -berries -canes | candy
+Swedish Fish | swedish fish | candy -canes -mini -tails | candy
+Haribo Goldbears | haribo | goldbears
+Trolli Sour Brite Crawlers | trolli | crawlers
+Starburst Original | starburst | fruit chews original -jelly
+Twizzlers Strawberry Twists | twizzlers | strawberry
+SmartSweets Peach Rings | smartsweets | peach rings
+SmartSweets Sweet Fish | smartsweets | sweet fish
+Lily's Hazelnut Milk Chocolate Style Bar | lily's | hazelnut milk chocolate
+Ghirardelli Dark & Caramel Squares | ghirardelli | dark caramel
+Kirkland Signature Milk Chocolate Almonds | kirkland | milk chocolate almonds
+Nestlé Toll House Semi-Sweet Morsels | toll house | semi sweet
+Jell-O Sugar Free Chocolate Instant Pudding Mix | jell-o | sugar free chocolate pudding
+Snack Pack Chocolate Pudding | snack pack | chocolate pudding
+Mott's Unsweetened Applesauce | mott's | unsweetened applesauce -blueberry -strawberry -cinnamon
+GoGo squeeZ Applesauce | gogo squeez | applesauce
+Kirkland Signature Organic Applesauce | kirkland | organic apple sauce
+Dole Sliced Peaches | dole | peaches
+Del Monte Fruit Cocktail | del monte | fruit cocktail
+
+## Trader Joe's (USDA carries only some)
+Trader Joe's Hashbrowns | trader joe's | hashbrowns
+Trader Joe's Premium Chunk White Chicken in Water | trader joe's | chunk white chicken water
+Trader Joe's Dry Roasted & Salted Almonds | trader joe's | dry roasted salted almonds -marcona
+Trader Joe's Sea Salt & Turbinado Sugar Dark Chocolate Almonds | trader joe's | turbinado dark chocolate almonds
+Trader Joe's Unsweetened Original Almond Beverage | trader joe's | unsweetened original almond beverage
+Trader Joe's White Cheddar Mac & Cheese | trader joe's | mac cheese white cheddar
+Trader Joe's Blue Corn Tortilla Chips | trader joe's | blue corn tortilla chips
+Trader Joe's Chicken-less Strips | trader joe's | chicken less strips
+Trader Joe's Mediterranean Hummus | trader joe's | mediterranean hummus
+
+## More Kirkland Signature (Costco)
+Kirkland Signature Chocolate Chunk Cookies | kirkland | chocolate chunk cookies
+Kirkland Signature Milk Chocolate Peanut Butter Cups | kirkland | peanut butter cups
+Kirkland Signature Organic Nacho Cheese Tortilla Chips | kirkland | nacho cheese tortilla chips
+Kirkland Signature Organic Roasted Seaweed Snack | kirkland | roasted seaweed organic snack
+Kirkland Signature Vanilla Complete Nutrition Shake | kirkland | vanilla complete nutrition shake
+Kirkland Signature Chicken Bake | kirkland | chicken bakes
+Kirkland Signature Heart Healthy Mixed Nuts | kirkland | heart healthy mixed nuts
+Kirkland Signature Dry Roasted Macadamia Nuts | kirkland | macadamia
+Kirkland Signature Organic 2% Milk | kirkland | organic 2 reduced fat milk
+Kirkland Signature Whole Milk | kirkland | whole milk -organic
+Kirkland Signature Lactose Free 2% Milk | kirkland | lactose free
+Kirkland Signature Organic Soymilk | kirkland | organic soymilk
+Kirkland Signature Fruit Snacks | kirkland | fruit snacks
+Kirkland Signature Animal Crackers | kirkland | animal crackers
+Kirkland Signature Almond Biscotti | kirkland | almond biscotti
+Kirkland Signature Hazelnut Spread with Cocoa | kirkland | hazelnut spread
+Kirkland Signature Chunk Light Tuna | kirkland | chunk light skipjack
+Kirkland Signature Tilapia Loins | kirkland | tilapia
+Kirkland Signature Mahi-Mahi | kirkland | mahi
+Kirkland Signature Five Cheese Tortelloni | kirkland | tortelloni
+Kirkland Signature Extra Lean Ham | kirkland | extra lean ham
+Kirkland Signature Sahale Pecan Cashew Nut Crisp | kirkland | nut crisp pecan cashew
+Kirkland Signature Organic Nuts & Berries | kirkland | nuts berries pumpkin
+Kirkland Signature Super Extra Large Peanuts | kirkland | super extra large peanuts
+Kirkland Signature Cocoa Dusted Almonds | kirkland | cocoa dusted almonds
+Kirkland Signature Dried Plums | kirkland | dried plums
+Kirkland Signature Organic Blueberries, Frozen | kirkland | organic blueberries
+Kirkland Signature Artisan Burger Buns | kirkland | artisan burger buns
+Kirkland Signature Fit & Easy Chicken Breasts | kirkland | fit easy chicken breasts
+Kirkland Signature Organic Chicken Bone Broth | kirkland | chicken bone broth
+Kirkland Signature Organic Lemonade | kirkland | organic lemonade
+Kirkland Signature Sport Drink, Fruit Punch | kirkland | sport drink fruit punch
+Kirkland Signature Hickory Smoked Thick Sliced Bacon | kirkland | thick sliced bacon
+Kirkland Signature Cage Free Large Eggs | kirkland | cage free large eggs
+
+## More snacks and staples
+Sabra Roasted Red Pepper Hummus | sabra | roasted red pepper hummus
+Chobani Greek Yogurt, Plain Whole Milk | chobani | plain whole milk greek
+Premier Protein Clear, Orange Mango | premier protein | clear orange mango
+Quest Protein Cookie, Chocolate Chip | quest | protein cookie chocolate chip
+Quest Frosted Cookie, Birthday Cake | quest | frosted cookie birthday
+Doritos Flamin' Hot Nacho | doritos | flamin hot nacho
+Lay's Salt & Vinegar | lay's | salt vinegar -baked -kettle
+Lay's Limón | lay's | limon
+Chobani Zero Sugar Greek Yogurt, Vanilla | chobani | zero sugar vanilla
+Hershey's Cookies 'n' Creme Bar | hershey's | cookies creme bar -minis
+Kellogg's Nutri-Grain Bar, Strawberry | nutri-grain | strawberry | bar
+Honey Maid Teddy Grahams, Chocolate | teddy grahams | chocolate
+Mission Carb Balance Whole Wheat Tortillas | mission | carb balance whole wheat
+Siete Churro Strips | siete | churro strips
