@@ -73,7 +73,6 @@ Mission Yellow Corn Tortillas | mission | yellow corn tortillas
 Mission Tortilla Triangles | mission | tortilla triangles
 Guerrero Flour Tortillas | guerrero | flour tortillas
 Guerrero White Corn Tortillas | guerrero | white corn
-La Banderita Carb Counter Tortillas | la banderita | carb counter
 Tortilla Land Uncooked Flour Tortillas | tortilla land | flour
 Siete Almond Flour Tortillas | siete | almond flour tortillas
 Siete Cassava Flour Tortillas | siete | cassava flour tortillas
@@ -253,7 +252,7 @@ Orgain Organic Protein Powder, Chocolate | orgain | protein powder chocolate
 OWYN Elite Pro Chocolate Shake | owyn | chocolate shake
 Ensure Max Protein, Milk Chocolate | ensure | max protein chocolate
 Oikos Pro Shake, Vanilla | oikos | pro vanilla drink
-Chobani Protein Drink, Vanilla | chobani | protein vanilla drink
+Chobani Protein Drink, Cherry Vanilla | chobani | protein cherry vanilla drink
 Slate Chocolate Milk | slate | chocolate
 Optimum Nutrition Gold Standard Whey, Double Rich Chocolate | optimum nutrition | whey double rich chocolate
 Optimum Nutrition Gold Standard Whey, Vanilla Ice Cream | optimum nutrition | whey vanilla ice cream
@@ -405,7 +404,6 @@ My/Mo Mochi Ice Cream, Strawberry | my/mo | strawberry
 Drumstick Vanilla Cone | drumstick | vanilla cone
 Klondike Original | klondike | original
 Outshine Strawberry Fruit Bar | outshine | strawberry -yogurt
-Magnum Double Chocolate | magnum | double chocolate
 Talenti Sea Salt Caramel Gelato | talenti | sea salt caramel
 
 ## Meat, deli, seafood
@@ -716,5 +714,4 @@ Chobani Zero Sugar Greek Yogurt, Vanilla | chobani | zero sugar vanilla
 Hershey's Cookies 'n' Creme Bar | hershey's | cookies creme bar -minis
 Kellogg's Nutri-Grain Bar, Strawberry | nutri-grain | strawberry | bar
 Honey Maid Teddy Grahams, Chocolate | teddy grahams | chocolate
-Mission Carb Balance Whole Wheat Tortillas | mission | carb balance whole wheat
 Siete Churro Strips | siete | churro strips

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build data/foods.json for Overload from USDA FoodData Central CSV downloads.
 
-Usage: python3 tools/build_foods.py SR_LEGACY_DIR [FOUNDATION_DIR] > data/foods.json
+Usage: python3 tools/build_foods.py [--branded INDEX.tsv.gz] SR_LEGACY_DIR [FOUNDATION_DIR] > data/foods.json
 
 Each DIR is an unzipped FoodData Central CSV download (food.csv,
 food_nutrient.csv, food_portion.csv, ...). USDA data is public domain.
@@ -9,12 +9,22 @@ food_nutrient.csv, food_portion.csv, ...). USDA data is public domain.
 Output keeps what the app needs and nothing else: calories, protein, carbs
 and fat per 100 g, the food's category, and its common servings in grams.
 Foods listed in tools/staples.tsv (fdc_id, short name) are shown under the
-short name and ranked first in search. A summary goes to stderr.
+short name and ranked first in search.
+
+With --branded, packaged products picked in tools/branded.tsv are added from
+the branded index (tools/build_branded_index.py), plus any Open Food Facts
+fills in tools/branded_off.tsv. These carry a barcode, the label serving and
+a drink flag (nutrients per 100 ml). A summary goes to stderr.
 """
 import csv
+import gzip
 import json
 import os
+import re
 import sys
+
+csv.field_size_limit(10 ** 8)
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Nutrient ids. Energy is 1008 in SR Legacy; Foundation foods often only
 # carry the Atwater energy values (2047 general, 2048 specific).
@@ -110,7 +120,83 @@ def load_staples():
     return staples
 
 
-def main(folders):
+UNIT_WORDS = [(r'\bONZ\b', 'oz'), (r'\bOZA\b', 'fl oz'), (r'\bFOZ\b', 'fl oz'), (r'\bGRM\b', 'g'), (r'\bMLT\b', 'ml'), (r'\bEA\b', 'each')]
+
+
+def household(text):
+    t = ' '.join(str(text or '').split('|')[0].split())
+    t = re.sub(r'\s*\(?about\)?$', '', t, flags=re.I)
+    t = re.sub(r',?\s*\d+ servings? per container', '', t, flags=re.I)
+    t = re.sub(r'\s*per serving$', '', t, flags=re.I)
+    t = re.sub(r'\bwaffies\b', 'waffles', t, flags=re.I)
+    if re.fullmatch(r'amount( per serving)?', t, flags=re.I):
+        t = '1 serving'
+    for rx, word in UNIT_WORDS:
+        t = re.sub(rx, word, t)
+    if t.upper() == t:
+        t = t.lower()
+    return t.strip(' ,')
+
+
+def serving_of(size, unit, label):
+    """[label, grams] for the label serving, and whether it is a drink (ml)."""
+    unit = str(unit or '').strip().lower()
+    try:
+        size = float(size)
+    except (TypeError, ValueError):
+        size = 0
+    liquid = unit in ('ml', 'mlt')
+    if unit not in ('g', 'grm', 'gm', 'mg', 'ml', 'mlt') or size <= 0:
+        return None, liquid
+    return [label or '1 serving', round(size, 1)], liquid
+
+
+def code_key(gtin):
+    """Barcodes compared without leading zeros: GTIN-14, EAN-13 and UPC-A agree."""
+    return re.sub(r'\D', '', str(gtin or '')).lstrip('0')
+
+
+def load_branded(index_path, cats):
+    picks = {}
+    for line in open(os.path.join(HERE, 'branded.tsv'), encoding='utf-8'):
+        parts = line.rstrip('\n').split('\t')
+        if len(parts) >= 2 and parts[0].isdigit():
+            picks[parts[0]] = parts[1]
+    rows = []
+    with gzip.open(index_path, 'rt', encoding='utf-8') as f:
+        for r in csv.reader(f, delimiter='\t'):
+            name = picks.get(r[0])
+            if not name:
+                continue
+            fdc, gtin, owner, brand, desc, cat, size, unit, house = r[:9]
+            kcal, p, c, fat = (max(0.0, float(x)) for x in r[9:13])
+            serving, liquid = serving_of(size, unit, household(house))
+            if cat not in cats:
+                cats.append(cat)
+            rows.append([int(fdc), name, round(kcal), round(p, 1), round(c, 1), round(fat, 1), cats.index(cat), 'br', [], 0, desc,
+                         code_key(gtin), serving, 1 if liquid else 0])
+    missing = set(picks) - {str(r[0]) for r in rows}
+    if missing:
+        print('branded picks not in index: %s' % sorted(missing), file=sys.stderr)
+    off = os.path.join(HERE, 'branded_off.tsv')
+    if os.path.exists(off):
+        cat = 'Packaged foods (Open Food Facts)'
+        if cat not in cats:
+            cats.append(cat)
+        for line in open(off, encoding='utf-8'):
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) < 10 or not parts[1].strip():
+                continue
+            name, code, pname, brand, ssize, sgrams = parts[:6]
+            kcal, p, c, fat = (max(0.0, float(x)) for x in parts[6:10])
+            liquid = bool(re.search(r'\d\s*ml\b', ssize, re.I))
+            serving, _ = serving_of(sgrams, 'ml' if liquid else 'g', household(ssize))
+            rows.append(['o' + code_key(code), name, round(kcal), round(p, 1), round(c, 1), round(fat, 1), cats.index(cat), 'offx', [], 0, pname,
+                         code_key(code), serving, 1 if liquid else 0])
+    return rows
+
+
+def main(folders, branded=None):
     categories, foods = {}, []
     for folder in folders:
         load(folder, categories, foods)
@@ -148,12 +234,14 @@ def main(folders):
         short = staples.get(f['id'])
         out.append([f['id'], short or f['name'], round(kcal), round(p, 1), round(c, 1), round(fat, 1),
                     cats.index(f['cat']), f['src'], f['servings'], 1 if short else 0, f['name'] if short else ''])
+    if branded:
+        out.extend(load_branded(branded, cats))
 
     doc = {
-        'v': 2,
-        'source': 'USDA FoodData Central (public domain): SR Legacy and Foundation Foods',
+        'v': 3,
+        'source': 'USDA FoodData Central (public domain): SR Legacy, Foundation Foods, Branded Foods; some packaged foods from Open Food Facts (ODbL)',
         'per': '100 g',
-        'fields': ['fdc_id', 'name', 'kcal', 'protein', 'carbs', 'fat', 'category', 'source', 'servings', 'staple', 'usda_name'],
+        'fields': ['fdc_id', 'name', 'kcal', 'protein', 'carbs', 'fat', 'category', 'source', 'servings', 'staple', 'usda_name', 'barcode', 'serving', 'drink'],
         'categories': cats,
         'foods': out,
     }
@@ -167,6 +255,10 @@ def main(folders):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    index = None
+    if args[:1] == ['--branded']:
+        index, args = args[1], args[2:]
+    if not args:
         sys.exit(__doc__)
-    main(sys.argv[1:])
+    main(args, index)

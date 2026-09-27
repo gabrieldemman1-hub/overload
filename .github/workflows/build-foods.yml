@@ -5,7 +5,7 @@ name: Build food list
 on:
   push:
     branches: [food-data]
-    paths: ['tools/build_foods.py', 'tools/staples.tsv', '.github/workflows/build-foods.yml']
+    paths: ['tools/build_foods.py', 'tools/staples.tsv', 'tools/branded.tsv', 'tools/branded_off.tsv', '.github/workflows/build-foods.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,12 @@ jobs:
             curl -fsSL -o usda/fnd.zip "https://fdc.nal.usda.gov/$link" && unzip -q usda/fnd.zip -d usda/fnd
           fi
 
+      - name: Get the branded index
+        run: |
+          git fetch --depth 1 origin food-raw
+          git show origin/food-raw:branded_index.tsv.gz > usda/branded_index.tsv.gz
+          git show origin/food-raw:release.txt
+
       - name: Build foods.json
         run: |
           sr=$(dirname "$(find usda/sr -name food.csv | head -1)")
@@ -36,7 +42,7 @@ jobs:
           fnd_csv=$(find usda/fnd -name food.csv 2>/dev/null | head -1 || true)
           if [ -n "$fnd_csv" ]; then dirs="$dirs $(dirname "$fnd_csv")"; fi
           mkdir -p data
-          python3 tools/build_foods.py $dirs > data/foods.json
+          python3 tools/build_foods.py --branded usda/branded_index.tsv.gz $dirs > data/foods.json
           ls -la data/foods.json
           echo "gzip size: $(gzip -9 -c data/foods.json | wc -c)"
 
