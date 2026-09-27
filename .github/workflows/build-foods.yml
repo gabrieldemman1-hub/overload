@@ -5,7 +5,7 @@ name: Build food list
 on:
   push:
     branches: [food-data]
-    paths: ['tools/build_foods.py', '.github/workflows/build-foods.yml']
+    paths: ['tools/build_foods.py', 'tools/staples.tsv', '.github/workflows/build-foods.yml']
   workflow_dispatch:
 
 permissions:
