@@ -84,6 +84,11 @@ Adding a food:
   from USDA Branded Foods label data, a few from Open Food Facts. They open at
   the label serving ("2 waffles (70 g)"), drinks go in ml and fl oz, and their
   barcodes are in the list, so scanning them works offline too.
+- **Store brands.** About 300 more from the stores I shop at: Sprouts,
+  Albertsons/Safeway (Lucerne, Signature Select, Signature Farms, Signature
+  Cafe, O Organics, Open Nature, Primo Taglio, Waterfront Bistro) and Costco
+  (Kirkland Signature). Search the brand ("lucerne cottage", "sprouts ground
+  turkey").
 - **Brands.** "Search brands" looks the name up in Open Food Facts (needs a
   connection).
 - **Scan a barcode.** Live camera, or Scan a photo, or type the number. Your
@@ -206,6 +211,9 @@ Packaged foods:
    `python3 tools/pick_branded.py branded_index.tsv.gz > tools/branded.tsv`
    and check the matches: the third column is USDA's description. Records whose
    calories do not fit their protein, carbs and fat are skipped.
+   A name of `*` names the product from USDA's description; `*ALL*` takes
+   every product of a brand (used for Sprouts and Kirkland Signature).
+   Review and tidy the names in `tools/branded.tsv` before committing.
 3. Products USDA lacks: "Fill foods from Open Food Facts" searches for them
    and commits `tools/branded_off.tsv`. Check it before building.
 

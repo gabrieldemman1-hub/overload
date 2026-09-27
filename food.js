@@ -27,7 +27,7 @@
   const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
   const OZ = 28.3495;
   const FLOZ = 29.5735;
-  const DB_URL = './data/foods.json?db=3';  // ?db= changes when the list is rebuilt; keep sw.js in step
+  const DB_URL = './data/foods.json?db=4';  // ?db= changes when the list is rebuilt; keep sw.js in step
   const OFF = 'https://world.openfoodfacts.org';
   const OFF_FIELDS = 'code,product_name,product_name_en,generic_name,brands,serving_size,serving_quantity,nutriments';
 

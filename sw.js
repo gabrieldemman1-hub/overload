@@ -1,13 +1,13 @@
 // Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v13';
+const CACHE = 'overload-v14';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=1.8',
-  './app.js?v=1.8',
-  './sync.js?v=1.8',
-  './food.js?v=1.8',
-  './data/foods.json?db=3',
+  './styles.css?v=1.9',
+  './app.js?v=1.9',
+  './sync.js?v=1.9',
+  './food.js?v=1.9',
+  './data/foods.json?db=4',
   './manifest.webmanifest',
   './icon.svg',
   './icon-180.png',

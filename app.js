@@ -9,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '1.8';
+  const VERSION = '1.9';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
