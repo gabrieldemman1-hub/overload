@@ -9,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '2.2';
+  const VERSION = '2.3';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -534,8 +534,11 @@
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
     const st = streakInfo();
     const streakLine = st.streak > 1 ? '<div class="banner">🔥 ' + st.streak + '-day streak. Keep it going.</div>' : '';
+    const night = state.sleep.find((x) => x.date === todayKey());
+    const redLine = day && night && night.recovery != null && night.recovery < 34 && ui.selectedDay === weekdayIndex()
+      ? '<div class="banner">🔴 Recovery ' + night.recovery + '% (red). Train, but hold the weights and skip extra sets today.</div>' : '';
     const checkin = renderCheckinCard();
-    return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + streakLine + (checkinDone() ? '' : checkin) + stripHtml + body + (checkinDone() ? checkin : '') + lastLine;
+    return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + streakLine + redLine + (checkinDone() ? '' : checkin) + stripHtml + body + (checkinDone() ? checkin : '') + lastLine;
   }
 
   // ---- Body weight ---------------------------------------------------------
@@ -552,12 +555,15 @@
     const today = todayKey();
     return !ui.checkinEdit && !weighDue() && (!state.settings.sleepOn || state.sleep.some((x) => x.date === today));
   }
+  // WHOOP recovery bands: green 67–100, yellow 34–66, red 0–33.
+  const recBand = (r) => (r >= 67 ? ['green', 'green'] : r >= 34 ? ['amber', 'yellow'] : ['accent', 'red']);
+  const recPill = (r) => (r == null ? '' : '<span class="pill ' + recBand(r)[0] + '">Recovery ' + r + '%</span>');
   function sleepAvg(days, endKey) {
     const from = addDays(endKey || todayKey(), -(days - 1)), to = endKey || todayKey();
     const list = state.sleep.filter((x) => x.date >= from && x.date <= to && x.total > 0);
     if (!list.length) return null;
     const avg = (k) => { const v = list.filter((x) => x[k] != null); return v.length ? v.reduce((n, x) => n + x[k], 0) / v.length : null; };
-    return { n: list.length, total: avg('total'), rem: avg('rem'), deep: avg('deep') };
+    return { n: list.length, total: avg('total'), rem: avg('rem'), deep: avg('deep'), recovery: avg('recovery'), rhr: avg('rhr'), hrv: avg('hrv') };
   }
   function sleepLine(x) {
     const pct = (v) => (v != null && x.total ? ' (' + Math.round(v / x.total * 100) + '%)' : '');
@@ -574,8 +580,8 @@
       if (bwToday) parts.push(fmtW(bwToday.weight) + ' ' + u);
       else if (lastBw && s.weighEvery) parts.push('Next weigh-in ' + fmtDate(addDays(lastBw.date, s.weighEvery)));
       const avg = sleepAvg(7);
-      return '<div class="card"><div class="row between"><b>Morning check-in ✓</b><button class="btn small ghost" data-action="checkin-edit">Edit</button></div>'
-        + '<div class="small mt8">' + esc(parts.concat(slToday ? [sleepLine(slToday)] : []).join(' · ')) + '</div>'
+      return '<div class="card"><div class="row between"><b>Morning check-in ✓</b><div class="row" style="gap:6px">' + (slToday ? recPill(slToday.recovery) : '') + '<button class="btn small ghost" data-action="checkin-edit">Edit</button></div></div>'
+        + '<div class="small mt8">' + esc(parts.concat(slToday ? [sleepLine(slToday) + (slToday.src === 'whoop' ? ' (WHOOP)' : '')] : []).join(' · ')) + '</div>'
         + (avg && avg.n > 1 ? '<div class="tiny muted mt8">7-night average ' + fmtHM(avg.total) + (avg.rem != null ? ' · REM ' + fmtHM(avg.rem) : '') + (avg.deep != null ? ' · deep ' + fmtHM(avg.deep) : '') + '</div>' : '') + '</div>';
     }
     const due = weighDue();
@@ -586,7 +592,9 @@
     return '<div class="card" id="checkin-card"><div class="row between"><b>Morning check-in</b>' + (due ? '<span class="pill amber">Weigh-in due</span>' : '') + '</div>'
       + '<form id="bw-form" class="mt8">'
       + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row" style="gap:6px"><input class="input" style="width:100px;text-align:center" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '"><span class="muted">' + u + '</span></div></div>' : '')
-      + (s.sleepOn ? hm('Time asleep', 'total', slToday ? slToday.total : null, 'From your watch or sleep app') + hm('REM', 'rem', slToday ? slToday.rem : null) + hm('Deep', 'deep', slToday ? slToday.deep : null) : '')
+      + (!s.sleepOn ? '' : slToday && slToday.src === 'whoop' && !ui.checkinEdit
+        ? '<div class="toggle-row"><div><div>Sleep <span class="tiny muted">from WHOOP</span></div><div class="small">' + esc(sleepLine(slToday)) + '</div></div>' + recPill(slToday.recovery) + '</div>'
+        : hm('Time asleep', 'total', slToday ? slToday.total : null, 'From your watch or sleep app') + hm('REM', 'rem', slToday ? slToday.rem : null) + hm('Deep', 'deep', slToday ? slToday.deep : null))
       + '<div class="btn-row mt8">' + (ui.checkinEdit ? '<button class="btn subtle" type="button" data-action="checkin-cancel">Cancel</button>' : '') + '<button class="btn" type="submit">Save</button></div></form></div>';
   }
   function saveCheckin(form) {
@@ -606,7 +614,12 @@
       done.push(fmtW(wt) + ' ' + state.settings.units);
     }
     if (total != null) {
-      state.sleep = state.sleep.filter((x) => x.date !== today).concat([{ date: today, total, rem, deep }]);
+      const prev = state.sleep.find((x) => x.date === today) || {};
+      const same = prev.total === total && prev.rem === rem && prev.deep === deep;
+      const next = { date: today, total, rem, deep };
+      ['recovery', 'rhr', 'hrv', 'perf', 'light'].forEach((k) => { if (prev[k] != null && (k !== 'light' || same)) next[k] = prev[k]; });
+      if (same && prev.src) next.src = prev.src;  // unchanged WHOOP night stays WHOOP's
+      state.sleep = state.sleep.filter((x) => x.date !== today).concat([next]);
       done.push(fmtHM(total) + ' sleep');
     }
     ui.checkinEdit = false;
@@ -973,7 +986,7 @@
     if (r.prs.length) lines.push('PRs: ' + r.prs.join('; '));
     if (r.bwAvg != null) lines.push('Body weight avg ' + fmtW(r.bwAvg) + ' ' + u + (r.bwPrevAvg != null ? ' (' + (r.bwAvg - r.bwPrevAvg >= 0 ? '+' : '') + fmtW(r.bwAvg - r.bwPrevAvg) + ' vs last week)' : ''));
     if (r.cardioMin) lines.push('Cardio ' + r.cardioMin + ' min');
-    if (r.sleep) lines.push('Sleep avg ' + fmtHM(r.sleep.total) + (r.sleep.rem != null ? ', REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ', deep ' + fmtHM(r.sleep.deep) : ''));
+    if (r.sleep) lines.push('Sleep avg ' + fmtHM(r.sleep.total) + (r.sleep.rem != null ? ', REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ', deep ' + fmtHM(r.sleep.deep) : '') + (r.sleep.recovery != null ? ', recovery ' + Math.round(r.sleep.recovery) + '%' : ''));
     return lines.join('\n');
   }
   function renderReviewCard() {
@@ -981,7 +994,7 @@
     const u = state.settings.units;
     const seg = '<div class="seg"><button class="' + (ui.reviewOffset === 0 ? 'on' : '') + '" data-action="review-set" data-v="0">This week</button><button class="' + (ui.reviewOffset === 1 ? 'on' : '') + '" data-action="review-set" data-v="1">Last week</button></div>';
     const bwLine = r.bwAvg != null ? '<li>Body weight avg <b>' + fmtW(r.bwAvg) + ' ' + u + '</b>' + (r.bwPrevAvg != null ? ' <span class="muted">(' + (r.bwAvg - r.bwPrevAvg >= 0 ? '+' : '') + fmtW(r.bwAvg - r.bwPrevAvg) + ' vs the week before)</span>' : '') + '</li>' : '';
-    const extra = (r.cardioMin ? '<li>Cardio <b>' + r.cardioMin + ' min</b></li>' : '') + (r.sleep ? '<li>Sleep avg <b>' + fmtHM(r.sleep.total) + '</b>' + (r.sleep.rem != null ? ' · REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ' · deep ' + fmtHM(r.sleep.deep) : '') + ' <span class="muted">(' + plural(r.sleep.n, 'night') + ')</span></li>' : '');
+    const extra = (r.cardioMin ? '<li>Cardio <b>' + r.cardioMin + ' min</b></li>' : '') + (r.sleep ? '<li>Sleep avg <b>' + fmtHM(r.sleep.total) + '</b>' + (r.sleep.rem != null ? ' · REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ' · deep ' + fmtHM(r.sleep.deep) : '') + (r.sleep.recovery != null ? ' · recovery ' + Math.round(r.sleep.recovery) + '%' : '') + ' <span class="muted">(' + plural(r.sleep.n, 'night') + ')</span></li>' : '');
     const body = r.workouts
       ? '<div class="stat-row mb8"><div class="stat"><div class="v">' + r.workouts + '</div><div class="k">Workouts</div></div><div class="stat"><div class="v">' + r.sets + '</div><div class="k">Sets</div></div><div class="stat"><div class="v">' + (r.tonnage >= 10000 ? (r.tonnage / 1000).toFixed(1) + 'k' : Math.round(r.tonnage)) + '</div><div class="k">' + u + ' lifted</div></div></div>'
         + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>🏆 PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + extra + '</ul>'
@@ -1009,11 +1022,12 @@
       + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + bars + labels + '</svg>'
       + '<div class="row tiny muted" style="gap:12px"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
       + (a ? '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtHM(a.total) + '</div><div class="k">7-night avg' + (diff != null ? ' (' + (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' min)' : '') + '</div></div><div class="stat"><div class="v">' + fmtHM(a.rem) + '</div><div class="k">REM avg</div></div><div class="stat"><div class="v">' + fmtHM(a.deep) + '</div><div class="k">Deep avg</div></div></div>' : '')
+      + (a && a.recovery != null ? '<div class="small mt8">Recovery avg <b>' + Math.round(a.recovery) + '%</b>' + (a.rhr != null ? ' · resting HR ' + Math.round(a.rhr) : '') + (a.hrv != null ? ' · HRV ' + Math.round(a.hrv) + ' ms' : '') + ' <span class="muted">(7 nights)</span></div>' : '')
       + '</div>';
   }
   function sheetSleep() {
     const list = sleepSorted().reverse();
-    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
+    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + (x.recovery != null ? ' · recovery ' + x.recovery + '%' : '') + (x.src === 'whoop' ? ' · WHOOP' : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
   }
 
   // ---- Body weight chart ---------------------------------------------------
@@ -1103,6 +1117,7 @@
       + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" style="max-width:200px" value="' + esc(s.cardioName) + '" data-field="cardio-name"></div>'
         + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin"></div>' : '')
       + '</div>'
+      + (window.__overloadConn ? window.__overloadConn.settingsCard() : '')
       + (window.__overloadFood ? window.__overloadFood.settingsCard() : '')
       + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
       + '<div class="btn-row"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
@@ -1483,6 +1498,7 @@
     if (!btn || btn.disabled) return;
     const a = btn.dataset.action, d = btn.dataset;
     if (a.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.click(a, d, btn); return; }
+    if (a.startsWith('conn-')) { if (window.__overloadConn) window.__overloadConn.click(a, d, btn); return; }
     const w = activeWorkout();
 
     switch (a) {
@@ -1656,6 +1672,7 @@
   document.addEventListener('change', (e) => {
     const el = e.target; const f = el.dataset.field; if (!f) return;
     if (f.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.change(el, f); return; }
+    if (f.startsWith('conn-')) { if (window.__overloadConn) window.__overloadConn.change(el, f); return; }
     const w = activeWorkout();
     switch (f) {
       case 'weight': case 'reps': {
@@ -1736,7 +1753,7 @@
   window.__overload = {
     get state() { return state; },
     get screen() { return ui.screen; },
-    setState, computeNext, save, render, toast,
+    setState, computeNext, save, render, toast, checkinDone,
     // Shared with food.js
     lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast },
     noteUpdateReady() { ui.updateReady = true; renderTopbar(); },

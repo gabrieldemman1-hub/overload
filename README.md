@@ -144,6 +144,8 @@ editing or deleting a food later never changes past days.
 | ---------------------- | -------------------------------------------- |
 | `index.html`           | App shell and bottom tab bar                 |
 | `app.js`               | State, progression algorithm, all screens    |
+| `connector.js`         | WHOOP sync and reminders in the app (talks to the connector) |
+| `connector/`           | The connector: a Cloudflare Worker (`worker.js`, `wrangler.toml`) |
 | `programs.js`          | Built-in program library (CBum, FST-7, arm programs) |
 | `styles.css`           | Dark theme with red accent                   |
 | `food.js`              | Food tab: search, amounts, barcode scanning  |
@@ -209,6 +211,46 @@ Firebase project setup (one time, in the Firebase console):
 `sync.js` holds the Firebase web config. Those values identify the project;
 they are not secrets. Access is controlled by the rules above, which only let a
 signed-in user read and write their own documents.
+
+## WHOOP and reminders (optional)
+
+A small connector (`connector/worker.js`) runs free on Cloudflare Workers. It
+holds the WHOOP app secret, logs in to WHOOP for you, returns last night's
+sleep and recovery to the app, and sends push reminders (morning check-in,
+workout, food log) at the times set in Settings → Reminders. It skips a
+reminder once that thing is done in the app, and skips the workout reminder on
+rest days. The app pairs with it using a random key kept in Settings (synced).
+
+What fills in from WHOOP: time asleep (light + deep + REM), REM, deep,
+recovery %, resting heart rate and HRV. Nights you typed yourself keep your
+numbers; WHOOP only adds recovery. A red recovery (under 34%) puts a "hold the
+weights" note on Today. Body weight stays manual.
+
+One-time setup:
+
+1. **Cloudflare** (free, no card): sign up at dash.cloudflare.com and open
+   Workers & Pages once, which gives you a `something.workers.dev` subdomain.
+   Note your **Account ID** (shown on the Workers & Pages page). Then My
+   Profile → API Tokens → Create Token → template **Edit Cloudflare Workers**
+   → Create, and copy the token.
+2. **WHOOP**: at developer.whoop.com, log in with your WHOOP account and create
+   an app (development apps work right away for up to 10 people). Scopes:
+   read:sleep, read:recovery, read:cycles, read:profile (and offline if listed).
+   Redirect URL: `https://overload-connector.<your-subdomain>.workers.dev/whoop/callback`.
+   If it asks for a privacy policy link, use the app's address. Copy the
+   **Client ID** and **Client Secret**.
+3. **GitHub**: in this repository, Settings → Secrets and variables → Actions →
+   New repository secret, four times: `CLOUDFLARE_API_TOKEN`,
+   `CLOUDFLARE_ACCOUNT_ID`, `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`.
+4. Actions → **Deploy connector** → Run workflow. Its summary shows the
+   connector's address and the exact WHOOP redirect URL. It writes the address
+   to `connector.json`, which is how the app finds it.
+5. On the phone, open Overload from its Home Screen icon: Settings → WHOOP →
+   Connect WHOOP, log in, close the page. Settings → Reminders → Turn on
+   reminders → Allow. (iPhone: iOS 16.4 or later, Home Screen app only.)
+
+The workflow redeploys whenever `connector/` changes. Without the Cloudflare
+secrets it does nothing.
 
 ## Backups
 

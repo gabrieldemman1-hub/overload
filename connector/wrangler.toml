@@ -1,0 +1,15 @@
+# Deployed by .github/workflows/deploy-connector.yml, which fills in the KV namespace id.
+name = "overload-connector"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+APP_URL = "https://gabrieldemman1-hub.github.io/overload/"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "KV_NAMESPACE_ID"
+
+[triggers]
+crons = ["*/5 * * * *"]

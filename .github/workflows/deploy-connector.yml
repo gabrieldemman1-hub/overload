@@ -1,0 +1,102 @@
+# Deploys connector/ (WHOOP sync + reminders) to Cloudflare Workers.
+# Needs repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, plus
+# WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET for WHOOP. See README → WHOOP and reminders.
+# Writes the connector's address to connector.json so the app finds it.
+name: Deploy connector
+
+on:
+  push:
+    branches: [main]
+    paths: ['connector/**', '.github/workflows/deploy-connector.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency: deploy-connector
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WHOOP_CLIENT_ID: ${{ secrets.WHOOP_CLIENT_ID }}
+      WHOOP_CLIENT_SECRET: ${{ secrets.WHOOP_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Connector not deployed: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Settings → Secrets and variables → Actions, then run this workflow."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$WHOOP_CLIENT_ID" ] || [ -z "$WHOOP_CLIENT_SECRET" ]; then
+            echo "::warning::WHOOP_CLIENT_ID / WHOOP_CLIENT_SECRET are not set: reminders will work, WHOOP sync will not."
+          fi
+
+      - name: KV namespace
+        if: steps.check.outputs.skip != '1'
+        run: |
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          id=$(curl -fsS -H "$auth" "$API/storage/kv/namespaces?per_page=100" | jq -r '.result[] | select(.title=="overload-connector") | .id' | head -1)
+          if [ -z "$id" ]; then
+            id=$(curl -fsS -X POST -H "$auth" -H 'Content-Type: application/json' -d '{"title":"overload-connector"}' "$API/storage/kv/namespaces" | jq -r .result.id)
+            echo "Created KV namespace $id"
+          fi
+          [ -n "$id" ] && [ "$id" != "null" ] || { echo "::error::Could not find or create the KV namespace. Check the API token has Workers KV Storage: Edit."; exit 1; }
+          sed -i "s/KV_NAMESPACE_ID/$id/" connector/wrangler.toml
+
+      - name: Deploy worker
+        if: steps.check.outputs.skip != '1'
+        working-directory: connector
+        run: npx --yes wrangler@4 deploy
+
+      - name: WHOOP secrets
+        if: steps.check.outputs.skip != '1' && env.WHOOP_CLIENT_ID != '' && env.WHOOP_CLIENT_SECRET != ''
+        working-directory: connector
+        run: |
+          jq -n --arg id "$WHOOP_CLIENT_ID" --arg s "$WHOOP_CLIENT_SECRET" '{WHOOP_CLIENT_ID:$id, WHOOP_CLIENT_SECRET:$s}' > "$RUNNER_TEMP/secrets.json"
+          npx --yes wrangler@4 secret bulk "$RUNNER_TEMP/secrets.json"
+          rm -f "$RUNNER_TEMP/secrets.json"
+
+      - name: Address and health check
+        if: steps.check.outputs.skip != '1'
+        id: url
+        run: |
+          sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
+          [ -n "$sub" ] && [ "$sub" != "null" ] || { echo "::error::No workers.dev subdomain yet. Open Workers & Pages in the Cloudflare dashboard once to pick one, then rerun."; exit 1; }
+          url="https://overload-connector.$sub.workers.dev"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 20); do
+            if curl -fsS "$url/" | tee /tmp/health.json; then echo; break; fi
+            sleep 5
+          done
+          grep -q '"ok":true' /tmp/health.json || { echo "::error::$url/ did not answer"; exit 1; }
+          {
+            echo "### Connector is live"
+            echo "- Address: $url"
+            echo "- WHOOP redirect URL (paste into your WHOOP app): \`$url/whoop/callback\`"
+            echo "- WHOOP keys set: $(jq -r .whoopReady /tmp/health.json)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tell the app where it is
+        if: steps.check.outputs.skip != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '{ "url": "%s" }\n' "${{ steps.url.outputs.url }}" > connector.json
+          if git diff --quiet -- connector.json 2>/dev/null && git ls-files --error-unmatch connector.json >/dev/null 2>&1; then
+            echo "connector.json unchanged"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add connector.json
+          git commit -m "connector.json: ${{ steps.url.outputs.url }}"
+          git push
+          # Pushes made by this workflow do not start a Pages build on their own.
+          gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" >/dev/null && echo "Pages rebuild requested" || echo "::warning::Could not request a Pages build; it will update on the next push."

@@ -1,13 +1,14 @@
 // Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v17';
+const CACHE = 'overload-v18';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=2.2',
-  './programs.js?v=2.2',
-  './app.js?v=2.2',
-  './sync.js?v=2.2',
-  './food.js?v=2.2',
+  './styles.css?v=2.3',
+  './programs.js?v=2.3',
+  './app.js?v=2.3',
+  './sync.js?v=2.3',
+  './food.js?v=2.3',
+  './connector.js?v=2.3',
   './data/foods.json?db=4',
   './manifest.webmanifest',
   './icon.svg',
@@ -70,5 +71,22 @@ self.addEventListener('fetch', (e) => {
       clearTimeout(t);
       fallback().then((hit) => { if (!hit) done(Response.error()); });
     });
+  }));
+});
+
+// Reminders from the connector (connector/worker.js): show them, and open the app on tap.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Overload', {
+    body: d.body || '', tag: d.tag || 'overload', icon: './icon-180.png', badge: './icon-180.png', data: { url: d.url || './' }
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || './';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const open = list.find((c) => c.url.startsWith(self.registration.scope));
+    return open ? open.focus() : self.clients.openWindow(target);
   }));
 });
