@@ -1,0 +1,29 @@
+# Looks up wishlist products that USDA Branded Foods lacks in Open Food Facts
+# and commits the results (tools/branded_off.tsv) to food-data for review.
+name: Fill foods from Open Food Facts
+
+on:
+  push:
+    branches: [food-data]
+    paths: ['tools/off_fill.py', '.github/workflows/off-fill.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Search Open Food Facts
+        run: python3 tools/off_fill.py > /tmp/off.tsv && mv /tmp/off.tsv tools/branded_off.tsv
+      - name: Commit
+        run: |
+          cat tools/branded_off.tsv
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/branded_off.tsv
+          git diff --cached --quiet && exit 0
+          git commit -m "Open Food Facts fill for products USDA lacks"
+          git push
