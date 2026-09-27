@@ -284,7 +284,8 @@ p { margin: 0; }
 .stat .v { font-size: 22px; font-weight: 800; }
 .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 
-.hist-set { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); padding: 2px 0; }
+.hist-set { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); padding: 2px 0; }
+.nowrap { white-space: nowrap; }
 .hist-set b { color: var(--text); }
 
 .banner { background: var(--accent-soft); color: var(--accent-2); border-radius: 12px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }

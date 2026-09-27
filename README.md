@@ -58,6 +58,16 @@ go past the top of the weekly sets target in Settings (default 20).
 - **Weekly volume.** Sets per muscle this week against a target range you set.
 - **Body weight.** Weigh-in reminder at a frequency you choose, with a running-average chart and 30-day change.
 - **Program templates.** Save a split and switch between them later.
+- **Program library.** Ten built-in programs on the Program tab: Chris
+  Bumstead's 5-day split, Push/Pull/Legs, Olympia split and an Arnold-style
+  split; Hany Rambod's FST-7 classic 5-day, FST-7 arms & calves twice, and the
+  Phil Heath FST-7 split; and three arm-focused programs (RP's arm
+  specialization, a full-body arms emphasis in the RP app's style, and an
+  upper/lower arms emphasis). View shows the week and every exercise's sets ×
+  reps; Use switches to it, saving your own program under Templates first.
+  Exercises you already have keep their weights. FST-7 finishers are their own
+  exercises ("Pec Deck (FST-7)"), always 7 sets with 35–50 s rest. Where a
+  source was paywalled or thin, the program says what it was built from.
 - **Consistency calendar and streak.** Training days by month, rest days faded, streak counted across scheduled days only.
 - **Weekly review.** Workouts, sets, tonnage, weight increases, PRs and body weight trend for this week or last, with a Share button.
 - **Equipment-aware jumps.** Barbell, dumbbell, machine and cable each have their own default weight jump (2.5 / 5 / 5 / 5 lb), with a per-exercise override.
@@ -121,6 +131,7 @@ editing or deleting a food later never changes past days.
 | ---------------------- | -------------------------------------------- |
 | `index.html`           | App shell and bottom tab bar                 |
 | `app.js`               | State, progression algorithm, all screens    |
+| `programs.js`          | Built-in program library (CBum, FST-7, arm programs) |
 | `styles.css`           | Dark theme with red accent                   |
 | `food.js`              | Food tab: search, amounts, barcode scanning  |
 | `data/foods.json`      | USDA food list, built by `tools/build_foods.py` |

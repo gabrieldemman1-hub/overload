@@ -9,8 +9,8 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '1.9';
-  const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
+  const VERSION = '2.0';
+  const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const WEEKDAYS_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -262,7 +262,7 @@
   const dayById = (id) => state.program.days.find((d) => d.id === id);
   const activeWorkout = () => (state.active ? state.workouts.find((w) => w.id === state.active) : null);
   function prescFor(exId) {
-    if (!state.presc[exId]) state.presc[exId] = { weight: 0, targetReps: repRange(exById(exId)).min, sets: state.settings.defaultSets, reasons: [], updatedAt: null };
+    if (!state.presc[exId]) { const ex = exById(exId); state.presc[exId] = { weight: 0, targetReps: repRange(ex).min, sets: (ex && ex.fixedSets) || state.settings.defaultSets, reasons: [], updatedAt: null }; }
     return state.presc[exId];
   }
   function repRange(ex) {
@@ -371,6 +371,7 @@
    *   - recovered early AND low pump                            -> +1 set
    *   - never sore AND workload easy                            -> +1 set
    * A +1 never pushes the muscle's planned weekly sets past the volume target.
+   * Exercises with fixed sets (FST-7 finishers: always 7) skip the set rule.
    */
   function computeNext(ex, presc, entry, soreness) {
     const logged = entry.sets.filter((s) => s.done && s.reps > 0);
@@ -437,6 +438,11 @@
       else { next.weight = Math.max(0, round(weight - 2 * inc, 0.01)); reasons.push('A lot of joint pain → dropped ' + fmtW(2 * inc) + ' ' + unit + '. Consider swapping this exercise'); }
     }
 
+    if (ex.fixedSets) {
+      next.sets = ex.fixedSets; next.soreCut = false;
+      if (fb.soreness === 3 || (fb.joint != null && fb.joint >= 2) || fb.workload === 3) reasons.push('Sets stay at ' + ex.fixedSets + ' (fixed for this exercise). Go lighter if recovery is struggling');
+      return next;
+    }
     let delta = 0, restore = false, capped = false;
     if (fb.soreness === 3) { delta = -1; next.soreCut = !!presc.soreCut || presc.sets > 1; reasons.push('Still sore → −1 set'); }
     else if (fb.joint != null && fb.joint >= 2) { delta = -1; reasons.push('Joint pain → −1 set'); }
@@ -672,8 +678,75 @@
 
     return '<div class="screen-title"><h1>Program</h1><button class="btn small" data-action="add-day">+ Day</button></div>'
       + days + '<div class="group-title">Weekly schedule</div><div class="card">' + schedule + '</div>'
+      + renderLibrary()
       + '<div class="group-title">Templates</div><div class="card"><p class="small muted mb8">Save this split so you can switch to another one later without rebuilding it. Weights and set counts live on the exercises, so they carry over.</p>'
       + '<div class="list">' + templates + '</div><button class="btn ghost block mt12" data-action="save-template">Save current program as template</button></div>';
+  }
+
+  // Built-in programs (programs.js). Listed on the Program screen; View shows the plan, Use switches to it.
+  const programs = () => window.__overloadPrograms || [];
+  function renderLibrary() {
+    const list = programs(); if (!list.length) return '';
+    return '<div class="group-title">Program library</div><div class="list">' + list.map((p) => '<button class="list-item" data-action="program-view" data-p="' + p.id + '"><div class="grow"><div class="title">' + esc(p.name) + '</div><div class="sub">'
+      + esc(p.by) + ' · ' + plural(p.schedule.filter((x) => x != null).length, 'day') + ' a week</div></div><span class="chev">›</span></button>').join('') + '</div>';
+  }
+  function exByName(name) { const n = name.toLowerCase(); return state.exercises.find((e) => e.name.toLowerCase() === n); }
+  function sheetProgram(id) {
+    const p = programs().find((x) => x.id === id); if (!p) return;
+    const week = WEEKDAYS.map((d, i) => '<span class="pill' + (p.schedule[i] == null ? '' : ' accent') + '">' + d + ' ' + (p.schedule[i] == null ? 'Rest' : esc(p.days[p.schedule[i]].short || p.days[p.schedule[i]].name)) + '</span>').join(' ');
+    const days = p.days.map((d) => '<div class="card flat"><b>' + esc(d.name) + '</b>' + d.ex.map(([name, sets, reps, note]) => {
+      const fst = /\(FST-7\)$/.test(name);
+      return '<div class="hist-set"><span>' + esc(name) + (exByName(name) ? '' : ' <span class="pill">new</span>') + '</span><span class="nowrap">' + (fst ? '<span class="pill amber">FST-7</span> ' : '') + sets + ' × ' + esc(reps) + '</span></div>'
+        + (note ? '<div class="tiny muted mb8">' + esc(note) + '</div>' : '');
+    }).join('') + '</div>').join('');
+    openSheet(sheetHeader(esc(p.name))
+      + '<p class="small muted mb8">' + esc(p.by) + '. ' + esc(p.about) + '</p>'
+      + '<div class="row mb8" style="flex-wrap:wrap;gap:6px">' + week + '</div>'
+      + (p.how ? '<div class="card flat small">' + esc(p.how) + '</div>' : '')
+      + days
+      + '<p class="tiny muted mt8">Sets × reps as the program writes them. Exercises marked <b>new</b> are added to your list with that rep range. Exercises you already have keep your weights, rep ranges and set counts, and the app keeps progressing them as usual.'
+      + (p.source ? ' Source: ' + esc(p.source) + '.' : '') + '</p>'
+      + '<button class="btn block mt12" data-action="program-use" data-p="' + p.id + '">Use this program</button>');
+  }
+  // Adds any exercise the program needs that you do not have yet. FST-7 finishers are their own
+  // exercise ("Pec Deck (FST-7)") so their lighter 7-set weights never mix with your normal ones.
+  function ensureProgramExercise(name, sets, reps, note) {
+    let ex = exByName(name); if (ex) return ex.id;
+    const fst = /\s*\(FST-7\)$/.test(name);
+    const base = exByName(name.replace(/\s*\(FST-7\)$/, ''));
+    const lib = (window.__overloadProgramExercises || {})[name.replace(/\s*\(FST-7\)$/, '')] || [];
+    const [lo, hi] = String(reps).split(/[–-]/).map((x) => parseInt(x, 10));
+    const muscle = (base && base.muscle) || lib[0] || 'Chest';
+    const big = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Glutes'].includes(muscle);
+    ex = { id: uid(), name, muscle, equipment: (base && base.equipment) || lib[1] || 'Machine', increment: null,
+      repMin: lo > 0 ? lo : null, repMax: hi >= lo ? hi : (lo > 0 ? lo : null), custom: true,
+      notes: fst ? 'FST-7: 7 sets, ' + (big ? '45–60' : '30–45') + ' s rest. Stretch the muscle and sip water between sets' : (note || null),
+      restSec: fst ? (big ? 50 : 35) : null, fixedSets: fst ? 7 : null };
+    state.exercises.push(ex);
+    state.presc[ex.id] = { weight: 0, targetReps: ex.repMin || state.settings.repMin, sets: fst ? 7 : clamp(sets, 1, state.settings.maxSets), reasons: [], updatedAt: null };
+    return ex.id;
+  }
+  // A program's shape by names, so an untouched copy of a template or built-in program is recognized.
+  function programSig(days, schedule, nameOf) {
+    return JSON.stringify([days.map((d) => [d.name, d.exercises.map(nameOf)]), schedule.map((i) => (i == null ? null : days[i].name))]);
+  }
+  function alreadySaved() {
+    const exName = (id) => { const e = exById(id); return e ? e.name.toLowerCase() : id; };
+    const idx = (days, sched) => sched.map((id) => { const i = days.findIndex((d) => d.id === id); return i < 0 ? null : i; });
+    const cur = programSig(state.program.days, idx(state.program.days, state.program.schedule), exName);
+    return state.templates.some((t) => programSig(t.days, idx(t.days, t.schedule), exName) === cur)
+      || programs().some((p) => programSig(p.days.map((d) => ({ name: d.name, exercises: d.ex.map((e) => e[0]) })), p.schedule, (n) => n.toLowerCase()) === cur);
+  }
+  function useProgram(id) {
+    const p = programs().find((x) => x.id === id); if (!p) return;
+    const keep = state.program.days.length && !alreadySaved();
+    if (!confirm('Switch to "' + p.name + '"? Your days and weekly schedule are replaced.' + (keep ? ' Your current program is saved under Templates first, so you can switch back.' : ''))) return;
+    if (keep) state.templates.push({ id: uid(), name: 'My program (before ' + p.name + ')', days: JSON.parse(JSON.stringify(state.program.days)), schedule: state.program.schedule.slice(), savedAt: todayKey() });
+    const before = state.exercises.length;
+    const days = p.days.map((d) => ({ id: uid(), name: d.name, exercises: d.ex.map(([name, sets, reps, note]) => ensureProgramExercise(name, sets, reps, note)) }));
+    state.program = { days, schedule: p.schedule.map((i) => (i == null ? null : days[i].id)) };
+    const added = state.exercises.length - before;
+    save(); closeSheet(); render(); toast('Now using ' + p.name + (added ? ' · ' + plural(added, 'new exercise') : ''));
   }
 
   // ---- Exercises -----------------------------------------------------------
@@ -953,7 +1026,7 @@
       + '<div class="field-row"><div class="field"><label>Weight (' + state.settings.units + ')</label><input class="input" name="weight" type="number" inputmode="decimal" step="any" min="0" value="' + (p.weight || '') + '"></div><div class="field"><label>Sets</label><input class="input" name="sets" type="number" inputmode="numeric" min="1" value="' + p.sets + '"></div><div class="field"><label>Goal reps</label><input class="input" name="targetReps" type="number" inputmode="numeric" min="1" value="' + p.targetReps + '"></div></div>'
       + '<div class="group-title" style="margin-top:6px">Overrides <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">(blank = use settings)</span></div>'
       + '<div class="field-row"><div class="field"><label>Weight jump</label><input class="input" name="increment" type="number" inputmode="decimal" step="any" min="0" placeholder="' + state.settings.increment + '" value="' + (ex.increment || '') + '"></div><div class="field"><label>Rep min</label><input class="input" name="repMin" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMin + '" value="' + (ex.repMin || '') + '"></div><div class="field"><label>Rep max</label><input class="input" name="repMax" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMax + '" value="' + (ex.repMax || '') + '"></div></div>'
-      + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '"></div><div class="field"></div><div class="field"></div></div>'
+      + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '"></div><div class="field"><label>Fixed sets</label><input class="input" name="fixedSets" type="number" inputmode="numeric" min="1" placeholder="auto" value="' + (ex.fixedSets || '') + '"></div><div class="field"></div></div>'
       + '<button class="btn block mt8" type="submit">Save</button>'
       + (exId ? '<button class="btn subtle block mt8" type="button" data-action="delete-ex" data-ex="' + exId + '">Delete exercise</button>' : '')
       + '</form>');
@@ -1313,6 +1386,8 @@
         break;
       }
       case 'save-template': saveTemplate(); break;
+      case 'program-view': sheetProgram(d.p); break;
+      case 'program-use': useProgram(d.p); break;
       case 'use-template': useTemplate(d.t); break;
       case 'delete-template': if (confirm('Delete this template?')) { state.templates = state.templates.filter((x) => x.id !== d.t); save(); render(); } break;
       case 'cal-prev': ui.calOffset--; render(); break;
@@ -1398,10 +1473,11 @@
     ex.restSec = num(f.get('restSec'), 0) > 0 ? Math.round(num(f.get('restSec'), 0)) : null;
     ex.repMin = num(f.get('repMin'), 0) > 0 ? Math.round(num(f.get('repMin'), 0)) : null;
     ex.repMax = num(f.get('repMax'), 0) > 0 ? Math.round(num(f.get('repMax'), 0)) : null;
+    ex.fixedSets = num(f.get('fixedSets'), 0) > 0 ? clamp(Math.round(num(f.get('fixedSets'), 0)), 1, 20) : null;
     if (ex.repMin && ex.repMax && ex.repMax < ex.repMin) ex.repMax = ex.repMin;
     const p = prescFor(ex.id);
     p.weight = Math.max(0, num(f.get('weight'), 0));
-    p.sets = clamp(Math.round(num(f.get('sets'), p.sets)), 1, 20);
+    p.sets = ex.fixedSets || clamp(Math.round(num(f.get('sets'), p.sets)), 1, 20);
     p.targetReps = clamp(Math.round(num(f.get('targetReps'), p.targetReps)), 1, 100);
     save();
     // If we came from the picker, add the new exercise to its target.
