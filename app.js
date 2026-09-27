@@ -9,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '2.0';
+  const VERSION = '2.1';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -153,7 +153,7 @@
   let state = null;
 
   function defaultSettings() {
-    return { units: 'lb', increment: 2.5, repMin: 10, repMax: 12, restSec: 120, maxSets: 6, defaultSets: 3, theme: 'system', trackRir: true, weighEvery: 7, volumeMin: 10, volumeMax: 20, warmupRest: 45, incDumbbell: 5, incMachine: 5, incCable: 5 };
+    return { units: 'lb', increment: 2.5, repMin: 10, repMax: 12, restSec: 120, maxSets: 6, defaultSets: 3, theme: 'system', trackRir: true, weighEvery: 7, volumeMin: 10, volumeMax: 20, warmupRest: 45, incDumbbell: 5, incMachine: 5, incCable: 5, cardioOn: true, cardioMin: 20, cardioName: 'Incline treadmill walk' };
   }
 
   function seedState() {
@@ -464,7 +464,7 @@
   // UI state
   // ---------------------------------------------------------------------------
   const ui = { screen: 'today', selectedDay: weekdayIndex(), dayKey: todayKey(), saveFailed: false, sheet: null, search: '', chartEx: null, sync: { status: 'off', msg: '' }, calOffset: 0, reviewOffset: 0, showOthers: false, updateReady: false };
-  const timer = { end: 0, total: 0, handle: null };
+  const timer = { end: 0, total: 0, handle: null, kind: 'rest' };
 
   // ---------------------------------------------------------------------------
   // Rendering
@@ -589,8 +589,48 @@
     const doneCount = w.entries.filter((e) => e.done).length;
     return '<div class="screen-title"><div><h1>' + esc(w.dayName) + '</h1><span class="sub">' + fmtDate(w.date) + ' · ' + doneCount + '/' + w.entries.length + ' done · <span id="elapsed">' + durationText(w) + '</span></span></div>'
       + '<button class="btn small ghost" data-action="add-entry">+ Exercise</button></div>'
-      + sorenessHtml + cards
+      + sorenessHtml + cards + renderCardioCard(w)
       + '<div class="btn-row mt12"><button class="btn subtle" data-action="discard-workout">Discard</button><button class="btn success" data-action="finish-workout">Finish workout</button></div>';
+  }
+
+  // ---- Cardio after lifting -----------------------------------------------
+  // One cardio block at the end of each workout (Settings → Cardio). Incline and speed carry over from last time.
+  const speedUnit = () => (state.settings.units === 'kg' ? 'km/h' : 'mph');
+  function lastCardio() {
+    for (let i = state.workouts.length - 1; i >= 0; i--) { const c = state.workouts[i].cardio; if (state.workouts[i].finishedAt && c && c.done) return c; }
+    return null;
+  }
+  function ensureCardio(w) {
+    if (w.cardio || !state.settings.cardioOn) return w.cardio;
+    const last = lastCardio();
+    w.cardio = { name: state.settings.cardioName || 'Cardio', min: state.settings.cardioMin || 20, incline: last ? last.incline : null, speed: last ? last.speed : null, speedUnit: speedUnit(), done: false };
+    return w.cardio;
+  }
+  // Walking energy cost (ACSM): VO2 = 0.1·speed + 1.8·speed·grade + 3.5 ml/kg/min, speed in m/min; ~5 kcal per litre O2.
+  function cardioKcal(c) {
+    const bw = bwSorted().slice(-1)[0];
+    if (!bw || !(c.speed > 0) || !(c.min > 0)) return null;
+    const kg = state.settings.units === 'kg' ? bw.weight : bw.weight * 0.4536;
+    const mpm = c.speed * (c.speedUnit === 'km/h' ? 1000 / 60 : 1609.34 / 60);
+    if (mpm > 134) return null; // over ~5 mph is running; the walking formula no longer fits
+    const vo2 = 0.1 * mpm + 1.8 * mpm * ((c.incline || 0) / 100) + 3.5;
+    return Math.round(vo2 * kg / 1000 * 5 * c.min);
+  }
+  function cardioText(c) {
+    const kcal = cardioKcal(c);
+    return c.min + ' min' + (c.incline != null ? ' · ' + fmtW(c.incline) + '% incline' : '') + (c.speed ? ' · ' + fmtW(c.speed) + ' ' + (c.speedUnit || speedUnit()) : '') + (kcal ? ' · ≈' + kcal + ' kcal' : '');
+  }
+  function renderCardioCard(w) {
+    const c = ensureCardio(w); if (!c) return '';
+    const running = timer.handle && timer.kind === 'cardio';
+    const last = lastCardio();
+    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : val) + '" data-field="cardio" data-k="' + k + '"></div>';
+    return '<div class="card' + (c.done ? ' flat' : '') + '" id="cardio-card"><div class="row between"><h3>' + esc(c.name) + '</h3>' + (c.done ? '<span class="pill green">Done</span>' : '<span class="pill">Cardio</span>') + '</div>'
+      + (c.done ? '<div class="small mt8">' + esc(cardioText(c)) + '</div><div class="btn-row mt8"><button class="btn subtle small" data-action="cardio-undo">Undo</button></div>'
+        : '<div class="field-row mt8">' + field('Minutes', 'min', c.min, '1') + field('Incline %', 'incline', c.incline, '0.5') + field('Speed ' + (c.speedUnit || speedUnit()), 'speed', c.speed, '0.1') + '</div>'
+          + (last ? '<div class="tiny muted mb8">Last time: ' + esc(cardioText(last)) + '</div>' : '')
+          + '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn success" data-action="cardio-done">Done ✓</button></div>')
+      + '</div>';
   }
 
   function renderEntryCard(w, en, idx) {
@@ -784,7 +824,7 @@
       const sets = w.entries.reduce((m, e) => m + e.sets.filter((s) => s.done).length, 0);
       const ups = w.entries.filter((e) => e.next && e.next.weight > (e.weightAtStart || 0) && e.weightAtStart > 0).length;
       const prs = w.entries.filter((e) => e.prs && e.prs.length).length;
-      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
+      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
     }).join('');
 
     return '<div class="screen-title"><h1>History</h1></div>' + stats + renderVolumeCard() + renderReviewCard() + renderCalendar() + chartSel + renderBwCard()
@@ -961,6 +1001,11 @@
       + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
       + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" style="width:auto" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
       + '</div>'
+      + '<div class="group-title">Cardio</div><div class="card">'
+      + '<div class="toggle-row"><div><div>Cardio after lifting</div><div class="small muted">Adds a cardio card with a timer to the end of every workout</div></div><div class="seg"><button class="' + (s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="1">On</button><button class="' + (!s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="0">Off</button></div></div>'
+      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" style="max-width:200px" value="' + esc(s.cardioName) + '" data-field="cardio-name"></div>'
+        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin"></div>' : '')
+      + '</div>'
       + (window.__overloadFood ? window.__overloadFood.settingsCard() : '')
       + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
       + '<div class="btn-row"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
@@ -1075,7 +1120,8 @@
         + (fb ? '<div class="tiny muted mt8">' + fb + '</div>' : '')
         + (en.next && en.next.reasons.length ? '<div class="tiny mt8" style="color:var(--amber)">' + esc(en.next.reasons[0]) + '</div>' : '') + '</div>'; }).join('');
     const sore = Object.keys(w.soreness || {}).map((m) => m + ': ' + SORENESS[w.soreness[m]]).join(' · ');
-    openSheet(sheetHeader(esc(w.dayName)) + '<p class="small muted mb8">' + fmtDate(w.date) + (durationText(w) ? ' · ' + durationText(w) : '') + (sore ? ' · ' + esc(sore) : '') + '</p>' + (body || '<div class="empty">Nothing logged</div>')
+    openSheet(sheetHeader(esc(w.dayName)) + '<p class="small muted mb8">' + fmtDate(w.date) + (durationText(w) ? ' · ' + durationText(w) : '') + (sore ? ' · ' + esc(sore) : '') + '</p>' + (body || (w.cardio ? '' : '<div class="empty">Nothing logged</div>'))
+      + (w.cardio && w.cardio.done ? '<div class="card flat"><div class="row between"><b>' + esc(w.cardio.name) + '</b><span class="pill">Cardio</span></div><div class="hist-set"><span>' + esc(cardioText(w.cardio)) + '</span></div></div>' : '')
       + '<div class="btn-row mt8"><button class="btn ghost" data-action="edit-workout" data-w="' + w.id + '">Edit sets</button><button class="btn subtle" data-action="delete-workout" data-w="' + w.id + '">Delete workout</button></div>');
   }
 
@@ -1207,7 +1253,11 @@
     // Auto-finish anything with logged sets that wasn't marked done, counting typed-but-unticked sets.
     let ticked = 0;
     w.entries.forEach((en, i) => { if (!en.done && exById(en.exId) && en.sets.some((s) => s.reps > 0)) ticked += finishEntry(w, i); });
-    const logged = w.entries.some((en) => en.done);
+    if (w.cardio && !w.cardio.done && state.settings.cardioOn && w.cardio.min > 0) {
+      if (confirm('Log your ' + w.cardio.min + ' min ' + w.cardio.name.toLowerCase() + ' with this workout?\n\nOK logs it. Cancel finishes without cardio.')) w.cardio.done = true;
+    }
+    if (w.cardio && !w.cardio.done) delete w.cardio;
+    const logged = w.entries.some((en) => en.done) || !!(w.cardio && w.cardio.done);
     if (!logged) {
       if (!confirm('Nothing logged. Discard this workout?')) return;
       state.workouts = state.workouts.filter((x) => x.id !== w.id);
@@ -1257,9 +1307,11 @@
       });
     } catch (e) { /* ignore */ }
   }
-  function startTimer(sec) {
+  function startTimer(sec, kind) {
     if (!sec) return;
     unlockAudio();
+    timer.kind = kind || 'rest';
+    const label = $('.rest-label'); if (label) label.textContent = timer.kind === 'cardio' ? 'Cardio' : 'Rest';
     timer.total = sec; timer.end = Date.now() + sec * 1000;
     $('#rest-timer').hidden = false;
     tick();
@@ -1270,9 +1322,15 @@
     const left = Math.max(0, Math.ceil((timer.end - Date.now()) / 1000));
     $('#rest-time').textContent = fmtTime(left);
     $('#rest-bar-fill').style.width = (left / timer.total * 100) + '%';
-    if (left <= 0) { stopTimer(); beep(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]); toast('Rest over'); }
+    if (left <= 0) {
+      const kind = timer.kind;
+      stopTimer(); beep(); if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      const w = activeWorkout();
+      if (kind === 'cardio' && w && w.cardio) { w.cardio.done = true; save(); render(); toast('Cardio done · ' + w.cardio.min + ' min logged'); }
+      else toast(kind === 'cardio' ? 'Cardio done' : 'Rest over');
+    }
   }
-  function stopTimer() { clearInterval(timer.handle); timer.handle = null; $('#rest-timer').hidden = true; }
+  function stopTimer() { clearInterval(timer.handle); timer.handle = null; timer.kind = 'rest'; $('#rest-timer').hidden = true; }
 
   // ---------------------------------------------------------------------------
   // Toast
@@ -1367,8 +1425,11 @@
       case 'remove-entry': if (confirm('Remove this exercise from today?')) { if (w.entries[+d.e].done) reopenEntry(w, +d.e); w.entries.splice(+d.e, 1); save(); render(); } break;
       case 'add-entry': sheetPicker({ workout: true }); break;
       case 'finish-workout': finishWorkout(); break;
+      case 'cardio-timer': { const c = ensureCardio(w); if (!c || !(c.min > 0)) break; startTimer(Math.round(c.min * 60), 'cardio'); render(); break; }
+      case 'cardio-done': { const c = ensureCardio(w); if (!c) break; if (timer.kind === 'cardio') stopTimer(); c.done = true; save(); render(); toast('Cardio logged'); break; }
+      case 'cardio-undo': if (w && w.cardio) { w.cardio.done = false; save(); render(); } break;
       case 'discard-workout': discardWorkout(); break;
-      case 'rest-skip': stopTimer(); break;
+      case 'rest-skip': { const k = timer.kind; stopTimer(); if (k === 'cardio') render(); break; }
       case 'rest-add': timer.end += 30000; timer.total += 30; tick(); break;
 
       // Program
@@ -1397,6 +1458,7 @@
       case 'bw-list': sheetBodyweight(); break;
       case 'bw-delete': state.bodyweight = state.bodyweight.filter((b) => b.date !== d.date); save(); sheetBodyweight(); render(); break;
       case 'set-rir': state.settings.trackRir = d.v === '1'; save(); render(); break;
+      case 'set-cardio': state.settings.cardioOn = d.v === '1'; save(); render(); break;
       case 'pick-new-ex': sheetExercise(null); break;
 
       // Exercises
@@ -1516,6 +1578,13 @@
         }
         save(); break;
       }
+      case 'cardio': {
+        const c = w && ensureCardio(w); if (!c) break;
+        const v = el.value === '' ? null : Math.max(0, num(el.value, 0));
+        if (el.dataset.k === 'min') c.min = v ? Math.round(v) : (state.settings.cardioMin || 20); else c[el.dataset.k] = v;
+        save(); if (el.dataset.k === 'min') render(); break;
+      }
+      case 'cardio-name': state.settings.cardioName = el.value.trim() || 'Cardio'; el.value = state.settings.cardioName; save(); break;
       case 'schedule': state.program.schedule[+el.dataset.i] = el.value || null; save(); render(); break;
       case 'day-name': { const day = dayById(el.dataset.day); day.name = el.value.trim() || day.name; el.value = day.name; save(); render(); break; }
       case 'setting': {
@@ -1523,6 +1592,7 @@
         if (k === 'increment' || k === 'incDumbbell' || k === 'incMachine' || k === 'incCable') v = Math.max(0.5, v);
         if (k === 'repMin' || k === 'repMax' || k === 'defaultSets' || k === 'maxSets') v = Math.max(1, Math.round(v));
         if (k === 'restSec' || k === 'warmupRest' || k === 'weighEvery' || k === 'volumeMin' || k === 'volumeMax') v = Math.max(0, Math.round(v));
+        if (k === 'cardioMin') v = clamp(Math.round(v), 1, 240);
         s[k] = v;
         if (s.repMax < s.repMin) s.repMax = s.repMin;
         if (s.volumeMax < s.volumeMin) s.volumeMax = s.volumeMin;

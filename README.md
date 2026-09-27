@@ -58,6 +58,13 @@ go past the top of the weekly sets target in Settings (default 20).
 - **Weekly volume.** Sets per muscle this week against a target range you set.
 - **Body weight.** Weigh-in reminder at a frequency you choose, with a running-average chart and 30-day change.
 - **Program templates.** Save a split and switch between them later.
+- **Cardio after lifting.** Every workout ends with a cardio card (default:
+  20 min incline treadmill walk). Enter incline and speed (carried over from
+  last time), start the 20:00 timer, and it logs itself when the time is up,
+  or tap Done. Finishing without it asks whether to log it. History shows the
+  minutes, incline, speed and an estimated calorie burn (ACSM walking formula,
+  from your last weigh-in). Change the name, minutes or turn it off in
+  Settings → Cardio.
 - **Program library.** Ten built-in programs on the Program tab: Chris
   Bumstead's 5-day split, Push/Pull/Legs, Olympia split and an Arnold-style
   split; Hany Rambod's FST-7 classic 5-day, FST-7 arms & calves twice, and the
