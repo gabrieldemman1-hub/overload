@@ -1,0 +1,57 @@
+# Builds data/foods.json from USDA FoodData Central and commits it back to
+# the food-data branch. Runs on GitHub's servers because they can reach USDA.
+name: Build food list
+
+on:
+  push:
+    branches: [food-data]
+    paths: ['tools/build_foods.py', '.github/workflows/build-foods.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download USDA data
+        run: |
+          mkdir -p usda
+          curl -fsSL -o usda/sr.zip https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_csv_2018-04.zip
+          unzip -q usda/sr.zip -d usda/sr
+          # Foundation Foods is republished with a new date in the file name; find the current link.
+          link=$(curl -fsSL https://fdc.nal.usda.gov/download-datasets | grep -o 'fdc-datasets/FoodData_Central_foundation_food_csv_[0-9-]*\.zip' | head -1 || true)
+          echo "Foundation link: ${link:-not found}"
+          if [ -n "$link" ]; then
+            curl -fsSL -o usda/fnd.zip "https://fdc.nal.usda.gov/$link" && unzip -q usda/fnd.zip -d usda/fnd
+          fi
+
+      - name: Build foods.json
+        run: |
+          sr=$(dirname "$(find usda/sr -name food.csv | head -1)")
+          dirs="$sr"
+          fnd_csv=$(find usda/fnd -name food.csv 2>/dev/null | head -1 || true)
+          if [ -n "$fnd_csv" ]; then dirs="$dirs $(dirname "$fnd_csv")"; fi
+          mkdir -p data
+          python3 tools/build_foods.py $dirs > data/foods.json
+          ls -la data/foods.json
+          echo "gzip size: $(gzip -9 -c data/foods.json | wc -c)"
+
+      - name: Check Open Food Facts from a server
+        run: |
+          curl -sS -D - -o off.json -H 'Origin: https://gabrieldemman1-hub.github.io' \
+            'https://world.openfoodfacts.org/api/v2/product/3017624010701.json?fields=product_name,brands,nutriments,serving_size' \
+            | grep -i -E '^HTTP|access-control' || true
+          head -c 600 off.json; echo
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/foods.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Build data/foods.json from USDA FoodData Central"
+          git push
