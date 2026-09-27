@@ -88,6 +88,17 @@ Adding a food:
   wrong? Fix them" does the same for a product whose data is off.
 - **Quick add.** Just calories and macros, no food.
 
+Faster logging:
+
+- **Favorites.** Tap ☆ on a food to keep it at the top of the add sheet and of
+  search results.
+- **Saved meals.** A meal's ⋯ menu → Save as a meal. It then sits at the top of
+  the add sheet (and in search); one tap logs every food in it to any meal.
+  Rename it, drop a food from it, or delete it from the same sheet.
+- **Copy.** The ⋯ menu copies yesterday's version of that meal, copies a past
+  day's meal to today, or clears the meal. An empty day offers to copy the whole
+  day before in one tap.
+
 Amounts go in grams, ounces, the label serving, or a USDA serving (1 cup,
 1 medium). Switching units keeps the weight: 200 g becomes 7.1 oz. A food
 remembers the last amount you used. Each logged entry keeps its own numbers, so
@@ -148,7 +159,7 @@ Data layout in Firestore:
 
 | Document                          | Contents                                          |
 | --------------------------------- | ------------------------------------------------- |
-| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, food targets and saved foods |
+| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, food targets, saved foods and meals |
 | `users/{uid}/workouts/{id}`       | one document per workout                          |
 | `users/{uid}/foodDays/{date}`     | one document per day of food log                  |
 

@@ -9,7 +9,8 @@
  *
  * Saved data (normalized in app.js):
  *   state.food.targets  { kcal, protein, carbs, fat }   empty means no target
- *   state.food.foods    { id: food }   every food logged or created, so recents work offline
+ *   state.food.foods    { id: food }   every food logged, created or starred (fav), so recents work offline
+ *   state.food.meals    { id: { id, name, items: [item] } }   saved meals; an item is an entry without id, meal, at
  *   state.diary         { 'YYYY-MM-DD': [entry] }
  * A food holds n (per 100 g), serving { label, g, n } from the label, and servings
  * [[label, grams]] from USDA. An entry keeps its own calories and macros, so
@@ -163,9 +164,15 @@
     return Object.values(S().food.foods).filter((f) => {
       const all = words(f.name + ' ' + (f.brand || '') + ' ' + (f.usda || ''));
       return q.every((t) => all.some((w) => w.startsWith(t)));
-    }).sort((a, b) => (b.used || 0) - (a.used || 0)).slice(0, 8);
+    }).sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0) || (b.used || 0) - (a.used || 0)).slice(0, 8);
   }
-  function recents() { return Object.values(S().food.foods).filter((f) => f.used).sort((a, b) => b.used - a.used).slice(0, 25); }
+  function favorites() { return Object.values(S().food.foods).filter((f) => f.fav).sort((a, b) => a.name.localeCompare(b.name)); }
+  function recents() { return Object.values(S().food.foods).filter((f) => f.used && !f.fav).sort((a, b) => b.used - a.used).slice(0, 25); }
+  function savedMeals() { return Object.values(S().food.meals).sort((a, b) => (b.used || 0) - (a.used || 0) || a.name.localeCompare(b.name)); }
+  function searchMeals(query) {
+    const q = words(query); if (!q.length) return [];
+    return savedMeals().filter((m) => { const all = words(m.name); return q.every((t) => all.some((w) => w.startsWith(t))); });
+  }
 
   // ---------------------------------------------------------------------------
   // Open Food Facts
@@ -242,10 +249,17 @@
       const kcal = sum(items).kcal;
       const rows = items.map((e) => '<button class="f-row" data-action="food-edit" data-id="' + esc(e.id) + '"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">'
         + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div><div class="f-rk">' + fmtK(e.kcal) + '</div></button>').join('');
-      return '<div class="card f-meal"><div class="f-meal-head"><h2>' + m + '</h2><span class="muted small">' + (items.length ? fmtK(kcal) + ' kcal' : '') + '</span></div>'
+      return '<div class="card f-meal"><div class="f-meal-head"><h2>' + m + '</h2><div class="row"><span class="muted small">' + (items.length ? fmtK(kcal) + ' kcal' : '') + '</span>'
+        + '<button class="icon-btn f-more" data-action="food-meal-menu" data-meal="' + mi + '" aria-label="' + m + ' options">⋯</button></div></div>'
         + rows + '<button class="btn subtle small block mt8" data-action="food-add" data-meal="' + mi + '">+ Add food</button></div>';
     }).join('');
-    return '<div class="screen-title"><h1>Food</h1></div>' + nav + summary + meals;
+    // An empty day offers the day before in one tap.
+    let copy = '';
+    if (!list.length) {
+      const prev = entriesFor(addDays(day, -1));
+      if (prev.length) copy = '<button class="btn ghost block f-copyday" data-action="food-copy-day">Copy ' + (day === today ? 'yesterday' : esc(fmtDate(addDays(day, -1)))) + ' · ' + countText(prev) + '</button>';
+    }
+    return '<div class="screen-title"><h1>Food</h1></div>' + nav + summary + copy + meals;
   }
 
   // ---------------------------------------------------------------------------
@@ -266,20 +280,29 @@
     const per = f.n ? fmtK(f.n.kcal) + ' kcal / 100 g' : f.serving && f.serving.n ? fmtK(f.serving.n.kcal) + ' kcal / ' + esc(servingText(f.serving)) : '';
     const macro = f.n ? ' · P ' + fmtG(f.n.p) + ' C ' + fmtG(f.n.c) + ' F ' + fmtG(f.n.f) : '';
     const sub = [f.brand && esc(f.brand), per + macro].filter(Boolean).join(' · ');
-    return '<button class="f-row" data-action="food-pick" data-src="' + src + '" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + esc(f.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
+    return '<button class="f-row" data-action="food-pick" data-src="' + src + '" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? '<span class="f-favmark">★</span> ' : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
   }
+  function mealRow(m) {
+    return '<button class="f-row" data-action="food-sm-open" data-id="' + esc(m.id) + '"><div class="grow"><div class="title">' + esc(m.name) + '</div><div class="sub">' + countText(m.items) + '</div></div><span class="chev">›</span></button>';
+  }
+  function countText(items) { return items.length + (items.length === 1 ? ' food' : ' foods') + ' · ' + fmtK(sum(items).kcal) + ' kcal'; }
   function renderResults() {
     const box = $('#food-results'); if (!box) return;
     const q = fu.search.trim();
     let html = '';
     if (!q) {
-      const rec = recents();
-      html = rec.length ? '<div class="group-title first">Recent</div>' + rec.map((f) => resultRow(f, 'mine')).join('')
-        : '<p class="small muted center mt16">Search the food list, scan a barcode, or type a food in from its label.<br>Foods you log show up here next time.</p>';
+      const meals = savedMeals(), fav = favorites(), rec = recents();
+      const sections = [];
+      if (meals.length) sections.push('<div class="group-title">Saved meals</div>' + meals.map(mealRow).join(''));
+      if (fav.length) sections.push('<div class="group-title">Favorites</div>' + fav.map((f) => resultRow(f, 'mine')).join(''));
+      if (rec.length) sections.push('<div class="group-title">Recent</div>' + rec.map((f) => resultRow(f, 'mine')).join(''));
+      html = sections.length ? sections.join('').replace('group-title', 'group-title first')
+        : '<p class="small muted center mt16">Search the food list, scan a barcode, or type a food in from its label.<br>Foods you log show up here next time. Tap ☆ on a food to keep it at the top.</p>';
     } else {
-      const mine = searchMine(q);
-      if (mine.length) html += '<div class="group-title first">Your foods</div>' + mine.map((f) => resultRow(f, 'mine')).join('');
-      html += '<div class="group-title' + (mine.length ? '' : ' first') + '">Common foods</div>';
+      const meals = searchMeals(q), mine = searchMine(q);
+      if (meals.length) html += '<div class="group-title first">Saved meals</div>' + meals.map(mealRow).join('');
+      if (mine.length) html += '<div class="group-title' + (html ? '' : ' first') + '">Your foods</div>' + mine.map((f) => resultRow(f, 'mine')).join('');
+      html += '<div class="group-title' + (html ? '' : ' first') + '">Common foods</div>';
       if (db) {
         const hits = searchDb(q, 30).filter((f) => !S().food.foods[f.id]);
         html += hits.length ? hits.map((f) => resultRow(f, 'usda')).join('') : '<p class="small muted">No common food matches. Try fewer words, or search brands below.</p>';
@@ -319,7 +342,9 @@
     const units = unitOptions(food).map((o) => '<option value="' + o.u + '" ' + (o.u === amt.unit ? 'selected' : '') + '>' + esc(o.label) + '</option>').join('');
     const back = fu.from === 'add' && !opts.entryId ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '';
     const fixable = food.src === 'custom' ? 'Edit food' : food.src === 'off' ? 'Numbers wrong? Fix them' : '';
-    openSheet(sheetHeader(opts.entryId ? 'Edit' : 'Add food', back)
+    const stored = S().food.foods[food.id];
+    const star = food.src === 'entry' ? '' : '<button class="icon-btn f-star' + (stored && stored.fav ? ' on' : '') + '" data-action="food-fav" aria-label="Favorite" aria-pressed="' + !!(stored && stored.fav) + '">' + (stored && stored.fav ? '★' : '☆') + '</button>';
+    openSheet(sheetHeader(opts.entryId ? 'Edit' : 'Add food', back + star)
       + '<div class="f-food-name">' + esc(food.name) + '</div>'
       + '<div class="small muted mb8">' + esc([food.brand, food.src === 'usda' ? 'USDA' : food.src === 'off' ? 'Open Food Facts' : food.src === 'custom' ? 'Your food' : ''].filter(Boolean).join(' · ')) + '</div>'
       + '<div class="f-amount"><input class="input" type="number" inputmode="decimal" step="any" min="0" data-field="food-qty" value="' + trimNum(amt.qty) + '" aria-label="Amount">'
@@ -389,6 +414,74 @@
       return;
     }
     sheetAmount(food, { meal: e.meal, entryId: e.id, qty: e.qty, unit: e.unit });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Favorites, saved meals, copying
+  // ---------------------------------------------------------------------------
+  function toggleFav() {
+    const x = fu.fx; if (!x || x.food.src === 'entry') return;
+    const st = S();
+    const f = st.food.foods[x.food.id] || (st.food.foods[x.food.id] = storable(x.food));
+    f.fav = !f.fav; if (!f.fav) delete f.fav;
+    O.save();
+    const b = $('[data-action="food-fav"]');
+    if (b) { b.textContent = f.fav ? '★' : '☆'; b.classList.toggle('on', !!f.fav); b.setAttribute('aria-pressed', String(!!f.fav)); }
+    toast(f.fav ? 'Added to favorites' : 'Removed from favorites');
+  }
+  // Copies are new entries with the same food, amount and numbers.
+  function addCopies(day, items, meal) {
+    const st = S(), now = Date.now();
+    const copies = items.map((e, i) => ({ id: uid(), food: e.food || null, meal: meal != null ? meal : e.meal, qty: e.qty, unit: e.unit, amt: e.amt || '', name: e.name, brand: e.brand || '',
+      kcal: e.kcal, p: e.p, c: e.c, f: e.f, at: now + i }));
+    if (!copies.length) return 0;
+    st.diary[day] = (st.diary[day] || []).concat(copies);
+    copies.forEach((e) => { const f = e.food && st.food.foods[e.food]; if (f) f.used = now; });
+    O.save();
+    return copies.length;
+  }
+  function copyText(n, where) { return 'Copied ' + n + (n === 1 ? ' food' : ' foods') + (where ? ' to ' + where : ''); }
+
+  function sheetMealMenu(mi) {
+    const day = dayKey(), today = todayKey(), prevDay = addDays(day, -1);
+    const items = entriesFor(day).filter((e) => e.meal === mi);
+    const prev = entriesFor(prevDay).filter((e) => e.meal === mi);
+    const prevName = day === today ? 'yesterday’s' : esc(fmtDate(prevDay)) + '’s';
+    const btn = (action, label, sub, cls) => '<button class="f-row" data-action="' + action + '" data-meal="' + mi + '"><div class="grow"><div class="title' + (cls ? ' ' + cls : '') + '">' + label + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div></button>';
+    let html = '';
+    if (prev.length) html += btn('food-copy-meal', 'Copy ' + prevName + ' ' + MEALS[mi], countText(prev));
+    if (items.length) html += btn('food-save-meal', 'Save as a meal', 'Log these ' + items.length + ' again in one tap');
+    if (items.length && day !== today) html += btn('food-copy-today', 'Copy to today', countText(items));
+    if (items.length) html += btn('food-clear-meal', 'Clear ' + MEALS[mi], '', 'f-danger');
+    openSheet(sheetHeader(MEALS[mi]) + (html ? '<div class="f-menu">' + html + '</div>' : '<p class="small muted center mt16 mb8">Nothing to copy, save or clear here yet.</p>'));
+  }
+  function saveMealAs(mi) {
+    const items = entriesFor(dayKey()).filter((e) => e.meal === mi); if (!items.length) return;
+    const name = prompt('Name this meal', MEALS[mi]);
+    if (name == null) return;
+    const id = uid();
+    S().food.meals[id] = { id, name: name.trim() || MEALS[mi], items: items.map(({ food, qty, unit, amt, name, brand, kcal, p, c, f }) => ({ food, qty, unit, amt, name, brand, kcal, p, c, f })) };
+    O.save(); closeSheet(); toast('Saved "' + (name.trim() || MEALS[mi]) + '"');
+  }
+  function sheetSavedMeal(id, meal) {
+    const m = S().food.meals[id]; if (!m) return;
+    fu.sm = { id, meal: meal != null ? meal : (fu.sm && fu.sm.id === id ? fu.sm.meal : fu.meal) };
+    const t = sum(m.items);
+    const cell = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
+    const rows = m.items.map((e, i) => '<div class="f-row f-static"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">' + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div>'
+      + '<div class="f-rk">' + fmtK(e.kcal) + '</div><button class="icon-btn f-x" data-action="food-sm-remove" data-i="' + i + '" aria-label="Remove ' + esc(e.name) + '">✕</button></div>').join('');
+    openSheet(sheetHeader(esc(m.name), fu.from === 'add' ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '')
+      + '<div class="stat-row f-preview">' + cell(fmtK(t.kcal), 'kcal') + cell(fmtG(t.p), 'Protein g') + cell(fmtG(t.c), 'Carbs g') + cell(fmtG(t.f), 'Fat g') + '</div>'
+      + '<div class="mt8">' + rows + '</div>'
+      + '<div class="field mt12"><label>Meal</label><div class="seg f-mealseg">' + MEALS.map((x, i) => '<button class="' + (i === fu.sm.meal ? 'on' : '') + '" data-action="food-sm-meal" data-i="' + i + '">' + x + '</button>').join('') + '</div></div>'
+      + '<button class="btn block mt12" data-action="food-sm-log">Add ' + countText(m.items).split(' · ')[0] + ' to ' + MEALS[fu.sm.meal] + '</button>'
+      + '<div class="btn-row mt8"><button class="btn subtle small" data-action="food-sm-rename">Rename</button><button class="btn danger small" data-action="food-sm-delete">Delete meal</button></div>');
+  }
+  function logSavedMeal() {
+    const m = fu.sm && S().food.meals[fu.sm.id]; if (!m) return;
+    const n = addCopies(dayKey(), m.items, fu.sm.meal);
+    m.used = Date.now(); O.save();
+    closeSheet(); O.render(); toast(copyText(n, MEALS[fu.sm.meal]));
   }
 
   // ---------------------------------------------------------------------------
@@ -641,6 +734,57 @@
         break;
       }
       case 'food-targets': sheetTargets(); break;
+      case 'food-fav': toggleFav(); break;
+      case 'food-meal-menu': sheetMealMenu(+d.meal); break;
+      case 'food-copy-meal': {
+        const mi = +d.meal, n = addCopies(dayKey(), entriesFor(addDays(dayKey(), -1)).filter((e) => e.meal === mi), mi);
+        closeSheet(); O.render(); toast(copyText(n)); break;
+      }
+      case 'food-copy-today': {
+        const mi = +d.meal, n = addCopies(todayKey(), entriesFor(dayKey()).filter((e) => e.meal === mi), mi);
+        closeSheet(); O.render(); toast(copyText(n, 'today')); break;
+      }
+      case 'food-copy-day': {
+        const n = addCopies(dayKey(), entriesFor(addDays(dayKey(), -1)));
+        O.render(); toast(copyText(n)); break;
+      }
+      case 'food-clear-meal': {
+        const mi = +d.meal, st = S(), day = dayKey();
+        if (!confirm('Remove everything from ' + MEALS[mi] + '?')) break;
+        const list = entriesFor(day).filter((e) => e.meal !== mi);
+        if (list.length) st.diary[day] = list; else delete st.diary[day];
+        O.save(); closeSheet(); O.render(); toast(MEALS[mi] + ' cleared'); break;
+      }
+      case 'food-save-meal': saveMealAs(+d.meal); break;
+      case 'food-sm-open': sheetSavedMeal(d.id, fu.meal); break;
+      case 'food-sm-meal': {
+        if (!fu.sm) break;
+        fu.sm.meal = +d.i;
+        document.querySelectorAll('.f-mealseg button').forEach((b) => b.classList.toggle('on', +b.dataset.i === +d.i));
+        const m = S().food.meals[fu.sm.id], go = $('[data-action="food-sm-log"]');
+        if (m && go) go.textContent = 'Add ' + countText(m.items).split(' · ')[0] + ' to ' + MEALS[+d.i];
+        break;
+      }
+      case 'food-sm-log': logSavedMeal(); break;
+      case 'food-sm-remove': {
+        const m = fu.sm && S().food.meals[fu.sm.id]; if (!m) break;
+        m.items.splice(+d.i, 1);
+        if (!m.items.length) { delete S().food.meals[m.id]; O.save(); fu.from === 'add' ? sheetAdd() : closeSheet(); toast('Meal deleted'); break; }
+        O.save(); sheetSavedMeal(m.id); break;
+      }
+      case 'food-sm-rename': {
+        const m = fu.sm && S().food.meals[fu.sm.id]; if (!m) break;
+        const name = prompt('Rename meal', m.name);
+        if (name && name.trim()) { m.name = name.trim(); O.save(); sheetSavedMeal(m.id); }
+        break;
+      }
+      case 'food-sm-delete': {
+        const m = fu.sm && S().food.meals[fu.sm.id]; if (!m) break;
+        if (!confirm('Delete the saved meal "' + m.name + '"? Days already logged are not changed.')) break;
+        delete S().food.meals[m.id]; O.save();
+        if (fu.from === 'add') sheetAdd(); else closeSheet();
+        toast('Meal deleted'); break;
+      }
     }
   }
   function input(el, f) {

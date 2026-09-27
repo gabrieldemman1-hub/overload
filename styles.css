@@ -386,3 +386,14 @@ p { margin: 0; }
 .f-scanview .guide { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 12px; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.25); }
 label.btn { cursor: pointer; }
 @media (max-width: 380px) { .tab { font-size: 10px; letter-spacing: 0.02em; } }
+/* Food: favorites, saved meals, meal menu */
+.f-meal-head .row { gap: 6px; }
+.f-more { width: 32px; height: 32px; font-size: 16px; background: transparent; }
+.f-star { font-size: 20px; color: var(--muted); }
+.f-star.on { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+.f-favmark { color: var(--amber); }
+.f-copyday { margin-bottom: 14px; }
+.f-menu .f-row:first-child { border-top: 0; }
+.f-row .title.f-danger { color: var(--accent-2); }
+.f-static { cursor: default; }
+.f-x { width: 32px; height: 32px; font-size: 14px; flex-shrink: 0; }

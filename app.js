@@ -9,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '1.6';
+  const VERSION = '1.7';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -192,6 +192,7 @@
     if (!st.food || typeof st.food !== 'object') st.food = {};
     st.food.targets = Object.assign({ kcal: null, protein: null, carbs: null, fat: null }, st.food.targets || {});
     if (!st.food.foods || typeof st.food.foods !== 'object') st.food.foods = {};
+    if (!st.food.meals || typeof st.food.meals !== 'object') st.food.meals = {};
     if (!st.diary || typeof st.diary !== 'object' || Array.isArray(st.diary)) st.diary = {};
     if ((st.libVersion || 1) < 2) {
       const byName = {};
