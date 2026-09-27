@@ -123,9 +123,9 @@
       } catch (e) { /* fall through to zxing */ }
     }
     if (!engine) {
-      const zx = await import('./zxing/reader/index.js');
+      const zx = await import('../vendor/zxing/reader/index.js');
       await zx.prepareZXingModule({
-        overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? new URL('./zxing/' + path, location.href).href : prefix + path) },
+        overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? new URL('../vendor/zxing/' + path, location.href).href : prefix + path) },
         fireImmediately: true,
       });
       const opts = { formats: FORMATS, tryHarder: true, maxNumberOfSymbols: 1 };

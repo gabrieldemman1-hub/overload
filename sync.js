@@ -4,8 +4,9 @@
  * localStorage; this module mirrors changes to the cloud and applies remote
  * changes back. Layout in Firestore:
  *
- *   users/{uid}/meta/state          { core: <json>, updatedAt }   settings, exercises, prescriptions, program
+ *   users/{uid}/meta/state          { core: <json>, updatedAt }   settings, exercises, prescriptions, program, food targets and saved foods
  *   users/{uid}/workouts/{workout}  { data: <json>, updatedAt }   one document per workout
+ *   users/{uid}/foodDays/{date}     { data: <json>, updatedAt }   one document per day of food log (its entries)
  *
  * Firestore's persistent cache queues writes while offline and replays them
  * when the network is back, so logging in the gym without signal is fine.
@@ -29,7 +30,7 @@ const firebaseConfig = {
 };
 
 const SYNC_KEY = 'overload.sync.v1';
-const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'templates'];
+const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'templates', 'food'];
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig);
@@ -38,7 +39,7 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
 const host = () => window.__overload;
 let user = null;
-let known = null;          // { uid, core: hash|null, workouts: { id: hash } } — what the cloud is known to hold
+let known = null;          // { uid, core: hash|null, workouts: { id: hash }, days: { date: hash } } — what the cloud is known to hold
 let unsubs = [];
 let pushTimer = null;
 let inflight = 0;
@@ -72,6 +73,8 @@ function loadKnown() {
     // Older versions stored full JSON copies. Shrink them to hashes.
     k.core = toHash(k.core);
     Object.keys(k.workouts).forEach((id) => { k.workouts[id] = toHash(k.workouts[id]); });
+    // Before the food log there were no days; the listener fills them in.
+    if (!k.days || typeof k.days !== 'object') k.days = {};
     return k;
   } catch (e) { return null; }
 }
@@ -82,6 +85,14 @@ function coreJson(s) { return JSON.stringify(coreOf(s)); }
 function metaRef() { return doc(db, 'users', user.uid, 'meta', 'state'); }
 function workoutRef(id) { return doc(db, 'users', user.uid, 'workouts', id); }
 function workoutsCol() { return collection(db, 'users', user.uid, 'workouts'); }
+function dayRef(date) { return doc(db, 'users', user.uid, 'foodDays', date); }
+function daysCol() { return collection(db, 'users', user.uid, 'foodDays'); }
+// Two phones logging the same day: keep every entry from both, the incoming copy winning for the same entry.
+function mergeDay(local, remote) {
+  const byId = new Map((local || []).map((e) => [e.id, e]));
+  remote.forEach((e) => byId.set(e.id, e));
+  return [...byId.values()].sort((a, b) => (a.at || 0) - (b.at || 0));
+}
 
 function report() {
   const h = host(); if (!h) return;
@@ -140,6 +151,15 @@ async function push() {
   Object.keys(known.workouts).forEach((id) => {
     if (!seen[id]) { ops.push((b) => b.delete(workoutRef(id))); delete known.workouts[id]; }
   });
+
+  const diary = s.diary || {};
+  Object.keys(diary).forEach((date) => {
+    const j = JSON.stringify(diary[date]), h = hash(j);
+    if (known.days[date] !== h) { ops.push((b) => b.set(dayRef(date), { data: j, updatedAt: now, v: 1 })); known.days[date] = h; }
+  });
+  Object.keys(known.days).forEach((date) => {
+    if (!diary[date]) { ops.push((b) => b.delete(dayRef(date))); delete known.days[date]; }
+  });
   saveKnown();
   if (!ops.length) return;
 
@@ -195,6 +215,29 @@ function listen() {
     saveKnown();
     host().setState(Object.assign({}, host().state, { workouts: list }));
   }, (e) => { lastError = friendly(e); report(); }));
+
+  unsubs.push(onSnapshot(daysCol(), (qs) => {
+    let changed = false;
+    const diary = Object.assign({}, host().state.diary);
+    qs.docChanges().forEach((ch) => {
+      if (ch.doc.metadata.hasPendingWrites) return;
+      const date = ch.doc.id;
+      if (ch.type === 'removed') {
+        if (known.days[date] === undefined) return;
+        delete diary[date]; delete known.days[date]; changed = true;
+      } else {
+        const j = ch.doc.data().data;
+        if (typeof j !== 'string' || known.days[date] === hash(j)) return;
+        let entries; try { entries = JSON.parse(j); } catch (e) { return; }
+        if (!Array.isArray(entries)) return;
+        if (entries.length) diary[date] = entries; else delete diary[date];
+        known.days[date] = hash(j); changed = true;
+      }
+    });
+    if (!changed) return;
+    saveKnown();
+    host().setState(Object.assign({}, host().state, { diary }));
+  }, (e) => { lastError = friendly(e); report(); }));
 }
 
 function stopListening() { unsubs.forEach((u) => u()); unsubs = []; }
@@ -219,11 +262,11 @@ async function link() {
   // (not the offline cache). Until that read succeeds nothing is uploaded, so
   // a bad connection can never make this phone overwrite the cloud copy.
   const uid = user.uid;
-  const fresh = { uid, core: null, workouts: {} };
+  const fresh = { uid, core: null, workouts: {}, days: {} };
   linking = uid;
   inflight++; report();
   try {
-    const [meta, ws] = await Promise.all([getDocFromServer(metaRef()), getDocsFromServer(workoutsCol())]);
+    const [meta, ws, ds] = await Promise.all([getDocFromServer(metaRef()), getDocsFromServer(workoutsCol()), getDocsFromServer(daysCol())]);
     if (!user || user.uid !== uid) return;
     const local = h.state;
     const localHasHistory = local.workouts.some((w) => w.finishedAt);
@@ -234,6 +277,8 @@ async function link() {
       fresh.core = hash(meta.data().core);
       Object.assign(next, JSON.parse(meta.data().core));
       if (!localHasHistory) next.workouts = [];
+      // Foods saved only on this phone are kept alongside the account's.
+      if (local.food && local.food.foods && next.food) next.food.foods = Object.assign({}, local.food.foods, next.food.foods || {});
     }
     ws.forEach((d) => {
       const j = d.data().data; if (typeof j !== 'string') return;
@@ -244,6 +289,16 @@ async function link() {
     });
     next.workouts.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
     if (next.active && !next.workouts.some((w) => w.id === next.active)) next.active = null;
+    // Food days are merged entry by entry, so neither phone's log is lost.
+    next.diary = Object.assign({}, local.diary || {});
+    ds.forEach((d) => {
+      const j = d.data().data; if (typeof j !== 'string') return;
+      let entries; try { entries = JSON.parse(j); } catch (e) { return; }
+      if (!Array.isArray(entries)) return;
+      fresh.days[d.id] = hash(j);
+      const merged = mergeDay(next.diary[d.id], entries);
+      if (merged.length) next.diary[d.id] = merged;
+    });
 
     known = fresh;
     saveKnown();

@@ -1,5 +1,6 @@
 /* Overload — personal hypertrophy tracker.
  * Vanilla JS, no build step. All data lives in localStorage on this device.
+ * The Food tab lives in food.js, which plugs in through window.__overloadFood.
  */
 (function () {
   'use strict';
@@ -8,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '1.5';
+  const VERSION = '1.6';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -188,6 +189,10 @@
     st.settings = Object.assign(defaultSettings(), st.settings || {});
     if (!Array.isArray(st.bodyweight)) st.bodyweight = [];
     if (!Array.isArray(st.templates)) st.templates = [];
+    if (!st.food || typeof st.food !== 'object') st.food = {};
+    st.food.targets = Object.assign({ kcal: null, protein: null, carbs: null, fat: null }, st.food.targets || {});
+    if (!st.food.foods || typeof st.food.foods !== 'object') st.food.foods = {};
+    if (!st.diary || typeof st.diary !== 'object' || Array.isArray(st.diary)) st.diary = {};
     if ((st.libVersion || 1) < 2) {
       const byName = {};
       st.exercises.forEach((e) => { byName[e.name.toLowerCase()] = e.id; });
@@ -465,6 +470,7 @@
     renderTopbar();
     switch (ui.screen) {
       case 'today': app.innerHTML = renderToday(); break;
+      case 'food': app.innerHTML = window.__overloadFood ? window.__overloadFood.render() : '<div class="empty">Loading…</div>'; break;
       case 'program': app.innerHTML = renderProgram(); break;
       case 'exercises': app.innerHTML = renderExercises(); break;
       case 'history': app.innerHTML = renderHistory(); break;
@@ -881,6 +887,7 @@
       + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
       + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" style="width:auto" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
       + '</div>'
+      + (window.__overloadFood ? window.__overloadFood.settingsCard() : '')
       + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
       + '<div class="btn-row"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
       + '<input type="file" accept="application/json,.json" id="import-file" hidden></div>'
@@ -929,7 +936,7 @@
   // Sheets
   // ---------------------------------------------------------------------------
   function openSheet(html) { ui.sheet = true; $('#sheet-panel').innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; }
-  function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; }
+  function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; document.dispatchEvent(new CustomEvent('overload:sheetclose')); }
   function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close">✕</button></div></div>'; }
 
   function sheetExercise(exId) {
@@ -1254,6 +1261,7 @@
     const btn = e.target.closest('[data-action]');
     if (!btn || btn.disabled) return;
     const a = btn.dataset.action, d = btn.dataset;
+    if (a.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.click(a, d, btn); return; }
     const w = activeWorkout();
 
     switch (a) {
@@ -1346,7 +1354,7 @@
       case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
       case 'import': $('#import-file').click(); break;
-      case 'reset': if (confirm('Erase all exercises, program and history on this phone?' + cloudNote('erased')) && confirm('Really erase everything?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
+      case 'reset': if (confirm('Erase all exercises, program, history and food log on this phone?' + cloudNote('erased')) && confirm('Really erase everything?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
 
       case 'sheet-close': closeSheet(); break;
 
@@ -1360,6 +1368,7 @@
   });
 
   document.addEventListener('submit', (e) => {
+    if (/^food-/.test(e.target.id || '')) { e.preventDefault(); if (window.__overloadFood) window.__overloadFood.submit(e.target); return; }
     if (e.target.closest('#cloud-form')) { e.preventDefault(); cloudAction('signin'); return; }
     if (e.target.closest('#bw-form')) { e.preventDefault(); logBodyweight(num(e.target.elements.weight.value, 0)); return; }
     const ef = e.target.closest('#edit-workout-form');
@@ -1406,12 +1415,14 @@
 
   document.addEventListener('input', (e) => {
     const el = e.target; const f = el.dataset.field; if (!f) return;
+    if (f.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.input(el, f); return; }
     if (f === 'search') { ui.search = el.value; const app = $('#app'); const html = renderExercises(); const tmp = document.createElement('div'); tmp.innerHTML = html; app.replaceChildren(...tmp.childNodes); const inp = $('[data-field="search"]'); inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     else if (f === 'pick-search') { ui.pickSearch = el.value; renderPicker(); const inp = $('[data-field="pick-search"]'); inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
   });
 
   document.addEventListener('change', (e) => {
     const el = e.target; const f = el.dataset.field; if (!f) return;
+    if (f.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.change(el, f); return; }
     const w = activeWorkout();
     switch (f) {
       case 'weight': case 'reps': {
@@ -1483,7 +1494,10 @@
   // API for sync.js (and console debugging).
   window.__overload = {
     get state() { return state; },
+    get screen() { return ui.screen; },
     setState, computeNext, save, render, toast,
+    // Shared with food.js
+    lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast },
     noteUpdateReady() { ui.updateReady = true; renderTopbar(); },
     setSyncStatus(status, msg) {
       ui.sync = { status, msg: msg || '' };

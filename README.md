@@ -3,6 +3,7 @@
 A personal hypertrophy tracker for one phone. Log weight, sets and reps; the app
 tells you what to lift next time based on the rep range and how you recovered.
 Modelled on the RP Hypertrophy app's flow, but without mesocycles or deloads.
+The Food tab logs calories, protein, carbs and fat against daily targets.
 
 No build step. Data lives in the browser on the phone, and optionally mirrors to
 a Firebase account (see Cloud sync below) so it survives clearing the phone.
@@ -64,6 +65,34 @@ go past the top of the weekly sets target in Settings (default 20).
 - **Fix a past workout.** Edit the sets of any finished workout. Deleting the latest workout for an exercise rolls its next-time weight back.
 - **Sound when rest is over.** A short beep, since iPhones ignore web vibration. The phone's mute switch silences it, and no web app can alert you while the phone is locked.
 
+## Food log
+
+The Food tab tracks calories, protein, carbs and fat for each day, in Breakfast,
+Lunch, Dinner and Snacks, against targets you set (Settings → Food targets, or
+Set target on the Food screen). Any target can be left empty.
+
+Adding a food:
+
+- **Search.** Your recent foods first, then about 7,700 common foods from USDA
+  FoodData Central (public domain). 87 everyday foods ("Chicken breast, cooked
+  (roasted)", "Milk, 2%", "Ground beef 93/7, raw") have short names and come
+  first. Raw and cooked are separate entries; weigh and log the same one.
+  The list is stored with the app, so search works offline.
+- **Brands.** "Search brands" looks the name up in Open Food Facts (needs a
+  connection).
+- **Scan a barcode.** Live camera, or Scan a photo, or type the number. The
+  product comes from Open Food Facts. Anything scanned or typed in is saved on
+  the phone, so the next scan of that barcode is instant and works offline.
+- **Not found?** Type it in once from the label (per serving, with the serving
+  weight if you want grams and ounces too). The barcode is remembered. "Numbers
+  wrong? Fix them" does the same for a product whose data is off.
+- **Quick add.** Just calories and macros, no food.
+
+Amounts go in grams, ounces, the label serving, or a USDA serving (1 cup,
+1 medium). Switching units keeps the weight: 200 g becomes 7.1 oz. A food
+remembers the last amount you used. Each logged entry keeps its own numbers, so
+editing or deleting a food later never changes past days.
+
 ## Files
 
 | File                   | Purpose                                      |
@@ -71,6 +100,11 @@ go past the top of the weekly sets target in Settings (default 20).
 | `index.html`           | App shell and bottom tab bar                 |
 | `app.js`               | State, progression algorithm, all screens    |
 | `styles.css`           | Dark theme with red accent                   |
+| `food.js`              | Food tab: search, amounts, barcode scanning  |
+| `data/foods.json`      | USDA food list, built by `tools/build_foods.py` |
+| `tools/`               | Food list builder and the everyday-foods list (`staples.tsv`) |
+| `vendor/zxing/`        | Barcode reader (zxing-wasm 3.1.4, MIT), self-hosted |
+| `lab/scan.html`        | Stand-alone barcode test page (not linked from the app) |
 | `sync.js`              | Optional cloud sync via Firebase             |
 | `firestore.rules`      | Firestore security rules to paste in Firebase|
 | `sw.js`                | Service worker so the app opens offline      |
@@ -114,8 +148,12 @@ Data layout in Firestore:
 
 | Document                          | Contents                                          |
 | --------------------------------- | ------------------------------------------------- |
-| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program       |
+| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, food targets and saved foods |
 | `users/{uid}/workouts/{id}`       | one document per workout                          |
+| `users/{uid}/foodDays/{date}`     | one document per day of food log                  |
+
+Two phones logging the same day keep both sets of entries when a phone first
+signs in; after that the latest change to a day wins, as with workouts.
 
 Firebase project setup (one time, in the Firebase console):
 
@@ -133,6 +171,14 @@ Export JSON opens the share sheet (Save to Files, AirDrop, Mail) with a file
 you can re-import later. iOS can clear website data for a home-screen app if
 you delete the app, so export now and then. If the phone ever refuses to save,
 a banner stays on screen with an Export button until saving works again.
+
+## Rebuilding the food list
+
+`data/foods.json` is generated, not edited by hand. Push a change to
+`tools/build_foods.py` or `tools/staples.tsv` on the `food-data` branch and the
+"Build food list" GitHub Action downloads USDA's SR Legacy and Foundation Foods,
+rebuilds the file and commits it to that branch; merge it into `main`. When the
+file changes, bump `?db=` in both `food.js` (`DB_URL`) and `sw.js`.
 
 ## Debugging
 

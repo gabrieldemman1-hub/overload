@@ -26,7 +26,7 @@
       } catch (e) {}
     })();
   </script>
-  <link rel="stylesheet" href="./styles.css?v=1.5">
+  <link rel="stylesheet" href="./styles.css?v=1.6">
 </head>
 <body>
   <header class="topbar">
@@ -55,6 +55,7 @@
 
   <nav class="tabbar">
     <button class="tab" data-screen="today"><span class="tab-icon">▶</span>Today</button>
+    <button class="tab" data-screen="food"><span class="tab-icon">◉</span>Food</button>
     <button class="tab" data-screen="program"><span class="tab-icon">☰</span>Program</button>
     <button class="tab" data-screen="exercises"><span class="tab-icon">◆</span>Exercises</button>
     <button class="tab" data-screen="history"><span class="tab-icon">▤</span>History</button>
@@ -68,7 +69,8 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="./app.js?v=1.5"></script>
-  <script type="module" src="./sync.js?v=1.5"></script>
+  <script src="./app.js?v=1.6"></script>
+  <script src="./food.js?v=1.6"></script>
+  <script type="module" src="./sync.js?v=1.6"></script>
 </body>
 </html>

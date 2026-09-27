@@ -1,11 +1,13 @@
 // Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v10';
+const CACHE = 'overload-v11';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=1.5',
-  './app.js?v=1.5',
-  './sync.js?v=1.5',
+  './styles.css?v=1.6',
+  './app.js?v=1.6',
+  './sync.js?v=1.6',
+  './food.js?v=1.6',
+  './data/foods.json?db=2',
   './manifest.webmanifest',
   './icon.svg',
   './icon-180.png',
@@ -42,7 +44,8 @@ self.addEventListener('activate', (e) => {
 // Gym wifi and one bar of signal are worse than offline: the request hangs.
 // If the network has not answered in NET_WAIT ms and a cached copy exists,
 // use the cached copy (the network reply still refreshes the cache).
-// Only our own files and the Firebase SDK scripts are cached; API traffic is not.
+// Only our own files and the Firebase SDK scripts are cached; API traffic
+// (Open Food Facts lookups) is not.
 const NET_WAIT = 3000;
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
