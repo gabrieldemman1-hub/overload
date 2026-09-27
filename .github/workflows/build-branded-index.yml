@@ -1,0 +1,49 @@
+# Downloads USDA Branded Foods (about 450,000 packaged products) and commits a
+# compact index to the food-raw branch. tools/branded.tsv picks products from
+# it for the app's food list. Run again when USDA publishes a new release.
+name: Build branded food index
+
+on:
+  push:
+    branches: [food-data]
+    paths: ['tools/build_branded_index.py', '.github/workflows/build-branded-index.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Branded Foods
+        run: |
+          link=$(curl -fsSL https://fdc.nal.usda.gov/download-datasets | grep -o 'fdc-datasets/FoodData_Central_branded_food_csv_[0-9-]*\.zip' | head -1)
+          echo "Branded link: $link"
+          test -n "$link"
+          echo "$link" > release.txt
+          curl -fsSL -o branded.zip "https://fdc.nal.usda.gov/$link"
+          ls -la branded.zip
+          unzip -q branded.zip -d branded
+          df -h . | tail -1
+
+      - name: Build index
+        run: |
+          dir=$(dirname "$(find branded -name branded_food.csv | head -1)")
+          python3 tools/build_branded_index.py "$dir" | gzip -9 > branded_index.tsv.gz
+          ls -la branded_index.tsv.gz
+
+      - name: Commit to food-raw
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mv branded_index.tsv.gz release.txt /tmp/
+          git checkout --orphan food-raw
+          git rm -rfq . >/dev/null
+          rm -rf branded branded.zip
+          cp /tmp/branded_index.tsv.gz /tmp/release.txt .
+          git add branded_index.tsv.gz release.txt
+          git commit -qm "USDA branded food index ($(cat release.txt))"
+          git push -f origin food-raw
