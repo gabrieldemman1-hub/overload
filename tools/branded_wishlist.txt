@@ -396,7 +396,7 @@ Ben & Jerry's Cherry Garcia | ben & jerry's | cherry garcia
 Häagen-Dazs Vanilla | haagen | vanilla
 Tillamook Vanilla Bean Ice Cream | tillamook | vanilla bean
 Tillamook Mudslide Ice Cream | tillamook | mudslide
-Dreyer's Slow Churned Vanilla | dreyer's | slow churned vanilla -yogurt
+Dreyer's Slow Churned Fat Free Frozen Yogurt, Vanilla | dreyer's | slow churned vanilla -yogurt
 Breyers Natural Vanilla | breyers | natural vanilla
 Kirkland Signature Vanilla Ice Cream | kirkland | vanilla ice cream
 Yasso Frozen Greek Yogurt, Vanilla | yasso | greek vanilla
@@ -421,7 +421,7 @@ Foster Farms Grilled Chicken Breast Strips | foster farms | grilled strips
 Foster Farms Crispy Chicken Strips | foster farms | strips
 Foster Farms Chicken Corn Dogs | foster farms | corn dogs
 Foster Farms Honey Roasted Turkey Breast | foster farms | honey roasted turkey
-Tyson Grilled & Ready Chicken Breast Strips | tyson | grilled ready strips
+Tyson Grilled & Ready Chicken Breast Strips, Applewood | tyson | grilled ready strips
 Tyson Chicken Nuggets | tyson | chicken nuggets
 Tyson Crispy Chicken Strips | tyson | crispy chicken strips
 Perdue Short Cuts Grilled Chicken | perdue | short cuts

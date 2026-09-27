@@ -8,7 +8,9 @@ without a USDA match it searches Open Food Facts (most scanned first) and keeps
 the first US product whose brand matches and has calories, protein, carbs and
 fat. Output: name, barcode, product name, brand, serving size, serving grams,
 kcal, protein, carbs, fat (per 100 g). Open Food Facts data is ODbL.
-Searches are spaced out to stay inside Open Food Facts' rate limit.
+Searches are spaced out to stay inside Open Food Facts' rate limit, and a
+busy answer (503, 429) is retried after a longer wait. Rows already in
+tools/branded_off.tsv are kept, so a rerun only searches what is still missing.
 """
 import csv
 import json
@@ -16,6 +18,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -38,7 +41,17 @@ def wishlist():
     return out
 
 
-def search(q):
+def search(q, tries=4):
+    for i in range(tries):
+        try:
+            return search_once(q)
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 502, 503, 504) or i == tries - 1:
+                raise
+            time.sleep(20 * 2 ** i)
+
+
+def search_once(q):
     url = 'https://world.openfoodfacts.org/cgi/search.pl?' + urllib.parse.urlencode({
         'search_terms': q, 'search_simple': 1, 'action': 'process', 'json': 1, 'page_size': 20,
         'sort_by': 'unique_scans_n', 'fields': FIELDS})
@@ -50,6 +63,13 @@ def search(q):
 def main():
     have = {l.split('\t')[1] for l in open(os.path.join(HERE, 'branded.tsv'), encoding='utf-8') if '\t' in l}
     w = csv.writer(sys.stdout, delimiter='\t', lineterminator='\n')
+    kept = os.path.join(HERE, 'branded_off.tsv')
+    wanted = {name for name, _, _ in wishlist()}
+    if os.path.exists(kept):
+        for row in csv.reader(open(kept, encoding='utf-8'), delimiter='\t'):
+            if row and row[0] in wanted:
+                w.writerow(row)
+                have.add(row[0])
     for name, brand, words in wishlist():
         if name in have:
             continue

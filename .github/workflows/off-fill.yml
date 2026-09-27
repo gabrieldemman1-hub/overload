@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Search Open Food Facts
-        run: python3 tools/off_fill.py > tools/branded_off.tsv
+        run: python3 tools/off_fill.py > /tmp/off.tsv && mv /tmp/off.tsv tools/branded_off.tsv
       - name: Commit
         run: |
           cat tools/branded_off.tsv
