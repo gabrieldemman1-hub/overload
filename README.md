@@ -58,6 +58,12 @@ go past the top of the weekly sets target in Settings (default 20).
 - **Weekly volume.** Sets per muscle this week against a target range you set.
 - **Body weight.** Weigh-in reminder at a frequency you choose, with a running-average chart and 30-day change.
 - **Program templates.** Save a split and switch between them later.
+- **Morning check-in.** The top of Today asks for body weight and last
+  night's sleep (time asleep, REM, deep, in hours and minutes from your watch
+  or sleep app). Once saved it shrinks to one line under the workout, with Edit.
+  History charts the last 14 nights (deep / REM / other) with 7-night averages,
+  and the weekly review shows average sleep and cardio minutes. Weigh-ins
+  default to every day; change that or turn sleep off in Settings.
 - **Cardio after lifting.** Every workout ends with a cardio card (default:
   20 min incline treadmill walk). Enter incline and speed (carried over from
   last time), start the 20:00 timer, and it logs itself when the time is up,

@@ -4,7 +4,7 @@
  * localStorage; this module mirrors changes to the cloud and applies remote
  * changes back. Layout in Firestore:
  *
- *   users/{uid}/meta/state          { core: <json>, updatedAt }   settings, exercises, prescriptions, program, food targets and saved foods
+ *   users/{uid}/meta/state          { core: <json>, updatedAt }   settings, exercises, prescriptions, program, body weight, sleep, food targets and saved foods
  *   users/{uid}/workouts/{workout}  { data: <json>, updatedAt }   one document per workout
  *   users/{uid}/foodDays/{date}     { data: <json>, updatedAt }   one document per day of food log (its entries)
  *
@@ -30,7 +30,7 @@ const firebaseConfig = {
 };
 
 const SYNC_KEY = 'overload.sync.v1';
-const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'templates', 'food'];
+const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'sleep', 'templates', 'food'];
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig);

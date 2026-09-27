@@ -9,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '2.1';
+  const VERSION = '2.2';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -153,11 +153,11 @@
   let state = null;
 
   function defaultSettings() {
-    return { units: 'lb', increment: 2.5, repMin: 10, repMax: 12, restSec: 120, maxSets: 6, defaultSets: 3, theme: 'system', trackRir: true, weighEvery: 7, volumeMin: 10, volumeMax: 20, warmupRest: 45, incDumbbell: 5, incMachine: 5, incCable: 5, cardioOn: true, cardioMin: 20, cardioName: 'Incline treadmill walk' };
+    return { units: 'lb', increment: 2.5, repMin: 10, repMax: 12, restSec: 120, maxSets: 6, defaultSets: 3, theme: 'system', trackRir: true, weighEvery: 1, volumeMin: 10, volumeMax: 20, warmupRest: 45, incDumbbell: 5, incMachine: 5, incCable: 5, cardioOn: true, cardioMin: 20, cardioName: 'Incline treadmill walk', sleepOn: true, checkinV: 1 };
   }
 
   function seedState() {
-    const s = { v: 1, settings: defaultSettings(), exercises: [], presc: {}, program: { days: [], schedule: [null, null, null, null, null, null, null] }, workouts: [], active: null, bodyweight: [], templates: [] };
+    const s = { v: 1, settings: defaultSettings(), exercises: [], presc: {}, program: { days: [], schedule: [null, null, null, null, null, null, null] }, workouts: [], active: null, bodyweight: [], sleep: [], templates: [] };
     const byName = {};
     LIBRARY.forEach(([name, muscle, equipment]) => {
       const ex = { id: uid(), name, muscle, equipment, increment: null, repMin: null, repMax: null, custom: false };
@@ -186,8 +186,12 @@
   }
   // Fill in fields added after v1 shipped so older saves keep working.
   function normalize(st) {
+    const hadCheckin = !!(st.settings && st.settings.checkinV);
     st.settings = Object.assign(defaultSettings(), st.settings || {});
+    // v2.2 morning check-in: weigh in every day (asked for once; change it in Settings after).
+    if (!hadCheckin) { st.settings.weighEvery = 1; st.settings.checkinV = 1; }
     if (!Array.isArray(st.bodyweight)) st.bodyweight = [];
+    if (!Array.isArray(st.sleep)) st.sleep = [];
     if (!Array.isArray(st.templates)) st.templates = [];
     if (!st.food || typeof st.food !== 'object') st.food = {};
     st.food.targets = Object.assign({ kcal: null, protein: null, carbs: null, fat: null }, st.food.targets || {});
@@ -530,22 +534,83 @@
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
     const st = streakInfo();
     const streakLine = st.streak > 1 ? '<div class="banner">🔥 ' + st.streak + '-day streak. Keep it going.</div>' : '';
-    return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + streakLine + stripHtml + body + renderBodyweightCard() + lastLine;
+    const checkin = renderCheckinCard();
+    return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + streakLine + (checkinDone() ? '' : checkin) + stripHtml + body + (checkinDone() ? checkin : '') + lastLine;
   }
 
   // ---- Body weight ---------------------------------------------------------
   function bwSorted() { return state.bodyweight.slice().sort((a, b) => (a.date < b.date ? -1 : 1)); }
-  function renderBodyweightCard() {
-    const every = state.settings.weighEvery;
-    if (!every) return '';
-    const list = bwSorted();
-    const lastBw = list[list.length - 1];
+  // ---- Morning check-in: body weight and last night's sleep ----------------
+  const sleepSorted = () => state.sleep.slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+  const fmtHM = (min) => (min == null ? '–' : Math.floor(min / 60) + 'h ' + String(Math.round(min % 60)).padStart(2, '0') + 'm');
+  function weighDue() {
+    const every = state.settings.weighEvery; if (!every) return false;
+    const last = bwSorted().slice(-1)[0];
+    return !last || daysBetween(last.date, todayKey()) >= every;
+  }
+  function checkinDone() {
     const today = todayKey();
-    const due = !lastBw || daysBetween(lastBw.date, today) >= every;
-    const nextKey = lastBw ? addDays(lastBw.date, every) : today;
-    const sub = lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + state.settings.units + ' on ' + fmtDate(lastBw.date) + (due ? '' : ' · next ' + fmtDate(nextKey)) : 'No weigh-ins yet';
-    return '<div class="card"><div class="row between"><div class="grow"><div class="row"><b>Body weight</b>' + (due ? '<span class="pill amber">Weigh-in due</span>' : '') + '</div><div class="small muted">' + sub + '</div></div></div>'
-      + '<form id="bw-form" class="row mt12"><input class="input grow" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : 'Weight') + '"><button class="btn" type="submit">Log</button></form></div>';
+    return !ui.checkinEdit && !weighDue() && (!state.settings.sleepOn || state.sleep.some((x) => x.date === today));
+  }
+  function sleepAvg(days, endKey) {
+    const from = addDays(endKey || todayKey(), -(days - 1)), to = endKey || todayKey();
+    const list = state.sleep.filter((x) => x.date >= from && x.date <= to && x.total > 0);
+    if (!list.length) return null;
+    const avg = (k) => { const v = list.filter((x) => x[k] != null); return v.length ? v.reduce((n, x) => n + x[k], 0) / v.length : null; };
+    return { n: list.length, total: avg('total'), rem: avg('rem'), deep: avg('deep') };
+  }
+  function sleepLine(x) {
+    const pct = (v) => (v != null && x.total ? ' (' + Math.round(v / x.total * 100) + '%)' : '');
+    return 'Slept ' + fmtHM(x.total) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) + pct(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) + pct(x.deep) : '');
+  }
+  function renderCheckinCard() {
+    const s = state.settings, today = todayKey(), u = s.units;
+    if (!s.weighEvery && !s.sleepOn) return '';
+    const bwToday = state.bodyweight.find((b) => b.date === today);
+    const slToday = state.sleep.find((x) => x.date === today);
+    const lastBw = bwSorted().slice(-1)[0];
+    if (checkinDone()) {
+      const parts = [];
+      if (bwToday) parts.push(fmtW(bwToday.weight) + ' ' + u);
+      else if (lastBw && s.weighEvery) parts.push('Next weigh-in ' + fmtDate(addDays(lastBw.date, s.weighEvery)));
+      const avg = sleepAvg(7);
+      return '<div class="card"><div class="row between"><b>Morning check-in ✓</b><button class="btn small ghost" data-action="checkin-edit">Edit</button></div>'
+        + '<div class="small mt8">' + esc(parts.concat(slToday ? [sleepLine(slToday)] : []).join(' · ')) + '</div>'
+        + (avg && avg.n > 1 ? '<div class="tiny muted mt8">7-night average ' + fmtHM(avg.total) + (avg.rem != null ? ' · REM ' + fmtHM(avg.rem) : '') + (avg.deep != null ? ' · deep ' + fmtHM(avg.deep) : '') + '</div>' : '') + '</div>';
+    }
+    const due = weighDue();
+    const showWeight = s.weighEvery && (due || bwToday || ui.checkinEdit);
+    const hm = (label, k, min, hint) => '<div class="toggle-row"><div><div>' + label + '</div>' + (hint ? '<div class="tiny muted">' + hint + '</div>' : '') + '</div><div class="row" style="gap:6px">'
+      + '<input class="input" style="width:62px;text-align:center" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '"><span class="muted">h</span>'
+      + '<input class="input" style="width:62px;text-align:center" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '"><span class="muted">m</span></div></div>';
+    return '<div class="card" id="checkin-card"><div class="row between"><b>Morning check-in</b>' + (due ? '<span class="pill amber">Weigh-in due</span>' : '') + '</div>'
+      + '<form id="bw-form" class="mt8">'
+      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row" style="gap:6px"><input class="input" style="width:100px;text-align:center" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '"><span class="muted">' + u + '</span></div></div>' : '')
+      + (s.sleepOn ? hm('Time asleep', 'total', slToday ? slToday.total : null, 'From your watch or sleep app') + hm('REM', 'rem', slToday ? slToday.rem : null) + hm('Deep', 'deep', slToday ? slToday.deep : null) : '')
+      + '<div class="btn-row mt8">' + (ui.checkinEdit ? '<button class="btn subtle" type="button" data-action="checkin-cancel">Cancel</button>' : '') + '<button class="btn" type="submit">Save</button></div></form></div>';
+  }
+  function saveCheckin(form) {
+    const f = new FormData(form), today = todayKey();
+    const mins = (k) => { const h = f.get(k + 'H'), m = f.get(k + 'M'); if ((h == null || h === '') && (m == null || m === '')) return null; return Math.max(0, Math.round(num(h, 0) * 60 + num(m, 0))); };
+    const wt = f.get('weight') != null && f.get('weight') !== '' ? num(f.get('weight'), 0) : null;
+    const total = mins('total'), rem = mins('rem'), deep = mins('deep');
+    if (wt == null && total == null && rem == null && deep == null) { toast(state.settings.sleepOn ? 'Enter your weight or sleep' : 'Enter a weight'); return; }
+    if (wt != null && !(wt > 0)) { toast('Enter a weight'); return; }
+    if ((rem != null || deep != null) && total == null) { toast('Enter total time asleep too'); return; }
+    if (total != null && (total < 30 || total > 16 * 60)) { toast('Time asleep looks off: ' + fmtHM(total)); return; }
+    if (total != null && (rem || 0) + (deep || 0) > total) { toast('REM + deep is more than total sleep'); return; }
+    const done = [];
+    if (wt != null) {
+      const ex = state.bodyweight.find((b) => b.date === today);
+      if (ex) ex.weight = wt; else state.bodyweight.push({ date: today, weight: wt });
+      done.push(fmtW(wt) + ' ' + state.settings.units);
+    }
+    if (total != null) {
+      state.sleep = state.sleep.filter((x) => x.date !== today).concat([{ date: today, total, rem, deep }]);
+      done.push(fmtHM(total) + ' sleep');
+    }
+    ui.checkinEdit = false;
+    save(); render(); toast('Logged ' + done.join(' · '));
   }
 
   // ---- Streak --------------------------------------------------------------
@@ -827,7 +892,7 @@
       return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
     }).join('');
 
-    return '<div class="screen-title"><h1>History</h1></div>' + stats + renderVolumeCard() + renderReviewCard() + renderCalendar() + chartSel + renderBwCard()
+    return '<div class="screen-title"><h1>History</h1></div>' + stats + renderVolumeCard() + renderReviewCard() + renderCalendar() + chartSel + renderBwCard() + renderSleepCard()
       + '<div class="group-title">Workouts</div><div class="list">' + (items || '<div class="empty">No workouts yet. Finish one and it shows up here.</div>') + '</div>';
   }
 
@@ -897,7 +962,8 @@
     const bw = bwSorted().filter((b) => b.date >= start && b.date <= end);
     const bwPrev = bwSorted().filter((b) => b.date >= addDays(start, -7) && b.date < start);
     const avg = (arr) => (arr.length ? arr.reduce((n, b) => n + b.weight, 0) / arr.length : null);
-    return { start, end, workouts: ws.length, sets, tonnage, prs, ups, topMuscles, bwAvg: avg(bw), bwPrevAvg: avg(bwPrev) };
+    const cardioMin = ws.reduce((n, w) => n + (w.cardio && w.cardio.done ? w.cardio.min : 0), 0);
+    return { start, end, workouts: ws.length, sets, tonnage, prs, ups, topMuscles, bwAvg: avg(bw), bwPrevAvg: avg(bwPrev), sleep: sleepAvg(7, end < todayKey() ? end : todayKey()), cardioMin };
   }
   function reviewText(r) {
     const u = state.settings.units;
@@ -906,6 +972,8 @@
     if (r.ups.length) lines.push('Weight up: ' + r.ups.join(', '));
     if (r.prs.length) lines.push('PRs: ' + r.prs.join('; '));
     if (r.bwAvg != null) lines.push('Body weight avg ' + fmtW(r.bwAvg) + ' ' + u + (r.bwPrevAvg != null ? ' (' + (r.bwAvg - r.bwPrevAvg >= 0 ? '+' : '') + fmtW(r.bwAvg - r.bwPrevAvg) + ' vs last week)' : ''));
+    if (r.cardioMin) lines.push('Cardio ' + r.cardioMin + ' min');
+    if (r.sleep) lines.push('Sleep avg ' + fmtHM(r.sleep.total) + (r.sleep.rem != null ? ', REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ', deep ' + fmtHM(r.sleep.deep) : ''));
     return lines.join('\n');
   }
   function renderReviewCard() {
@@ -913,11 +981,39 @@
     const u = state.settings.units;
     const seg = '<div class="seg"><button class="' + (ui.reviewOffset === 0 ? 'on' : '') + '" data-action="review-set" data-v="0">This week</button><button class="' + (ui.reviewOffset === 1 ? 'on' : '') + '" data-action="review-set" data-v="1">Last week</button></div>';
     const bwLine = r.bwAvg != null ? '<li>Body weight avg <b>' + fmtW(r.bwAvg) + ' ' + u + '</b>' + (r.bwPrevAvg != null ? ' <span class="muted">(' + (r.bwAvg - r.bwPrevAvg >= 0 ? '+' : '') + fmtW(r.bwAvg - r.bwPrevAvg) + ' vs the week before)</span>' : '') + '</li>' : '';
+    const extra = (r.cardioMin ? '<li>Cardio <b>' + r.cardioMin + ' min</b></li>' : '') + (r.sleep ? '<li>Sleep avg <b>' + fmtHM(r.sleep.total) + '</b>' + (r.sleep.rem != null ? ' · REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ' · deep ' + fmtHM(r.sleep.deep) : '') + ' <span class="muted">(' + plural(r.sleep.n, 'night') + ')</span></li>' : '');
     const body = r.workouts
       ? '<div class="stat-row mb8"><div class="stat"><div class="v">' + r.workouts + '</div><div class="k">Workouts</div></div><div class="stat"><div class="v">' + r.sets + '</div><div class="k">Sets</div></div><div class="stat"><div class="v">' + (r.tonnage >= 10000 ? (r.tonnage / 1000).toFixed(1) + 'k' : Math.round(r.tonnage)) + '</div><div class="k">' + u + ' lifted</div></div></div>'
-        + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>🏆 PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + '</ul>'
-      : '<div class="empty small">No workouts logged for this week' + bwLine.replace(/<\/?li>/g, ' ').replace(/<[^>]+>/g, '') + '.</div>';
+        + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>🏆 PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + extra + '</ul>'
+      : '<div class="empty small">No workouts logged for this week.</div>' + (bwLine || extra ? '<ul class="review-list">' + bwLine + extra + '</ul>' : '');
     return '<div class="card"><div class="row between mb8"><b>Weekly review</b>' + seg + '</div>' + body + '<button class="btn ghost block mt8" data-action="review-share" ' + (r.workouts ? '' : 'disabled') + '>Share</button></div>';
+  }
+
+  // ---- Sleep chart: last 14 nights, deep / REM / other stacked ------------------
+  function renderSleepCard() {
+    const list = sleepSorted(); if (!list.length) return '';
+    const days = []; for (let i = 13; i >= 0; i--) days.push(addDays(todayKey(), -i));
+    const by = {}; list.forEach((x) => { by[x.date] = x; });
+    const W = 320, H = 150, padL = 26, padR = 6, padT = 8, padB = 22, top = Math.max(9 * 60, ...days.map((k) => (by[k] ? by[k].total : 0)));
+    const bw = (W - padL - padR) / days.length;
+    const y = (m) => padT + (1 - m / top) * (H - padT - padB);
+    const bars = days.map((k, i) => { const x = by[k]; if (!x) return ''; const x0 = (padL + i * bw + 2).toFixed(1), w = (bw - 4).toFixed(1);
+      const deep = x.deep || 0, rem = x.rem || 0;
+      const seg = (from, to, cls) => (to > from ? '<rect class="' + cls + '" x="' + x0 + '" y="' + y(to).toFixed(1) + '" width="' + w + '" height="' + (y(from) - y(to)).toFixed(1) + '" rx="1.5"/>' : '');
+      return '<g><title>' + fmtDate(k) + ': ' + sleepLine(x) + '</title>' + seg(0, deep, 'sl-deep') + seg(deep, deep + rem, 'sl-rem') + seg(deep + rem, x.total, 'sl-other') + '</g>'; }).join('');
+    const grid = [0, 4, 8].map((h) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(h * 60).toFixed(1) + '" y2="' + y(h * 60).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(h * 60) + 3).toFixed(1) + '">' + h + 'h</text>').join('');
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(days[0]) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">Today</text>';
+    const a = sleepAvg(7), p = sleepAvg(7, addDays(todayKey(), -7));
+    const diff = a && p ? Math.round(a.total - p.total) : null;
+    return '<div class="card"><div class="row between mb8"><b>Sleep</b><button class="btn small ghost" data-action="sleep-list">' + plural(list.length, 'night') + '</button></div>'
+      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + bars + labels + '</svg>'
+      + '<div class="row tiny muted" style="gap:12px"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
+      + (a ? '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtHM(a.total) + '</div><div class="k">7-night avg' + (diff != null ? ' (' + (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' min)' : '') + '</div></div><div class="stat"><div class="v">' + fmtHM(a.rem) + '</div><div class="k">REM avg</div></div><div class="stat"><div class="v">' + fmtHM(a.deep) + '</div><div class="k">Deep avg</div></div></div>' : '')
+      + '</div>';
+  }
+  function sheetSleep() {
+    const list = sleepSorted().reverse();
+    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
   }
 
   // ---- Body weight chart ---------------------------------------------------
@@ -1000,6 +1096,7 @@
       + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest"></div>'
       + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
       + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" style="width:auto" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
+      + '<div class="toggle-row"><div><div>Sleep</div><div class="small muted">Time asleep, REM and deep in the morning check-in</div></div><div class="seg"><button class="' + (s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="1">On</button><button class="' + (!s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="0">Off</button></div></div>'
       + '</div>'
       + '<div class="group-title">Cardio</div><div class="card">'
       + '<div class="toggle-row"><div><div>Cardio after lifting</div><div class="small muted">Adds a cardio card with a timer to the end of every workout</div></div><div class="seg"><button class="' + (s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="1">On</button><button class="' + (!s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="0">Off</button></div></div>'
@@ -1232,14 +1329,6 @@
     save(); render(); toast('Now using ' + t.name);
   }
 
-  function logBodyweight(v) {
-    if (!(v > 0)) { toast('Enter a weight'); return; }
-    const today = todayKey();
-    const existing = state.bodyweight.find((b) => b.date === today);
-    if (existing) existing.weight = v; else state.bodyweight.push({ date: today, weight: v });
-    save(); render(); toast('Logged ' + fmtW(v) + ' ' + state.settings.units);
-  }
-
   async function shareReview() {
     const text = reviewText(weekReview(ui.reviewOffset));
     try {
@@ -1459,6 +1548,11 @@
       case 'bw-delete': state.bodyweight = state.bodyweight.filter((b) => b.date !== d.date); save(); sheetBodyweight(); render(); break;
       case 'set-rir': state.settings.trackRir = d.v === '1'; save(); render(); break;
       case 'set-cardio': state.settings.cardioOn = d.v === '1'; save(); render(); break;
+      case 'set-sleep': state.settings.sleepOn = d.v === '1'; save(); render(); break;
+      case 'checkin-edit': ui.checkinEdit = true; render(); break;
+      case 'checkin-cancel': ui.checkinEdit = false; render(); break;
+      case 'sleep-list': sheetSleep(); break;
+      case 'sleep-delete': state.sleep = state.sleep.filter((x) => x.date !== d.date); save(); sheetSleep(); render(); break;
       case 'pick-new-ex': sheetExercise(null); break;
 
       // Exercises
@@ -1508,7 +1602,7 @@
   document.addEventListener('submit', (e) => {
     if (/^food-/.test(e.target.id || '')) { e.preventDefault(); if (window.__overloadFood) window.__overloadFood.submit(e.target); return; }
     if (e.target.closest('#cloud-form')) { e.preventDefault(); cloudAction('signin'); return; }
-    if (e.target.closest('#bw-form')) { e.preventDefault(); logBodyweight(num(e.target.elements.weight.value, 0)); return; }
+    if (e.target.closest('#bw-form')) { e.preventDefault(); saveCheckin(e.target.closest('#bw-form')); return; }
     const ef = e.target.closest('#edit-workout-form');
     if (ef) {
       e.preventDefault();
