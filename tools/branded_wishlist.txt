@@ -715,3 +715,267 @@ Hershey's Cookies 'n' Creme Bar | hershey's | cookies creme bar -minis
 Kellogg's Nutri-Grain Bar, Strawberry | nutri-grain | strawberry | bar
 Honey Maid Teddy Grahams, Chocolate | teddy grahams | chocolate
 Siete Churro Strips | siete | churro strips
+
+## Sprouts Farmers Market (store brand; USDA lists it under Henry's Marketplace)
+*ALL* | henry's marketplace | -vinegar -baking -powder -salt -water
+*ALL* | sprouts farmers market | -vinegar -water
+
+## Costco: remaining Kirkland Signature foods
+*ALL* | costco companies | -salt -margarita -luxury -spray -hazelnut -lobster -oil -cocktail -sparkling -mineral -vitamin -flour -sugar
+
+## Albertsons / Safeway / Vons store brands
+* | lucerne | whole milk -chocolate -organic -lactose | =milk
+* | lucerne | 2 reduced fat milk -chocolate -organic -lactose | =milk
+* | lucerne | 1 lowfat milk -chocolate -organic | =milk
+* | lucerne | fat free milk -chocolate -organic | =milk
+* | lucerne | chocolate lowfat milk | =milk
+* | lucerne | half half -fat -organic
+* | lucerne | heavy whipping cream
+* | lucerne | sour cream -light
+* | lucerne | light sour cream
+* | lucerne | cottage cheese 4 -pineapple
+* | lucerne | lowfat cottage cheese -pineapple
+* | lucerne | cream cheese -whipped -strawberry -chive
+* | lucerne | salted butter -whipped
+* | lucerne | unsalted butter
+* | lucerne | shredded cheddar sharp
+* | lucerne | shredded mozzarella
+* | lucerne | shredded mexican
+* | lucerne | string cheese -light
+* | lucerne | american cheese singles
+* | lucerne | provolone slices
+* | lucerne | pepper jack
+* | lucerne | grated parmesan
+* | lucerne | colby jack
+* | lucerne | swiss slices
+* | lucerne | feta crumbles
+* | lucerne | medium cheddar -shredded
+* | lucerne | greek yogurt plain nonfat
+* | lucerne | greek yogurt vanilla
+* | lucerne | yogurt strawberry -greek -drink
+* | lucerne | large eggs -brown -organic
+* | lucerne | egg whites -hard
+* | lucerne | vanilla ice cream -bars -sandwich
+* | lucerne | chocolate ice cream -bars
+* | lucerne | orange juice -calcium
+* | lucerne | whipped topping
+* | lucerne | french vanilla creamer
+* | signature select | white bread -wheat | bread
+* | signature select | whole wheat bread | bread
+* | signature select | hamburger buns
+* | signature select | hot dog buns
+* | signature select | plain bagels -mini
+* | signature select | english muffins -whole
+* | signature select | flour tortillas -whole
+* | signature select | corn tortillas
+* | signature select | tortilla chips -lime -blue
+* | signature select | potato chips original
+* | signature select | kettle potato chips sea salt
+* | signature select | pretzel twists
+* | signature select | creamy peanut butter -reduced -natural
+* | signature select | strawberry jam
+* | signature select | honey -roasted
+* | signature select | pancake syrup
+* | signature select | spaghetti | pasta
+* | signature select | penne | pasta
+* | signature select | elbow macaroni
+* | signature select | marinara sauce
+* | signature select | macaroni cheese dinner
+* | signature select | long grain white rice -instant
+* | signature select | brown rice -instant
+* | signature select | old fashioned oats
+* | signature select | instant oatmeal maple brown sugar
+* | signature select | toasted oats cereal
+* | signature select | frosted flakes | cereal
+* | signature select | raisin bran | cereal
+* | signature select | granola
+* | signature select | black beans -refried | beans
+* | signature select | pinto beans -refried | beans
+* | signature select | refried beans -fat
+* | signature select | kidney beans
+* | signature select | garbanzo beans
+* | signature select | diced tomatoes -green
+* | signature select | tomato sauce -no
+* | signature select | chicken broth -low -bone
+* | signature select | chicken noodle soup
+* | signature select | chunk light tuna water
+* | signature select | chunk chicken breast
+* | signature select | broccoli florets | frozen
+* | signature select | mixed vegetables | frozen
+* | signature select | sweet peas | frozen
+* | signature select | sweet corn | frozen
+* | signature select | cut green beans | frozen
+* | signature select | strawberries | frozen
+* | signature select | blueberries | frozen
+* | signature select | mango chunks
+* | signature select | mixed berries | frozen
+* | signature select | crinkle cut fries
+* | signature select | shredded hash browns
+* | signature select | chicken nuggets
+* | signature select | breaded chicken breast tenders
+* | signature select | meatballs
+* | signature select | pepperoni pizza | pizza
+* | signature select | bean cheese burritos
+* | signature select | homestyle waffles
+* | signature select | buttermilk pancakes
+* | signature select | ice cream sandwiches
+* | signature select | fudge bars
+* | signature select | chocolate chip cookies
+* | signature select | chocolate sandwich cookies
+* | signature select | honey graham crackers
+* | signature select | saltine crackers
+* | signature select | animal crackers
+* | signature select | fruit snacks
+* | signature select | trail mix
+* | signature select | whole almonds
+* | signature select | whole cashews
+* | signature select | mixed nuts -unsalted
+* | signature select | dry roasted peanuts
+* | signature select | sunflower kernels
+* | signature select | raisins
+* | signature select | dried cranberries
+* | signature select | unsweetened applesauce
+* | signature select | sliced peaches
+* | signature select | mandarin oranges
+* | signature select | tomato ketchup
+* | signature select | yellow mustard
+* | signature select | real mayonnaise
+* | signature select | ranch dressing
+* | signature select | italian dressing
+* | signature select | barbecue sauce
+* | signature select | chunky salsa medium
+* | signature select | soy sauce
+* | signature select | extra virgin olive oil
+* | signature select | semi sweet chocolate chips
+* | signature select | butter microwave popcorn
+* | signature select | cola -diet | soda
+* | signature select | lemonade
+* | signature select | apple juice
+* | signature select | cranberry juice cocktail
+* | signature select | thirst quencher
+* | signature select | turkey breast deli
+* | signature select | honey ham
+* | signature select | hardwood smoked bacon
+* | signature select | pork sausage links
+* | signature select | beef franks
+* | signature select | pepperoni -pizza
+* | signature select | genoa salami
+* | signature select | chicken breast chunk water
+* | signature select | cheese pizza | pizza
+* | signature select | fettuccine alfredo
+* | signature select | teriyaki sauce
+* | signature select | pickles dill
+* | signature select | hummus
+* | signature select | guacamole
+* | signature select | sparkling water
+* | signature farms | boneless skinless chicken breasts
+* | signature farms | boneless skinless chicken thighs
+* | signature farms | ground beef 80 20
+* | signature farms | ground beef 93 7
+* | signature farms | ground turkey 93
+* | signature farms | pork chops
+* | signature farms | baby carrots
+* | signature farms | spring mix
+* | signature farms | romaine
+* | signature farms | broccoli florets
+* | signature farms | sliced apples
+* | signature farms | baby spinach
+* | signature farms | shredded lettuce
+* | signature farms | coleslaw
+* | signature farms | caesar salad kit
+* | signature farms | grape tomatoes
+* | signature farms | cut fruit
+* | signature farms | celery sticks
+* | signature cafe | chicken salad
+* | signature cafe | macaroni salad
+* | signature cafe | potato salad
+* | signature cafe | chicken noodle soup
+* | signature cafe | broccoli cheddar soup
+* | signature cafe | clam chowder
+* | signature cafe | macaroni cheese
+* | signature cafe | caesar salad
+* | signature cafe | turkey sandwich
+* | signature cafe | chicken wrap
+* | signature cafe | chicken tortilla soup
+* | signature cafe | rotisserie chicken
+* | signature cafe | mashed potatoes
+* | signature cafe | orange chicken
+* | signature cafe | sushi california roll
+* | signature cafe | egg salad
+* | o organics | whole milk | =milk
+* | o organics | 2 reduced fat milk | =milk
+* | o organics | large brown eggs
+* | o organics | greek yogurt plain
+* | o organics | salted butter
+* | o organics | medium cheddar
+* | o organics | baby spinach
+* | o organics | spring mix
+* | o organics | baby carrots
+* | o organics | black beans | beans
+* | o organics | garbanzo beans
+* | o organics | spaghetti | pasta
+* | o organics | marinara
+* | o organics | creamy peanut butter
+* | o organics | almond butter
+* | o organics | honey
+* | o organics | maple syrup
+* | o organics | old fashioned oats
+* | o organics | granola
+* | o organics | quinoa
+* | o organics | brown rice
+* | o organics | chicken broth
+* | o organics | diced tomatoes
+* | o organics | blueberries | frozen
+* | o organics | strawberries | frozen
+* | o organics | broccoli | frozen
+* | o organics | sweet peas | frozen
+* | o organics | sweet corn | frozen
+* | o organics | applesauce
+* | o organics | apple juice
+* | o organics | tortilla chips
+* | o organics | crackers
+* | o organics | almondmilk unsweetened
+* | o organics | oatmilk
+* | o organics | chicken breasts
+* | o organics | ground beef 85
+* | o organics | ground turkey
+* | o organics | hummus
+* | o organics | salsa
+* | o organics | coconut water
+* | o organics | raisins
+* | o organics | fruit bars
+* | o organics | mac cheese
+* | open nature | chicken breasts
+* | open nature | ground beef grass
+* | open nature | ground turkey
+* | open nature | turkey breast deli
+* | open nature | uncured bacon
+* | open nature | beef jerky
+* | open nature | trail mix
+* | open nature | almonds
+* | open nature | granola
+* | open nature | kettle chips
+* | open nature | popcorn
+* | open nature | sparkling water
+* | open nature | almondmilk
+* | open nature | cashew
+* | open nature | protein bar
+* | open nature | chicken sausage
+* | open nature | salmon
+* | open nature | beef hot dogs
+* | primo taglio | oven roasted turkey breast
+* | primo taglio | honey ham
+* | primo taglio | roast beef
+* | primo taglio | genoa salami
+* | primo taglio | provolone
+* | primo taglio | pepper jack
+* | primo taglio | smoked turkey
+* | primo taglio | black forest ham
+* | waterfront bistro | cooked shrimp
+* | waterfront bistro | raw shrimp
+* | waterfront bistro | salmon
+* | waterfront bistro | tilapia
+* | waterfront bistro | cod
+* | waterfront bistro | crab
+* | waterfront bistro | scallops
+* | waterfront bistro | tuna steaks
