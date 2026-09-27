@@ -2,8 +2,9 @@
  *
  * Loaded after app.js and built on the helpers it exposes (window.__overload.lib).
  * Where foods come from:
- *   - data/foods.json: about 7,800 common foods from USDA FoodData Central,
- *     built by tools/build_foods.py. Loaded the first time the list is searched.
+ *   - data/foods.json: about 7,700 common foods and about 650 packaged
+ *     products (with barcodes) from USDA FoodData Central, built by
+ *     tools/build_foods.py. Loaded the first time it is searched or scanned.
  *   - Open Food Facts: packaged foods, by barcode or by a brand search.
  *   - Foods typed in from a label. A barcode typed with it is remembered.
  *
@@ -12,8 +13,8 @@
  *   state.food.foods    { id: food }   every food logged, created or starred (fav), so recents work offline
  *   state.food.meals    { id: { id, name, items: [item] } }   saved meals; an item is an entry without id, meal, at
  *   state.diary         { 'YYYY-MM-DD': [entry] }
- * A food holds n (per 100 g), serving { label, g, n } from the label, and servings
- * [[label, grams]] from USDA. An entry keeps its own calories and macros, so
+ * A food holds n (per 100 g, or 100 ml for a drink), serving { label, g, n } from
+ * the label, servings [[label, grams]] from USDA, and liquid for drinks (ml, fl oz). An entry keeps its own calories and macros, so
  * editing a food later never changes days already logged.
  */
 (function () {
@@ -25,7 +26,8 @@
 
   const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
   const OZ = 28.3495;
-  const DB_URL = './data/foods.json?db=2';  // ?db= changes when the list is rebuilt; keep sw.js in step
+  const FLOZ = 29.5735;
+  const DB_URL = './data/foods.json?db=3';  // ?db= changes when the list is rebuilt; keep sw.js in step
   const OFF = 'https://world.openfoodfacts.org';
   const OFF_FIELDS = 'code,product_name,product_name_en,generic_name,brands,serving_size,serving_quantity,nutriments';
 
@@ -50,18 +52,19 @@
   // ---------------------------------------------------------------------------
   // Amounts: grams, ounces, the label serving, or a USDA serving
   // ---------------------------------------------------------------------------
-  function servingText(sv) {
+  function servingText(sv, liquid) {
     if (!sv) return '';
     const hasWeight = /\d\s*(g|ml|oz)\b/i.test(sv.label);
-    return sv.label + (sv.g && !hasWeight ? ' (' + trimNum(sv.g) + ' g)' : '');
+    return sv.label + (sv.g && !hasWeight ? ' (' + trimNum(sv.g) + (liquid ? ' ml' : ' g') + ')' : '');
   }
+  // Drinks go by volume (ml, fl oz); everything else by weight (g, oz).
   function unitOptions(food) {
     const o = [];
-    if (food.serving) o.push({ u: 'srv', label: servingText(food.serving), g: food.serving.g || null });
+    if (food.serving) o.push({ u: 'srv', label: servingText(food.serving, food.liquid), g: food.serving.g || null });
     if (food.n) {
       (food.servings || []).forEach(([label, g], i) => o.push({ u: 's' + i, label: label + ' (' + trimNum(g) + ' g)', g }));
-      o.push({ u: 'g', label: 'g', g: 1 });
-      o.push({ u: 'oz', label: 'oz', g: OZ });
+      if (food.liquid) { o.push({ u: 'ml', label: 'ml', g: 1 }); o.push({ u: 'floz', label: 'fl oz', g: FLOZ }); }
+      else { o.push({ u: 'g', label: 'g', g: 1 }); o.push({ u: 'oz', label: 'oz', g: OZ }); }
     }
     return o;
   }
@@ -78,8 +81,8 @@
   }
   function amountText(food, qty, unit) {
     const q = trimNum(qty);
-    if (unit === 'g') return q + ' g';
-    if (unit === 'oz') return q + ' oz';
+    if (unit === 'g' || unit === 'ml' || unit === 'oz') return q + ' ' + unit;
+    if (unit === 'floz') return q + ' fl oz';
     const o = unitOptions(food).find((x) => x.u === unit);
     const label = o ? o.label : 'serving';
     return qty === 1 ? label : q + ' × ' + label;
@@ -88,15 +91,15 @@
     const last = food.last;
     if (last && unitOptions(food).some((o) => o.u === last.unit)) return { qty: last.qty, unit: last.unit };
     if (food.serving) return { qty: 1, unit: 'srv' };
-    return { qty: 100, unit: 'g' };
+    return { qty: 100, unit: food.liquid ? 'ml' : 'g' };
   }
   // Switching units keeps the same weight: 150 g becomes 5.3 oz, not 150 oz.
   function convert(food, qty, from, to) {
     const a = unitGrams(food, from), b = unitGrams(food, to);
-    if (!(qty > 0) || !a || !b) return to === 'g' ? 100 : 1;
+    if (!(qty > 0) || !a || !b) return to === 'g' || to === 'ml' ? 100 : 1;
     const grams = qty * a;
-    if (to === 'g') return Math.round(grams);
-    if (to === 'oz') return r1(grams / OZ);
+    if (to === 'g' || to === 'ml') return Math.round(grams);
+    if (to === 'oz' || to === 'floz') return r1(grams / b);
     return Math.round(grams / b * 4) / 4 || 0.25;
   }
 
@@ -125,17 +128,27 @@
     return w;
   }
   const words = (s) => (String(s).toLowerCase().match(/[a-z0-9%]+/g) || []).map(stem);
+  // Barcodes are compared without leading zeros, so GTIN-14, EAN-13 and UPC-A agree.
+  const codeKey = (c) => String(c || '').replace(/\D/g, '').replace(/^0+/, '');
+  let dbByCode = new Map();
   function prepareDb(d) {
     const cats = d.categories || [];
-    return d.foods.map((r) => {
-      const [fdc, name, kcal, p, c, f, cat, src, servings, staple, usda] = r;
+    const list = d.foods.map((r) => {
+      const [fdc, name, kcal, p, c, f, cat, src, servings, staple, usda, barcode, serving, drink] = r;
       const segs = name.split(',').map(words);
       const all = new Set(segs.flat().concat(usda ? words(usda) : []));
-      return {
-        id: 'u' + fdc, src: 'usda', name, usda: usda || null, brand: '', n: { kcal, p, c, f }, serving: null, servings,
-        _cat: cats[cat] || '', _staple: !!staple, _head: segs[0] || [], _segs: segs.length, _all: all, _list: [...all], _brandy: /[A-Z]{3,}/.test(name)
+      const packaged = src === 'br' || src === 'offx';
+      const food = {
+        id: typeof fdc === 'string' ? fdc : 'u' + fdc, src: src === 'offx' ? 'off' : 'usda', name, usda: usda || null, brand: '', n: { kcal, p, c, f },
+        serving: serving ? { label: serving[0], g: serving[1] || null, n: null } : null, servings: servings || [],
+        _cat: cats[cat] || '', _staple: !!staple, _head: segs[0] || [], _segs: segs.length, _all: all, _list: [...all], _brandy: !packaged && /[A-Z]{3,}/.test(name)
       };
+      if (barcode) food.barcode = barcode;
+      if (drink) food.liquid = true;
+      return food;
     });
+    dbByCode = new Map(list.filter((x) => x.barcode).map((x) => [codeKey(x.barcode), x]));
+    return list;
   }
   function scoreFood(q, x) {
     let s = 0;
@@ -277,8 +290,11 @@
     if (!fu.search) loadDb().then(() => { if ($('#food-results') && fu.search) renderResults(); }).catch(() => {});
   }
   function resultRow(f, src) {
-    const per = f.n ? fmtK(f.n.kcal) + ' kcal / 100 g' : f.serving && f.serving.n ? fmtK(f.serving.n.kcal) + ' kcal / ' + esc(servingText(f.serving)) : '';
-    const macro = f.n ? ' · P ' + fmtG(f.n.p) + ' C ' + fmtG(f.n.c) + ' F ' + fmtG(f.n.f) : '';
+    // Packaged foods read best per label serving; plain foods per 100 g.
+    const sv = f.serving && (f.serving.n || (f.n && f.serving.g ? scale(f.n, f.serving.g / 100) : null));
+    const n = sv || f.n;
+    const per = sv ? fmtK(sv.kcal) + ' kcal / ' + esc(servingText(f.serving, f.liquid)) : f.n ? fmtK(f.n.kcal) + ' kcal / 100 ' + (f.liquid ? 'ml' : 'g') : '';
+    const macro = n ? ' · P ' + fmtG(n.p) + ' C ' + fmtG(n.c) + ' F ' + fmtG(n.f) : '';
     const sub = [f.brand && esc(f.brand), per + macro].filter(Boolean).join(' · ');
     return '<button class="f-row" data-action="food-pick" data-src="' + src + '" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? '<span class="f-favmark">★</span> ' : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
   }
@@ -341,7 +357,7 @@
     fu.fx = { food, meal: opts.meal != null ? opts.meal : fu.meal, qty: amt.qty, unit: amt.unit, entryId: opts.entryId || null };
     const units = unitOptions(food).map((o) => '<option value="' + o.u + '" ' + (o.u === amt.unit ? 'selected' : '') + '>' + esc(o.label) + '</option>').join('');
     const back = fu.from === 'add' && !opts.entryId ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '';
-    const fixable = food.src === 'custom' ? 'Edit food' : food.src === 'off' ? 'Numbers wrong? Fix them' : '';
+    const fixable = food.src === 'custom' ? 'Edit food' : food.src === 'off' || food.barcode ? 'Numbers wrong? Fix them' : '';
     const stored = S().food.foods[food.id];
     const star = food.src === 'entry' ? '' : '<button class="icon-btn f-star' + (stored && stored.fav ? ' on' : '') + '" data-action="food-fav" aria-label="Favorite" aria-pressed="' + !!(stored && stored.fav) + '">' + (stored && stored.fav ? '★' : '☆') + '</button>';
     openSheet(sheetHeader(opts.entryId ? 'Edit' : 'Add food', back + star)
@@ -392,6 +408,7 @@
     const f = { id: food.id, src: food.src, name: food.name, brand: food.brand || '', n: food.n || null, serving: food.serving || null, servings: (food.servings || []).slice(0, 8) };
     if (food.usda) f.usda = food.usda;
     if (food.barcode) f.barcode = food.barcode;
+    if (food.liquid) f.liquid = true;
     return f;
   }
   function deleteEntry() {
@@ -521,7 +538,7 @@
     const sv = f.serving || (f.n ? { label: '100 g', g: 100, n: null } : null);
     const per = sv ? (sv.n || (f.n && sv.g ? scale(f.n, sv.g / 100) : null)) : null;
     const v = (x) => (x == null || x === '' ? '' : esc(typeof x === 'number' ? trimNum(x) : x));
-    fu.form = { id: food && food.src === 'custom' ? food.id : null, meal: opts.meal != null ? opts.meal : fu.meal, entryId: opts.entryId || null, qty: opts.qty, unit: opts.unit };
+    fu.form = { id: food && food.src === 'custom' ? food.id : null, meal: opts.meal != null ? opts.meal : fu.meal, entryId: opts.entryId || null, qty: opts.qty, unit: opts.unit, liquid: !!(food && food.liquid) };
     openSheet(sheetHeader(food && food.src === 'custom' ? 'Edit food' : 'New food')
       + (opts.msg ? '<div class="banner">' + esc(opts.msg) + '</div>' : '')
       + '<form id="food-form"><div class="field"><label>Name</label><input class="input" name="name" required value="' + v(f.name) + '" placeholder="e.g. Protein bar, chocolate"></div>'
@@ -529,7 +546,7 @@
       + '<div class="field"><label>Barcode (optional)</label><input class="input" name="barcode" inputmode="numeric" value="' + v(opts.barcode || f.barcode) + '"></div></div>'
       + '<div class="group-title first">Nutrition label</div>'
       + '<div class="field-row"><div class="field"><label>Serving size</label><input class="input" name="slabel" value="' + v(sv ? sv.label : '1 serving') + '" placeholder="1 bar"></div>'
-      + '<div class="field"><label>Serving weight g</label><input class="input" name="sg" type="number" inputmode="decimal" step="any" min="0" value="' + v(sv && sv.g) + '" placeholder="optional"></div></div>'
+      + '<div class="field"><label>Serving ' + (f.liquid ? 'ml' : 'weight g') + '</label><input class="input" name="sg" type="number" inputmode="decimal" step="any" min="0" value="' + v(sv && sv.g) + '" placeholder="optional"></div></div>'
       + '<p class="tiny muted mb8">With the weight, you can also log this in grams or ounces.</p>'
       + '<div class="field"><label>Calories per serving</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" required value="' + v(per && r1(per.kcal)) + '"></div>'
       + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r1(per.p)) + '"></div>'
@@ -552,7 +569,8 @@
       id, src: 'custom', name, brand: String(fd.get('brand') || '').trim(), barcode: code.length >= 8 ? code : undefined,
       n: g ? scale(perServing, 100 / g) : null,
       serving: { label: String(fd.get('slabel') || '').trim() || '1 serving', g, n: g ? null : perServing },
-      servings: [], used: old ? old.used : undefined, last: old && old.id === id ? old.last : undefined
+      servings: [], used: old ? old.used : undefined, last: old && old.id === id ? old.last : undefined,
+      liquid: fu.form && fu.form.liquid ? true : undefined
     };
     Object.keys(food).forEach((k) => food[k] === undefined && delete food[k]);
     if (old && old.id !== id) delete st.food.foods[old.id];
@@ -658,9 +676,14 @@
     const code = canonCode(raw);
     if (code.length < 8) { toast('That does not look like a barcode'); return; }
     if (navigator.vibrate) navigator.vibrate(50);
-    const mine = S().food.foods['b' + code];
+    // Your own foods first (a fixed or typed-in label wins), then the built-in list, then Open Food Facts.
+    const key = codeKey(code);
+    const mine = S().food.foods['b' + code] || Object.values(S().food.foods).find((f) => f.barcode && codeKey(f.barcode) === key && f.src === 'custom')
+      || Object.values(S().food.foods).find((f) => f.barcode && codeKey(f.barcode) === key);
     if (mine) { sheetAmount(mine, { meal: fu.meal }); return; }
     scanStatus('Looking up ' + code + '…');
+    const listed = await loadDb().then(() => dbByCode.get(key), () => null);
+    if (listed) { sheetAmount(listed, { meal: fu.meal }); return; }
     try {
       const hit = await offProduct(code);
       if (hit && hit.food) { sheetAmount(hit.food, { meal: fu.meal }); return; }

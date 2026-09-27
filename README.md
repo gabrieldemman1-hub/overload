@@ -78,10 +78,16 @@ Adding a food:
   (roasted)", "Milk, 2%", "Ground beef 93/7, raw") have short names and come
   first. Raw and cooked are separate entries; weigh and log the same one.
   The list is stored with the app, so search works offline.
+- **Packaged foods.** About 650 popular products, weighted to Costco and
+  California grocery stores (Eggo, Kodiak, PopCorners, Quest, Premier Protein,
+  Fairlife, Chobani, Kirkland Signature, Trader Joe's, Dave's Killer Bread…),
+  from USDA Branded Foods label data, a few from Open Food Facts. They open at
+  the label serving ("2 waffles (70 g)"), drinks go in ml and fl oz, and their
+  barcodes are in the list, so scanning them works offline too.
 - **Brands.** "Search brands" looks the name up in Open Food Facts (needs a
   connection).
-- **Scan a barcode.** Live camera, or Scan a photo, or type the number. The
-  product comes from Open Food Facts. Anything scanned or typed in is saved on
+- **Scan a barcode.** Live camera, or Scan a photo, or type the number. Your
+  own foods are checked first, then the built-in list, then Open Food Facts. Anything scanned or typed in is saved on
   the phone, so the next scan of that barcode is instant and works offline.
 - **Not found?** Type it in once from the label (per serving, with the serving
   weight if you want grams and ounces too). The barcode is remembered. "Numbers
@@ -113,7 +119,7 @@ editing or deleting a food later never changes past days.
 | `styles.css`           | Dark theme with red accent                   |
 | `food.js`              | Food tab: search, amounts, barcode scanning  |
 | `data/foods.json`      | USDA food list, built by `tools/build_foods.py` |
-| `tools/`               | Food list builder and the everyday-foods list (`staples.tsv`) |
+| `tools/`               | Food list builder, everyday foods (`staples.tsv`), packaged foods (`branded_wishlist.txt` → `branded.tsv`) |
 | `vendor/zxing/`        | Barcode reader (zxing-wasm 3.1.4, MIT), self-hosted |
 | `lab/scan.html`        | Stand-alone barcode test page (not linked from the app) |
 | `sync.js`              | Optional cloud sync via Firebase             |
@@ -186,10 +192,22 @@ a banner stays on screen with an Export button until saving works again.
 ## Rebuilding the food list
 
 `data/foods.json` is generated, not edited by hand. Push a change to
-`tools/build_foods.py` or `tools/staples.tsv` on the `food-data` branch and the
-"Build food list" GitHub Action downloads USDA's SR Legacy and Foundation Foods,
-rebuilds the file and commits it to that branch; merge it into `main`. When the
-file changes, bump `?db=` in both `food.js` (`DB_URL`) and `sw.js`.
+`tools/build_foods.py`, `tools/staples.tsv` or `tools/branded.tsv` on the
+`food-data` branch and the "Build food list" GitHub Action downloads USDA's SR
+Legacy and Foundation Foods, adds the packaged products, rebuilds the file and
+commits it to that branch; merge it into `main`. When the file changes, bump
+`?db=` in both `food.js` (`DB_URL`) and `sw.js`.
+
+Packaged foods:
+
+1. "Build branded food index" shrinks USDA Branded Foods (about 430,000
+   products) to `branded_index.tsv.gz` on the `food-raw` branch.
+2. Add a line to `tools/branded_wishlist.txt` (name | brand | words), then run
+   `python3 tools/pick_branded.py branded_index.tsv.gz > tools/branded.tsv`
+   and check the matches: the third column is USDA's description. Records whose
+   calories do not fit their protein, carbs and fat are skipped.
+3. Products USDA lacks: "Fill foods from Open Food Facts" searches for them
+   and commits `tools/branded_off.tsv`. Check it before building.
 
 ## Debugging
 
