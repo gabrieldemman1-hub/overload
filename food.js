@@ -262,7 +262,7 @@
       const kcal = sum(items).kcal;
       const rows = items.map((e) => '<button class="f-row" data-action="food-edit" data-id="' + esc(e.id) + '"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">'
         + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div><div class="f-rk">' + fmtK(e.kcal) + '</div></button>').join('');
-      return '<div class="card f-meal"><div class="f-meal-head"><h2>' + m + '</h2><div class="row"><span class="muted small">' + (items.length ? fmtK(kcal) + ' kcal' : '') + '</span>'
+      return '<div class="card f-meal" data-meal="' + mi + '"><div class="f-meal-head"><h2>' + m + '</h2><div class="row"><span class="muted small">' + (items.length ? fmtK(kcal) + ' kcal' : '') + '</span>'
         + '<button class="icon-btn f-more" data-action="food-meal-menu" data-meal="' + mi + '" aria-label="' + m + ' options">⋯</button></div></div>'
         + rows + '<button class="btn subtle small block mt8" data-action="food-add" data-meal="' + mi + '">+ Add food</button></div>';
     }).join('');
@@ -272,8 +272,110 @@
       const prev = entriesFor(addDays(day, -1));
       if (prev.length) copy = '<button class="btn ghost block f-copyday" data-action="food-copy-day">Copy ' + (day === today ? 'yesterday' : esc(fmtDate(addDays(day, -1)))) + ' · ' + countText(prev) + '</button>';
     }
-    return '<div class="screen-title"><h1>Food</h1></div>' + nav + summary + copy + meals;
+    const tip = list.length ? '<p class="tiny muted center mt8">Hold a food, then drag it to another meal.</p>' : '';
+    return '<div class="screen-title"><h1>Food</h1></div>' + nav + summary + copy + meals + tip;
   }
+
+  // ---------------------------------------------------------------------------
+  // Drag a logged food to another meal, or to another spot in the same meal.
+  // Touch: hold still for a moment, then drag (a quick swipe still scrolls).
+  // Mouse: just drag. A plain tap still opens the food.
+  // ---------------------------------------------------------------------------
+  const HOLD_MS = 300, SLOP = 8, EDGE = 80;
+  const dnd = { press: null, drag: null, suppressClick: false, scrollTimer: null };
+
+  // Moves an entry and gives it an `at` between its new neighbours: cloud sync orders a day by `at`.
+  function moveEntry(day, id, meal, beforeId) {
+    const list = (S().diary[day] || []).slice();
+    const i = list.findIndex((e) => e.id === id); if (i < 0) return false;
+    const e = Object.assign({}, list[i]);
+    const was = list.map((x) => x.id).join() + '|' + list[i].meal;
+    list.splice(i, 1);
+    e.meal = meal;
+    let j = beforeId ? list.findIndex((x) => x.id === beforeId) : -1;
+    if (j < 0) { const last = list.map((x) => x.meal).lastIndexOf(meal); j = last >= 0 ? last + 1 : list.length; }
+    list.splice(j, 0, e);
+    if (list.map((x) => x.id).join() + '|' + meal === was) return false;
+    const prev = list[j - 1], next = list[j + 1];
+    const pa = prev && prev.at, na = next && next.at;
+    e.at = pa != null && na != null ? (pa + na) / 2 : pa != null ? pa + 1 : na != null ? na - 1 : Date.now();
+    S().diary[day] = list;
+    return true;
+  }
+
+  function dndStart(p) {
+    const row = p.row, r = row.getBoundingClientRect();
+    const ghost = row.cloneNode(true);
+    ghost.classList.add('f-ghost'); ghost.removeAttribute('data-action');
+    Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
+    document.body.appendChild(ghost);
+    row.classList.add('f-lifted');
+    const line = document.createElement('div'); line.className = 'f-drop-line';
+    dnd.drag = { id: row.dataset.id, day: dayKey(), row, ghost, line, dy: p.y - r.top, x: p.x, y: p.y, meal: null, before: null, card: null };
+    document.body.classList.add('f-dragging');
+    if (navigator.vibrate) navigator.vibrate(10);
+    dndMove(p.x, p.y);
+    dnd.scrollTimer = setInterval(() => {
+      const d = dnd.drag; if (!d) return;
+      const bottom = window.innerHeight - EDGE - 60;  // the tab bar covers the bottom
+      const v = d.y < EDGE ? -Math.ceil((EDGE - d.y) / 6) : d.y > bottom ? Math.ceil((d.y - bottom) / 6) : 0;
+      if (v) { window.scrollBy(0, v); dndMove(d.x, d.y); }
+    }, 16);
+  }
+  function dndMove(x, y) {
+    const d = dnd.drag; d.x = x; d.y = y;
+    d.ghost.style.top = (y - d.dy) + 'px';
+    const under = document.elementFromPoint(x, y);
+    const card = under && under.closest('.f-meal');
+    if (d.card && d.card !== card) d.card.classList.remove('f-drop-target');
+    d.card = card;
+    if (!card) { d.line.remove(); d.meal = null; return; }
+    card.classList.add('f-drop-target');
+    const rows = [...card.querySelectorAll('.f-row[data-id]')].filter((r) => r !== d.row);
+    const before = rows.find((r) => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; }) || null;
+    const anchor = before || card.querySelector('[data-action="food-add"]');
+    if (d.line.nextSibling !== anchor) card.insertBefore(d.line, anchor);
+    d.meal = +card.dataset.meal; d.before = before ? before.dataset.id : null;
+  }
+  function dndEnd(drop) {
+    const d = dnd.drag; if (!d) return;
+    clearInterval(dnd.scrollTimer);
+    d.ghost.remove(); d.line.remove(); d.row.classList.remove('f-lifted');
+    if (d.card) d.card.classList.remove('f-drop-target');
+    document.body.classList.remove('f-dragging');
+    dnd.drag = null;
+    dnd.suppressClick = true; setTimeout(() => { dnd.suppressClick = false; }, 400);
+    if (!drop || d.meal == null) return;
+    const from = (entriesFor(d.day).find((e) => e.id === d.id) || {}).meal;
+    if (!moveEntry(d.day, d.id, d.meal, d.before)) return;
+    O.save(); O.render();
+    if (from !== d.meal) toast('Moved to ' + MEALS[d.meal]);
+  }
+  function dndCancelPress() { if (dnd.press) { clearTimeout(dnd.press.timer); dnd.press = null; } }
+
+  document.addEventListener('pointerdown', (e) => {
+    if (O.screen !== 'food' || dnd.drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const row = e.target.closest && e.target.closest('.f-meal .f-row[data-id]'); if (!row) return;
+    dndCancelPress();
+    const p = { row, x: e.clientX, y: e.clientY, id: e.pointerId, mouse: e.pointerType === 'mouse', timer: null };
+    if (!p.mouse) p.timer = setTimeout(() => { if (dnd.press === p) { dnd.press = null; dndStart(p); } }, HOLD_MS);
+    dnd.press = p;
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (dnd.drag) { e.preventDefault(); dndMove(e.clientX, e.clientY); return; }
+    const p = dnd.press; if (!p || p.id !== e.pointerId) return;
+    const moved = Math.hypot(e.clientX - p.x, e.clientY - p.y) > SLOP;
+    if (!moved) return;
+    if (p.mouse) { dnd.press = null; dndStart(Object.assign(p, { x: e.clientX, y: e.clientY })); }
+    else dndCancelPress();  // moved before the hold: that is a scroll
+  }, { passive: false });
+  document.addEventListener('pointerup', () => { dndCancelPress(); if (dnd.drag) dndEnd(true); });
+  document.addEventListener('pointercancel', () => { dndCancelPress(); if (dnd.drag) dndEnd(false); });
+  // While dragging, the page must not scroll under the finger (iOS needs a non-passive touchmove).
+  document.addEventListener('touchmove', (e) => { if (dnd.drag) e.preventDefault(); }, { passive: false });
+  // The tap that ends a drag must not open the food; a long press must not open a menu.
+  document.addEventListener('click', (e) => { if (dnd.suppressClick && e.target.closest && e.target.closest('.f-meal')) { e.stopPropagation(); e.preventDefault(); dnd.suppressClick = false; } }, true);
+  document.addEventListener('contextmenu', (e) => { if (e.target.closest && e.target.closest('.f-meal .f-row[data-id]')) e.preventDefault(); });
 
   // ---------------------------------------------------------------------------
   // Add food: search, recents, scan, quick add, new food

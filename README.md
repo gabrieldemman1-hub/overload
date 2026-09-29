@@ -132,6 +132,10 @@ Faster logging:
 - **Copy.** The ⋯ menu copies yesterday's version of that meal, copies a past
   day's meal to today, or clears the meal. An empty day offers to copy the whole
   day before in one tap.
+- **Move foods between meals.** Hold a logged food for a moment, then drag it to
+  another meal (or to another spot in the same meal); with a mouse, just drag.
+  Near the top or bottom of the screen the page scrolls. A quick swipe still
+  scrolls and a tap still opens the food, whose Meal buttons also move it.
 
 Amounts go in grams, ounces, the label serving, or a USDA serving (1 cup,
 1 medium). Switching units keeps the weight: 200 g becomes 7.1 oz. A food

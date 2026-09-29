@@ -377,6 +377,13 @@ p { margin: 0; }
 .f-row .sub { color: var(--muted); font-size: 13px; margin-top: 1px; }
 .f-row .chev { color: var(--muted); }
 .f-rk { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Dragging a food between meals */
+.f-meal .f-row[data-id] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.f-row.f-lifted { opacity: 0.35; }
+.f-ghost { position: fixed; z-index: 60; pointer-events: none; background: var(--card-2); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 30px var(--shadow); transform: scale(1.02); }
+.f-meal.f-drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
+.f-drop-line { height: 3px; border-radius: 2px; background: var(--accent); margin: 2px 0; }
+body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none; user-select: none; }
 #food-results .f-row:first-of-type, .group-title + .f-row { border-top: 0; }
 .group-title.first { margin-top: 4px; }
 .f-searchrow { display: flex; gap: 8px; }
