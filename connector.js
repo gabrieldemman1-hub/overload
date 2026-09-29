@@ -36,7 +36,7 @@
     opts = opts || {};
     const res = await fetch(url() + path, { method: opts.method || 'GET', headers: Object.assign({ Authorization: 'Bearer ' + key() }, opts.body ? { 'Content-Type': 'application/json' } : {}), body: opts.body ? JSON.stringify(opts.body) : undefined });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(data.error || ('Connector ' + res.status)), { status: res.status });
+    if (!res.ok) throw Object.assign(new Error(data.message || data.error || ('Connector ' + res.status)), { status: res.status, code: data.error, data });
     return data;
   }
   const rerender = () => { if (O.screen === 'settings' || O.screen === 'today' || O.screen === 'history') O.render(); };
@@ -63,8 +63,13 @@
         cs.status = await api('/status');
       }
       cs.err = '';
-    } catch (e) { cs.err = e.status === 403 ? 'paired' : (e.message || 'Could not reach the connector'); }
+    } catch (e) { cs.err = e.status === 403 ? (e.code === 'whoop-first' ? 'whoop-first' : 'paired') : (e.message || 'Could not reach the connector'); cs.pairedWhoop = !!(e.data && e.data.whoop); cs.status = null; }
     cs.loading = false; cs.lastStatus = Date.now();
+    // The connector lost or never got this phone's latest settings: send them again.
+    if (cs.status && cs.status.cfg && S().settings.connKey) {
+      const mine = configNow(), theirs = cs.status.cfg;
+      if (JSON.stringify([mine.tz, mine.reminders, mine.training]) !== JSON.stringify([theirs.tz, theirs.reminders, theirs.training])) pushConfig(true);
+    }
     rerender();
   }
 
@@ -74,10 +79,12 @@
   function localDate(iso) { return todayKey(new Date(iso)); }
   // Merges WHOOP nights into state.sleep. Returns how many nights changed.
   function mergeNights(nights) {
-    const st = S(); let changed = 0;
-    nights.forEach((n) => {
+    const st = S(); let changed = 0; const seen = new Set();
+    nights.forEach((n) => {                  // newest first: the first night ending on a date is the one kept
       if (!(n.total > 0)) return;
       const date = localDate(n.end);
+      if (seen.has(date) || (st.deleted && st.deleted.sleep[date])) return;  // deleted by you: stays deleted
+      seen.add(date);
       const extra = { recovery: n.recovery, rhr: n.rhr, hrv: n.hrv, perf: n.performance };
       const i = st.sleep.findIndex((x) => x.date === date);
       const cur = i >= 0 ? st.sleep[i] : null;
@@ -137,6 +144,11 @@
   async function checkPush() { try { cs.pushOn = !!(await currentSub()) && Notification.permission === 'granted'; } catch (e) { cs.pushOn = false; } }
   async function enablePush() {
     if (!pushSupported()) { toast('This browser cannot show reminders'); return; }
+    if (cs.enabling) return;             // a double tap would ask for two subscriptions
+    cs.enabling = true;
+    try { await enablePushOnce(false); } finally { cs.enabling = false; }
+  }
+  async function enablePushOnce(retry) {
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') { toast('Notifications are blocked. Allow them for Overload in Settings'); return; }
     try {
@@ -146,7 +158,13 @@
       if (sub) { const cur = sub.options && sub.options.applicationServerKey; if (cur && btoa(String.fromCharCode(...new Uint8Array(cur))) !== btoa(String.fromCharCode(...b64uToBytes(vapid)))) { await sub.unsubscribe(); sub = null; } }
       if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(vapid) });
       await refreshStatus(true);
-      await api('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+      if (cs.err === 'whoop-first') { toast('Connect WHOOP first: that pairs this phone with the connector'); O.render(); return; }
+      try { await api('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), key: vapid } }); }
+      catch (e) {
+        if (e.status !== 409 || retry) throw e;
+        await sub.unsubscribe();           // the connector's push key changed: subscribe again with the new one
+        return enablePushOnce(true);
+      }
       reminders(); O.save();
       await pushConfig(true);
       cs.pushOn = true; toast('Reminders on');
@@ -176,9 +194,9 @@
   let pushTimer = null;
   async function pushConfig(now) {
     if (!url() || !S().settings.connKey) return;
-    const cfg = configNow(), sig = JSON.stringify(cfg);
+    clearTimeout(pushTimer);             // a newer state replaces one still waiting to be sent
+    const cfg = configNow(), sig = url() + JSON.stringify(cfg);
     if (!now && sig === local.get('cfg')) return;
-    clearTimeout(pushTimer);
     const send = async () => { try { await api('/config', { method: 'PUT', body: cfg }); local.set('cfg', sig); } catch (e) { /* try again on the next save */ } };
     if (now) return send();
     pushTimer = setTimeout(send, 1500);
@@ -194,7 +212,9 @@
     }
     const s = cs.status, w = s && s.whoop;
     let body;
-    if (cs.err === 'paired') body = '<p class="small">This connector is paired with another copy of Overload. Log in to WHOOP from here to pair this one.</p><button class="btn block mt8" data-action="conn-whoop-connect">Log in to WHOOP</button>';
+    if (cs.err === 'whoop-first') body = '<p class="small muted mb8">Log in once and your sleep fills in every morning. This also pairs this phone with your connector (needed for reminders too).</p><button class="btn block" data-action="conn-whoop-connect">Connect WHOOP</button>';
+    else if (cs.err === 'paired' && cs.pairedWhoop) body = '<p class="small">This connector is paired with another copy of Overload. Log in to WHOOP from here to pair this one.</p><button class="btn block mt8" data-action="conn-whoop-connect">Log in to WHOOP</button>';
+    else if (cs.err === 'paired') body = '<p class="small">This connector is paired with another copy of Overload. To start over, delete the "owner" entry in the connector\'s KV storage (Cloudflare → Storage → KV → overload-connector).</p>';
     else if (cs.err) body = '<p class="small muted">' + esc(cs.err) + '</p><button class="btn ghost block mt8" data-action="conn-refresh">Try again</button>';
     else if (!s) body = '<p class="small muted">Checking…</p>';
     else if (w.connected) {

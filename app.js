@@ -9,7 +9,7 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '2.4';
+  const VERSION = '2.5';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -173,8 +173,9 @@
   }
 
   function load() {
+    let raw = null;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.v === 1) {
@@ -182,16 +183,34 @@
         }
       }
     } catch (e) { /* fall through */ }
+    // Unreadable data: keep a copy before starting fresh, so it can still be recovered.
+    if (raw) { try { localStorage.setItem(STORAGE_KEY + '.bak', raw); } catch (e) { /* ignore */ } }
     return seedState();
   }
   // Fill in fields added after v1 shipped so older saves keep working.
   function normalize(st) {
     const hadCheckin = !!(st.settings && st.settings.checkinV);
     st.settings = Object.assign(defaultSettings(), st.settings || {});
+    // A partial backup or cloud copy must not leave the app unable to render.
+    if (!Array.isArray(st.exercises)) st.exercises = [];
+    if (!Array.isArray(st.workouts)) st.workouts = [];
+    if (!st.presc || typeof st.presc !== 'object') st.presc = {};
+    if (!st.program || typeof st.program !== 'object') st.program = {};
+    if (!Array.isArray(st.program.days)) st.program.days = [];
+    if (!Array.isArray(st.program.schedule) || st.program.schedule.length !== 7) st.program.schedule = [null, null, null, null, null, null, null];
     // v2.2 morning check-in: weigh in every day (asked for once; change it in Settings after).
     if (!hadCheckin) { st.settings.weighEvery = 1; st.settings.checkinV = 1; }
     if (!Array.isArray(st.bodyweight)) st.bodyweight = [];
     if (!Array.isArray(st.sleep)) st.sleep = [];
+    // Deletion records, so cloud sync merges never bring back something deleted on another phone.
+    if (!st.deleted || typeof st.deleted !== 'object') st.deleted = {};
+    const cutoff = Date.now() - 90 * 864e5;
+    ['food', 'bw', 'sleep', 'workouts'].forEach((k) => {
+      const m = st.deleted[k] && typeof st.deleted[k] === 'object' ? st.deleted[k] : {};
+      Object.keys(m).forEach((id) => { if (!(m[id] > cutoff)) delete m[id]; });
+      st.deleted[k] = m;
+    });
+    if (st.settings.sleepSkip) { st.settings.sleepSkip.forEach((d) => { st.deleted.sleep[d] = Date.now(); }); delete st.settings.sleepSkip; }
     if (!Array.isArray(st.templates)) st.templates = [];
     if (!st.food || typeof st.food !== 'object') st.food = {};
     st.food.targets = Object.assign({ kcal: null, protein: null, carbs: null, fat: null }, st.food.targets || {});
@@ -256,10 +275,14 @@
     let ok = true;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
     if (ok !== !ui.saveFailed) { ui.saveFailed = !ok; renderSaveWarning(); }
-    if (!activeWorkout()) state.active = null;
+    // Keep state.active even if that workout is not here yet: cloud sync can deliver the settings
+    // before the workout itself, and clearing it would end the workout on the other phone too.
     applyTheme();
     render();
   }
+
+  function markDeleted(kind, id) { state.deleted[kind][id] = Date.now(); }
+  function unmarkDeleted(kind, id) { delete state.deleted[kind][id]; }
 
   // Accessors
   const exById = (id) => state.exercises.find((e) => e.id === id);
@@ -270,7 +293,8 @@
     return state.presc[exId];
   }
   function repRange(ex) {
-    return { min: (ex && ex.repMin) || state.settings.repMin, max: (ex && ex.repMax) || state.settings.repMax };
+    const min = (ex && ex.repMin) || state.settings.repMin;
+    return { min, max: Math.max(min, (ex && ex.repMax) || state.settings.repMax) };
   }
   // Weight jump: per-exercise override, else a default by equipment, else the global setting.
   function incFor(ex) {
@@ -285,9 +309,9 @@
     const m = Math.max(1, Math.round(((w.finishedAt || Date.now()) - w.startedAt) / 60000));
     return m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + ' min';
   }
-  // True when no later finished workout logged this exercise.
+  // True when no later workout (finished, or the one in progress) logged this exercise.
   function isLatestSessionFor(exId, w) {
-    return !state.workouts.some((o) => o.id !== w.id && o.finishedAt && (o.startedAt || 0) > (w.startedAt || 0) && o.entries.some((en) => en.exId === exId && en.done));
+    return !state.workouts.some((o) => o.id !== w.id && (o.finishedAt || o.id === state.active) && (o.startedAt || 0) > (w.startedAt || 0) && o.entries.some((en) => en.exId === exId && en.done));
   }
   function lastEntryFor(exId) {
     for (let i = state.workouts.length - 1; i >= 0; i--) {
@@ -459,7 +483,7 @@
       const planned = plannedWeeklySets(ex.muscle), add = Math.max(1, timesPerWeek(ex.id)), cap = state.settings.volumeMax;
       if (cap > 0 && planned + add > cap) { delta = 0; capped = true; reasons.pop(); reasons.push(ex.muscle + ' is already at ' + planned + ' planned sets a week (target up to ' + cap + ') → keep ' + presc.sets + ' sets'); }
     }
-    next.sets = clamp(presc.sets + delta, 1, state.settings.maxSets);
+    next.sets = clamp(presc.sets + delta, 1, Math.max(state.settings.maxSets, presc.sets));
     if (delta === 0 && fb.soreness != null && !capped) reasons.push('Recovery looks right → keep ' + next.sets + ' sets');
     return next;
   }
@@ -558,8 +582,8 @@
   // WHOOP recovery bands: green 67–100, yellow 34–66, red 0–33.
   const recBand = (r) => (r >= 67 ? ['green', 'green'] : r >= 34 ? ['amber', 'yellow'] : ['accent', 'red']);
   const recPill = (r) => (r == null ? '' : '<span class="pill ' + recBand(r)[0] + '">Recovery ' + r + '%</span>');
-  function sleepAvg(days, endKey) {
-    const from = addDays(endKey || todayKey(), -(days - 1)), to = endKey || todayKey();
+  function sleepAvg(days, endKey, fromKey) {
+    const to = endKey || todayKey(), from = fromKey || addDays(to, -(days - 1));
     const list = state.sleep.filter((x) => x.date >= from && x.date <= to && x.total > 0);
     if (!list.length) return null;
     const avg = (k) => { const v = list.filter((x) => x[k] != null); return v.length ? v.reduce((n, x) => n + x[k], 0) / v.length : null; };
@@ -609,6 +633,7 @@
     if (total != null && (rem || 0) + (deep || 0) > total) { toast('REM + deep is more than total sleep'); return; }
     const done = [];
     if (wt != null) {
+      unmarkDeleted('bw', today);
       const ex = state.bodyweight.find((b) => b.date === today);
       if (ex) ex.weight = wt; else state.bodyweight.push({ date: today, weight: wt });
       done.push(fmtW(wt) + ' ' + state.settings.units);
@@ -620,6 +645,7 @@
       ['recovery', 'rhr', 'hrv', 'perf', 'light'].forEach((k) => { if (prev[k] != null && (k !== 'light' || same)) next[k] = prev[k]; });
       if (same && prev.src) next.src = prev.src;  // unchanged WHOOP night stays WHOOP's
       state.sleep = state.sleep.filter((x) => x.date !== today).concat([next]);
+      unmarkDeleted('sleep', today);
       done.push(fmtHM(total) + ' sleep');
     }
     ui.checkinEdit = false;
@@ -695,7 +721,7 @@
     return Math.round(vo2 * kg / 1000 * 5 * c.min);
   }
   function cardioText(c) {
-    const kcal = cardioKcal(c);
+    const kcal = c.kcal != null ? c.kcal : cardioKcal(c);
     return c.min + ' min' + (c.incline != null ? ' · ' + fmtW(c.incline) + '% incline' : '') + (c.speed ? ' · ' + fmtW(c.speed) + ' ' + (c.speedUnit || speedUnit()) : '') + (kcal ? ' · ≈' + kcal + ' kcal' : '');
   }
   function renderCardioCard(w) {
@@ -832,7 +858,9 @@
     let ex = exByName(name); if (ex) return ex.id;
     const fst = /\s*\(FST-7\)$/.test(name);
     const base = exByName(name.replace(/\s*\(FST-7\)$/, ''));
-    const lib = (window.__overloadProgramExercises || {})[name.replace(/\s*\(FST-7\)$/, '')] || [];
+    const baseName = name.replace(/\s*\(FST-7\)$/, '');
+    const builtIn = LIBRARY.concat(LIBRARY_V2).find((x) => x[0].toLowerCase() === baseName.toLowerCase());
+    const lib = (window.__overloadProgramExercises || {})[baseName] || (builtIn ? builtIn.slice(1) : []);
     const [lo, hi] = String(reps).split(/[–-]/).map((x) => parseInt(x, 10));
     const muscle = (base && base.muscle) || lib[0] || 'Chest';
     const big = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Glutes'].includes(muscle);
@@ -900,7 +928,7 @@
 
     const items = done.map((w) => {
       const sets = w.entries.reduce((m, e) => m + e.sets.filter((s) => s.done).length, 0);
-      const ups = w.entries.filter((e) => e.next && e.next.weight > (e.weightAtStart || 0) && e.weightAtStart > 0).length;
+      const ups = w.entries.filter((e) => wentUp(e)).length;
       const prs = w.entries.filter((e) => e.prs && e.prs.length).length;
       return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
     }).join('');
@@ -910,10 +938,16 @@
   }
 
   // ---- Weekly volume -------------------------------------------------------
-  function setsPerMuscle(fromKey, toKey) {
+  // Progress on the load: heavier, or for assisted lifts less assistance.
+  function wentUp(en) {
+    if (!en.next || !(en.weightAtStart > 0)) return false;
+    return isAssisted(exById(en.exId)) ? en.next.weight < en.weightAtStart : en.next.weight > en.weightAtStart;
+  }
+  function setsPerMuscle(fromKey, toKey, finishedOnly) {
     const out = {};
     state.workouts.forEach((w) => {
       if (w.date < fromKey || w.date > toKey) return;
+      if (finishedOnly && !w.finishedAt) return;
       w.entries.forEach((en) => { const ex = exById(en.exId); if (!ex) return; const n = en.sets.filter((s) => s.done && s.reps > 0).length; if (n) out[ex.muscle] = (out[ex.muscle] || 0) + n; });
     });
     return out;
@@ -968,15 +1002,15 @@
       const ex = exById(en.exId); const name = ex ? ex.name : 'Deleted exercise';
       en.sets.forEach((s) => { if (s.done && s.reps > 0) { sets++; tonnage += s.weight * s.reps; } });
       (en.prs || []).forEach((p) => prs.push(name + ': ' + p.text));
-      if (en.next && en.weightAtStart > 0 && en.next.weight > en.weightAtStart) ups.push(name + ' → ' + fmtW(en.next.weight) + ' ' + state.settings.units);
+      if (wentUp(en)) ups.push(name + ' → ' + fmtW(en.next.weight) + ' ' + state.settings.units);
     }));
-    const vol = setsPerMuscle(start, end);
+    const vol = setsPerMuscle(start, end, true);
     const topMuscles = Object.keys(vol).sort((a, b) => vol[b] - vol[a]).slice(0, 3).map((m) => m + ' ' + vol[m]);
     const bw = bwSorted().filter((b) => b.date >= start && b.date <= end);
     const bwPrev = bwSorted().filter((b) => b.date >= addDays(start, -7) && b.date < start);
     const avg = (arr) => (arr.length ? arr.reduce((n, b) => n + b.weight, 0) / arr.length : null);
     const cardioMin = ws.reduce((n, w) => n + (w.cardio && w.cardio.done ? w.cardio.min : 0), 0);
-    return { start, end, workouts: ws.length, sets, tonnage, prs, ups, topMuscles, bwAvg: avg(bw), bwPrevAvg: avg(bwPrev), sleep: sleepAvg(7, end < todayKey() ? end : todayKey()), cardioMin };
+    return { start, end, workouts: ws.length, sets, tonnage, prs, ups, topMuscles, bwAvg: avg(bw), bwPrevAvg: avg(bwPrev), sleep: sleepAvg(7, end < todayKey() ? end : todayKey(), start), cardioMin };
   }
   function reviewText(r) {
     const u = state.settings.units;
@@ -1293,7 +1327,7 @@
     const next = computeNext(ex, p, en, sore);
     if (!next) { toast('Log at least one set first'); return 0; }
     if (alreadyCut) next.reasons.push('Still sore → the set cut already landed on an earlier ' + ex.muscle.toLowerCase() + ' exercise');
-    en.soreCut = sore === 3;
+    en.soreCut = sore === 3 && !ex.fixedSets && p.sets > 1;
     en.prevPresc = JSON.parse(JSON.stringify(p));
     en.next = next;
     en.done = true;
@@ -1360,12 +1394,13 @@
     if (w.cardio && !w.cardio.done && state.settings.cardioOn && w.cardio.min > 0) {
       if (confirm('Log your ' + w.cardio.min + ' min ' + w.cardio.name.toLowerCase() + ' with this workout?\n\nOK logs it. Cancel finishes without cardio.')) w.cardio.done = true;
     }
-    if (w.cardio && !w.cardio.done) delete w.cardio;
     const logged = w.entries.some((en) => en.done) || !!(w.cardio && w.cardio.done);
     if (!logged) {
       if (!confirm('Nothing logged. Discard this workout?')) return;
-      state.workouts = state.workouts.filter((x) => x.id !== w.id);
+      state.workouts = state.workouts.filter((x) => x.id !== w.id); markDeleted('workouts', w.id);
     } else {
+      if (w.cardio && !w.cardio.done) delete w.cardio;
+      if (w.cardio) w.cardio.kcal = cardioKcal(w.cardio);  // today's body weight, kept for history
       w.entries = w.entries.filter((en) => en.done);
       w.finishedAt = Date.now();
     }
@@ -1379,7 +1414,7 @@
     const w = activeWorkout(); if (!w) return;
     if (!confirm('Discard this workout? Logged sets will be lost.')) return;
     w.entries.forEach((en, i) => { if (en.done) reopenEntry(w, i); });
-    state.workouts = state.workouts.filter((x) => x.id !== w.id);
+    state.workouts = state.workouts.filter((x) => x.id !== w.id); markDeleted('workouts', w.id);
     state.active = null;
     stopTimer(); save(); render();
   }
@@ -1413,6 +1448,7 @@
   }
   function startTimer(sec, kind) {
     if (!sec) return;
+    if (timer.handle && timer.kind === 'cardio' && kind !== 'cardio') return;  // cardio keeps running
     unlockAudio();
     timer.kind = kind || 'rest';
     const label = $('.rest-label'); if (label) label.textContent = timer.kind === 'cardio' ? 'Cardio' : 'Rest';
@@ -1561,14 +1597,18 @@
       case 'review-set': ui.reviewOffset = +d.v; render(); break;
       case 'review-share': shareReview(); break;
       case 'bw-list': sheetBodyweight(); break;
-      case 'bw-delete': state.bodyweight = state.bodyweight.filter((b) => b.date !== d.date); save(); sheetBodyweight(); render(); break;
+      case 'bw-delete': state.bodyweight = state.bodyweight.filter((b) => b.date !== d.date); markDeleted('bw', d.date); save(); sheetBodyweight(); render(); break;
       case 'set-rir': state.settings.trackRir = d.v === '1'; save(); render(); break;
       case 'set-cardio': state.settings.cardioOn = d.v === '1'; save(); render(); break;
       case 'set-sleep': state.settings.sleepOn = d.v === '1'; save(); render(); break;
       case 'checkin-edit': ui.checkinEdit = true; render(); break;
       case 'checkin-cancel': ui.checkinEdit = false; render(); break;
       case 'sleep-list': sheetSleep(); break;
-      case 'sleep-delete': state.sleep = state.sleep.filter((x) => x.date !== d.date); save(); sheetSleep(); render(); break;
+      case 'sleep-delete': {
+        state.sleep = state.sleep.filter((x) => x.date !== d.date);
+        markDeleted('sleep', d.date);  // also keeps WHOOP from bringing it back
+        save(); sheetSleep(); render(); break;
+      }
       case 'pick-new-ex': sheetExercise(null); break;
 
       // Exercises
@@ -1579,7 +1619,8 @@
         if (!confirm(used ? 'Delete this exercise? Its history stays but shows as "Deleted exercise".' : 'Delete this exercise?')) break;
         state.exercises = state.exercises.filter((x) => x.id !== d.ex);
         state.program.days.forEach((day) => { day.exercises = day.exercises.filter((x) => x !== d.ex); });
-        if (w) w.entries = w.entries.filter((en) => en.exId !== d.ex);
+        state.templates.forEach((t) => t.days.forEach((day) => { day.exercises = day.exercises.filter((x) => x !== d.ex); }));
+        if (w) w.entries = w.entries.filter((en) => en.exId !== d.ex || en.done);  // sets already logged today stay
         delete state.presc[d.ex];
         save(); closeSheet(); render(); break;
       }
@@ -1594,7 +1635,7 @@
         const msg = back.length ? 'Delete this workout? Next-time weights for ' + plural(back.length, 'exercise') + ' go back to what they were before it.' : 'Delete this workout from history?';
         if (!confirm(msg)) break;
         back.forEach((en) => { state.presc[en.exId] = JSON.parse(JSON.stringify(en.prevPresc)); });
-        state.workouts = state.workouts.filter((x) => x.id !== d.w);
+        state.workouts = state.workouts.filter((x) => x.id !== d.w); markDeleted('workouts', d.w);
         save(); closeSheet(); render(); break;
       }
 
@@ -1755,7 +1796,7 @@
     get screen() { return ui.screen; },
     setState, computeNext, save, render, toast, checkinDone,
     // Shared with food.js
-    lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast },
+    lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast, markDeleted },
     noteUpdateReady() { ui.updateReady = true; renderTopbar(); },
     setSyncStatus(status, msg) {
       ui.sync = { status, msg: msg || '' };

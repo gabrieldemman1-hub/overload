@@ -30,7 +30,7 @@ const firebaseConfig = {
 };
 
 const SYNC_KEY = 'overload.sync.v1';
-const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'sleep', 'templates', 'food'];
+const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'sleep', 'templates', 'food', 'deleted'];
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig);
@@ -87,11 +87,57 @@ function workoutRef(id) { return doc(db, 'users', user.uid, 'workouts', id); }
 function workoutsCol() { return collection(db, 'users', user.uid, 'workouts'); }
 function dayRef(date) { return doc(db, 'users', user.uid, 'foodDays', date); }
 function daysCol() { return collection(db, 'users', user.uid, 'foodDays'); }
-// Two phones logging the same day: keep every entry from both, the incoming copy winning for the same entry.
-function mergeDay(local, remote) {
-  const byId = new Map((local || []).map((e) => [e.id, e]));
-  remote.forEach((e) => byId.set(e.id, e));
-  return [...byId.values()].sort((a, b) => (a.at || 0) - (b.at || 0));
+// ---------------------------------------------------------------------------
+// Merging. Two phones can change the same data, and Firestore replays a phone's
+// offline writes as-is when it reconnects. So lists are merged, never replaced:
+// food entries by id, weigh-ins and nights by date, minus anything in the
+// deletion records (state.deleted, merged too). Changes this phone has not
+// uploaded yet win over the cloud's copy.
+// ---------------------------------------------------------------------------
+let baseCore = null;   // the core document as the cloud last held it, for telling which side changed a key
+const DELETED_KINDS = ['food', 'bw', 'sleep', 'workouts'];
+function mergeDeleted(a, b) {
+  const out = {};
+  DELETED_KINDS.forEach((k) => {
+    out[k] = Object.assign({}, (a && a[k]) || {});
+    Object.entries((b && b[k]) || {}).forEach(([id, t]) => { if (!(out[k][id] >= t)) out[k][id] = t; });
+  });
+  return out;
+}
+// The first list wins for a date both have.
+function unionByDate(first, second, gone) {
+  const by = new Map();
+  (second || []).forEach((x) => by.set(x.date, x));
+  (first || []).forEach((x) => by.set(x.date, x));
+  return [...by.values()].filter((x) => !(gone && gone[x.date])).sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+// Two copies of one day's food log: every entry from both, `first` winning for the same entry.
+function mergeDay(first, second, gone) {
+  const byId = new Map((second || []).map((e) => [e.id, e]));
+  (first || []).forEach((e) => byId.set(e.id, e));
+  return [...byId.values()].filter((e) => !(gone && gone[e.id])).sort((a, b) => (a.at || 0) - (b.at || 0));
+}
+function mergeCore(local, remote) {
+  const localAhead = hash(coreJson(local)) !== known.core;
+  const out = {};
+  CORE_KEYS.forEach((k) => {
+    // A key this phone changed and has not uploaded yet stays; otherwise the cloud's copy.
+    const changedHere = localAhead && baseCore && JSON.stringify(local[k]) !== JSON.stringify(baseCore[k]);
+    out[k] = changedHere || remote[k] === undefined ? local[k] : remote[k];
+  });
+  out.deleted = mergeDeleted(local.deleted, remote.deleted);
+  out.bodyweight = localAhead ? unionByDate(local.bodyweight, remote.bodyweight, out.deleted.bw) : unionByDate(remote.bodyweight, local.bodyweight, out.deleted.bw);
+  out.sleep = localAhead ? unionByDate(local.sleep, remote.sleep, out.deleted.sleep) : unionByDate(remote.sleep, local.sleep, out.deleted.sleep);
+  return out;
+}
+// Drop anything the deletion records say is gone (after new records arrive from another phone).
+function applyDeleted(st) {
+  const del = st.deleted || {}; const food = del.food || {}, ws = del.workouts || {};
+  const diary = {};
+  Object.keys(st.diary || {}).forEach((d) => { const list = st.diary[d].filter((e) => !food[e.id]); if (list.length) diary[d] = list; });
+  st.diary = diary;
+  st.workouts = (st.workouts || []).filter((w) => !ws[w.id] || w.id === st.active);
+  return st;
 }
 
 function report() {
@@ -141,7 +187,7 @@ async function push() {
   const before = JSON.stringify(known);   // what the cloud held before this push, for rollback on failure
 
   const cj = coreJson(s), ch = hash(cj);
-  if (ch !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = ch; }
+  if (ch !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = ch; baseCore = JSON.parse(cj); }
 
   const seen = {};
   s.workouts.forEach((w) => {
@@ -185,13 +231,15 @@ function listen() {
     const remote = snap.data().core;
     if (typeof remote !== 'string' || hash(remote) === known.core) return;
     let core; try { core = JSON.parse(remote); } catch (e) { return; }
-    const next = Object.assign({}, host().state, core);
-    known.core = hash(remote); saveKnown();
+    const local = host().state;
+    const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));
+    known.core = hash(remote); baseCore = core; saveKnown();
     host().setState(next);
+    schedulePush();   // the merge may hold something the cloud lacks; push() only sends what differs
   }, (e) => { lastError = friendly(e); report(); }));
 
   unsubs.push(onSnapshot(workoutsCol(), (qs) => {
-    let changed = false;
+    let changed = false, resurrected = false;
     const list = host().state.workouts.slice();
     qs.docChanges().forEach((ch) => {
       if (ch.doc.metadata.hasPendingWrites) return;
@@ -205,11 +253,15 @@ function listen() {
         const j = ch.doc.data().data;
         if (typeof j !== 'string' || known.workouts[id] === hash(j)) return;
         let w; try { w = JSON.parse(j); } catch (e) { return; }
+        const del = (host().state.deleted || {}).workouts || {};
+        // Deleted here but brought back by another phone's old write: the next push deletes it again.
+        if (del[id] && id !== host().state.active) { known.workouts[id] = hash(j); resurrected = true; return; }
         const i = list.findIndex((x) => x.id === id);
         if (i >= 0) list[i] = w; else list.push(w);
         known.workouts[id] = hash(j); changed = true;
       }
     });
+    if (resurrected) { saveKnown(); schedulePush(); }
     if (!changed) return;
     list.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
     saveKnown();
@@ -217,26 +269,34 @@ function listen() {
   }, (e) => { lastError = friendly(e); report(); }));
 
   unsubs.push(onSnapshot(daysCol(), (qs) => {
-    let changed = false;
+    let changed = false, pushBack = false;
     const diary = Object.assign({}, host().state.diary);
+    const gone = ((host().state.deleted || {}).food) || {};
     qs.docChanges().forEach((ch) => {
       if (ch.doc.metadata.hasPendingWrites) return;
       const date = ch.doc.id;
+      const localAhead = diary[date] && hash(JSON.stringify(diary[date])) !== known.days[date];
       if (ch.type === 'removed') {
         if (known.days[date] === undefined) return;
-        delete diary[date]; delete known.days[date]; changed = true;
+        delete known.days[date]; changed = true;
+        // Entries logged here and not uploaded yet survive the other phone clearing the day.
+        const keep = localAhead ? diary[date].filter((e) => !gone[e.id]) : [];
+        if (keep.length) { diary[date] = keep; pushBack = true; } else delete diary[date];
       } else {
         const j = ch.doc.data().data;
         if (typeof j !== 'string' || known.days[date] === hash(j)) return;
         let entries; try { entries = JSON.parse(j); } catch (e) { return; }
         if (!Array.isArray(entries)) return;
-        if (entries.length) diary[date] = entries; else delete diary[date];
+        const merged = localAhead ? mergeDay(diary[date], entries, gone) : mergeDay(entries, diary[date], gone);
+        if (merged.length) diary[date] = merged; else delete diary[date];
         known.days[date] = hash(j); changed = true;
+        if (JSON.stringify(merged) !== j) pushBack = true;
       }
     });
     if (!changed) return;
     saveKnown();
     host().setState(Object.assign({}, host().state, { diary }));
+    if (pushBack) schedulePush();
   }, (e) => { lastError = friendly(e); report(); }));
 }
 
@@ -273,17 +333,40 @@ async function link() {
     let next = JSON.parse(JSON.stringify(local));
 
     if (meta.exists() && typeof meta.data().core === 'string') {
-      // Cloud already has data: it wins for settings/program; workouts are merged.
+      // Cloud already has data: it wins for settings and program; everything dated or with an id is merged.
       fresh.core = hash(meta.data().core);
-      Object.assign(next, JSON.parse(meta.data().core));
-      if (!localHasHistory) next.workouts = [];
+      const cloud = JSON.parse(meta.data().core);
+      baseCore = cloud;
+      Object.assign(next, cloud);
+      next.deleted = mergeDeleted(local.deleted, cloud.deleted);
+      next.bodyweight = unionByDate(cloud.bodyweight, local.bodyweight, next.deleted.bw);
+      next.sleep = unionByDate(cloud.sleep, local.sleep, next.deleted.sleep);
       // Foods saved only on this phone are kept alongside the account's.
       if (local.food && local.food.foods && next.food) next.food.foods = Object.assign({}, local.food.foods, next.food.foods || {});
+      // This phone's workouts and templates use its own exercise ids: match them to the account's by name.
+      next.exercises = (next.exercises || []).slice();
+      next.presc = Object.assign({}, next.presc || {});
+      const byName = new Map(next.exercises.map((e) => [String(e.name).toLowerCase(), e.id]));
+      const idMap = {};
+      const usedHere = (id) => local.workouts.some((w) => w.entries.some((en) => en.exId === id || en.swappedFrom === id));
+      (local.exercises || []).forEach((e) => {
+        const cid = byName.get(String(e.name).toLowerCase());
+        if (cid) { if (cid !== e.id) idMap[e.id] = cid; }
+        else if (usedHere(e.id)) { next.exercises.push(e); byName.set(String(e.name).toLowerCase(), e.id); if (local.presc[e.id]) next.presc[e.id] = local.presc[e.id]; }
+      });
+      const remap = (id) => idMap[id] || id;
+      next.workouts = local.workouts.filter((w) => localHasHistory || w.id === local.active).map((w) => Object.assign({}, w, {
+        entries: w.entries.map((en) => Object.assign({}, en, { exId: remap(en.exId), swappedFrom: en.swappedFrom ? remap(en.swappedFrom) : en.swappedFrom }))
+      }));
+      const tIds = new Set((cloud.templates || []).map((t) => t.id));
+      next.templates = (cloud.templates || []).concat((local.templates || []).filter((t) => !tIds.has(t.id))
+        .map((t) => Object.assign({}, t, { days: t.days.map((d) => Object.assign({}, d, { exercises: d.exercises.map(remap) })) })));
+      if (local.active && next.workouts.some((w) => w.id === local.active)) next.active = local.active;
     }
     ws.forEach((d) => {
       const j = d.data().data; if (typeof j !== 'string') return;
+      let w; try { w = JSON.parse(j); } catch (e) { return; }   // one broken document must not block sign-in
       fresh.workouts[d.id] = hash(j);
-      const w = JSON.parse(j);
       const i = next.workouts.findIndex((x) => x.id === d.id);
       if (i >= 0) next.workouts[i] = w; else next.workouts.push(w);
     });
@@ -296,10 +379,11 @@ async function link() {
       let entries; try { entries = JSON.parse(j); } catch (e) { return; }
       if (!Array.isArray(entries)) return;
       fresh.days[d.id] = hash(j);
-      const merged = mergeDay(next.diary[d.id], entries);
-      if (merged.length) next.diary[d.id] = merged;
+      const merged = mergeDay(entries, next.diary[d.id], (next.deleted || {}).food);
+      if (merged.length) next.diary[d.id] = merged; else delete next.diary[d.id];
     });
 
+    applyDeleted(next);
     known = fresh;
     saveKnown();
     h.setState(next);

@@ -21,7 +21,7 @@
   'use strict';
 
   const O = window.__overload;
-  const { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast } = O.lib;
+  const { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast, markDeleted } = O.lib;
   const S = () => O.state;
 
   const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
@@ -29,7 +29,7 @@
   const FLOZ = 29.5735;
   const DB_URL = './data/foods.json?db=4';  // ?db= changes when the list is rebuilt; keep sw.js in step
   const OFF = 'https://world.openfoodfacts.org';
-  const OFF_FIELDS = 'code,product_name,product_name_en,generic_name,brands,serving_size,serving_quantity,nutriments';
+  const OFF_FIELDS = 'code,product_name,product_name_en,generic_name,brands,serving_size,serving_quantity,serving_quantity_unit,nutriments';
 
   const fu = { day: null, meal: 0, search: '', off: null, offQuery: '', offBusy: false, offError: '', fx: null, from: null };
 
@@ -191,6 +191,16 @@
   // Open Food Facts
   // ---------------------------------------------------------------------------
   function canonCode(raw) { let c = String(raw || '').replace(/\D/g, ''); if (c.length === 12) c = '0' + c; return c; }
+  // An 8-digit code starting 0/1 may be a UPC-E (zero-suppressed UPC-A); lists store the long form.
+  function upcEtoA(c) {
+    if (!/^[01]\d{7}$/.test(c)) return null;
+    const x = c.slice(1, 7), last = x[5];
+    const body = last <= '2' ? x.slice(0, 2) + last + '0000' + x.slice(2, 5)
+      : last === '3' ? x.slice(0, 3) + '00000' + x.slice(3, 5)
+      : last === '4' ? x.slice(0, 4) + '00000' + x[4]
+      : x.slice(0, 5) + '0000' + last;
+    return '0' + c[0] + body + c[7];
+  }
   async function offGet(path) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
     try {
@@ -212,7 +222,11 @@
     const serving = label && (g || perServing) ? { label, g, n: n100 && g ? null : perServing } : null;
     if (!n100 && !(serving && serving.n)) return null;
     const name = String(p.product_name || p.product_name_en || p.generic_name || '').trim();
-    return { id: 'b' + code, src: 'off', name: name || 'Barcode ' + code, brand: String(p.brands || '').split(',')[0].trim(), barcode: code, n: n100, serving, servings: [] };
+    // Drinks: Open Food Facts gives them per 100 ml, and they are logged in ml / fl oz.
+    const liquid = p.serving_quantity_unit === 'ml' || /\d\s*(ml|cl|l)\b|fl\.?\s*oz/i.test(String(p.serving_size || ''));
+    const food = { id: 'b' + code, src: 'off', name: name || 'Barcode ' + code, brand: String(p.brands || '').split(',')[0].trim(), barcode: code, n: n100, serving, servings: [] };
+    if (liquid) food.liquid = true;
+    return food;
   }
   async function offProduct(code) {
     const tries = [code]; if (code.length === 13 && code[0] === '0') tries.push(code.slice(1));
@@ -304,14 +318,17 @@
   }
 
   function dndStart(p) {
-    const row = p.row, r = row.getBoundingClientRect();
+    // A render during the hold replaces the row: use the one on screen now.
+    const row = document.querySelector('.f-meal .f-row[data-id="' + CSS.escape(p.row.dataset.id) + '"]');
+    if (!row || O.screen !== 'food' || $('#sheet') && !$('#sheet').hidden) return;
+    const r = row.getBoundingClientRect();
     const ghost = row.cloneNode(true);
     ghost.classList.add('f-ghost'); ghost.removeAttribute('data-action');
     Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
     document.body.appendChild(ghost);
     row.classList.add('f-lifted');
     const line = document.createElement('div'); line.className = 'f-drop-line';
-    dnd.drag = { id: row.dataset.id, day: dayKey(), row, ghost, line, dy: p.y - r.top, x: p.x, y: p.y, meal: null, before: null, card: null };
+    dnd.drag = { id: row.dataset.id, pointer: p.id, day: dayKey(), row, ghost, line, dy: p.y - r.top, x: p.x, y: p.y, meal: null, before: null, card: null };
     document.body.classList.add('f-dragging');
     if (navigator.vibrate) navigator.vibrate(10);
     dndMove(p.x, p.y);
@@ -331,7 +348,7 @@
     d.card = card;
     if (!card) { d.line.remove(); d.meal = null; return; }
     card.classList.add('f-drop-target');
-    const rows = [...card.querySelectorAll('.f-row[data-id]')].filter((r) => r !== d.row);
+    const rows = [...card.querySelectorAll('.f-row[data-id]')].filter((r) => r.dataset.id !== d.id);
     const before = rows.find((r) => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; }) || null;
     const anchor = before || card.querySelector('[data-action="food-add"]');
     if (d.line.nextSibling !== anchor) card.insertBefore(d.line, anchor);
@@ -341,6 +358,7 @@
     const d = dnd.drag; if (!d) return;
     clearInterval(dnd.scrollTimer);
     d.ghost.remove(); d.line.remove(); d.row.classList.remove('f-lifted');
+    document.querySelectorAll('.f-row.f-lifted').forEach((r) => r.classList.remove('f-lifted'));
     if (d.card) d.card.classList.remove('f-drop-target');
     document.body.classList.remove('f-dragging');
     dnd.drag = null;
@@ -362,19 +380,21 @@
     dnd.press = p;
   });
   document.addEventListener('pointermove', (e) => {
-    if (dnd.drag) { e.preventDefault(); dndMove(e.clientX, e.clientY); return; }
+    if (dnd.drag) { if (e.pointerId === dnd.drag.pointer) { e.preventDefault(); dndMove(e.clientX, e.clientY); } return; }
     const p = dnd.press; if (!p || p.id !== e.pointerId) return;
     const moved = Math.hypot(e.clientX - p.x, e.clientY - p.y) > SLOP;
     if (!moved) return;
     if (p.mouse) { dnd.press = null; dndStart(Object.assign(p, { x: e.clientX, y: e.clientY })); }
     else dndCancelPress();  // moved before the hold: that is a scroll
   }, { passive: false });
-  document.addEventListener('pointerup', () => { dndCancelPress(); if (dnd.drag) dndEnd(true); });
-  document.addEventListener('pointercancel', () => { dndCancelPress(); if (dnd.drag) dndEnd(false); });
+  // Only the finger that started the drag moves or drops it; a second finger is ignored.
+  document.addEventListener('pointerup', (e) => { if (dnd.press && dnd.press.id === e.pointerId) dndCancelPress(); if (dnd.drag && e.pointerId === dnd.drag.pointer) dndEnd(true); });
+  document.addEventListener('pointercancel', (e) => { if (dnd.press && dnd.press.id === e.pointerId) dndCancelPress(); if (dnd.drag && e.pointerId === dnd.drag.pointer) dndEnd(false); });
   // While dragging, the page must not scroll under the finger (iOS needs a non-passive touchmove).
   document.addEventListener('touchmove', (e) => { if (dnd.drag) e.preventDefault(); }, { passive: false });
-  // The tap that ends a drag must not open the food; a long press must not open a menu.
-  document.addEventListener('click', (e) => { if (dnd.suppressClick && e.target.closest && e.target.closest('.f-meal')) { e.stopPropagation(); e.preventDefault(); dnd.suppressClick = false; } }, true);
+  // The click that ends a drag (wherever the finger was lifted) must not open a food or switch tabs;
+  // only that one click is swallowed. A long press must not open a menu.
+  document.addEventListener('click', (e) => { if (dnd.suppressClick) { dnd.suppressClick = false; e.stopPropagation(); e.preventDefault(); } }, true);
   document.addEventListener('contextmenu', (e) => { if (e.target.closest && e.target.closest('.f-meal .f-row[data-id]')) e.preventDefault(); });
 
   // ---------------------------------------------------------------------------
@@ -422,7 +442,8 @@
       if (mine.length) html += '<div class="group-title' + (html ? '' : ' first') + '">Your foods</div>' + mine.map((f) => resultRow(f, 'mine')).join('');
       html += '<div class="group-title' + (html ? '' : ' first') + '">Common foods</div>';
       if (db) {
-        const hits = searchDb(q, 30).filter((f) => !S().food.foods[f.id]);
+        const shown = new Set(mine.map((f) => f.id));
+        const hits = searchDb(q, 30).filter((f) => !shown.has(f.id));
         html += hits.length ? hits.map((f) => resultRow(f, 'usda')).join('') : '<p class="small muted">No common food matches. Try fewer words, or search brands below.</p>';
       } else if (dbError) {
         html += '<p class="small muted">' + esc(dbError) + '</p><button class="btn ghost small mt8" data-action="food-db-retry">Try again</button>';
@@ -456,7 +477,7 @@
   function sheetAmount(food, opts) {
     opts = opts || {};
     const amt = opts.qty != null ? { qty: opts.qty, unit: opts.unit } : defaultAmount(food);
-    fu.fx = { food, meal: opts.meal != null ? opts.meal : fu.meal, qty: amt.qty, unit: amt.unit, entryId: opts.entryId || null };
+    fu.fx = { food, meal: opts.meal != null ? opts.meal : fu.meal, qty: amt.qty, unit: amt.unit, entryId: opts.entryId || null, day: opts.day || dayKey() };
     const units = unitOptions(food).map((o) => '<option value="' + o.u + '" ' + (o.u === amt.unit ? 'selected' : '') + '>' + esc(o.label) + '</option>').join('');
     const back = fu.from === 'add' && !opts.entryId ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '';
     const fixable = food.src === 'custom' ? 'Edit food' : food.src === 'off' || food.barcode ? 'Numbers wrong? Fix them' : '';
@@ -485,7 +506,7 @@
   function saveEntry() {
     const x = fu.fx; if (!x) return;
     const n = nutrition(x.food, x.qty, x.unit); if (!n) { toast('Enter an amount'); return; }
-    const st = S(), day = dayKey();
+    const st = S(), day = x.day || dayKey();  // the day it was opened for, even if midnight passed
     let stored = null;
     if (x.food.src !== 'entry') {
       // Keep the food itself so it shows in Recent and works offline next time.
@@ -515,9 +536,10 @@
   }
   function deleteEntry() {
     const x = fu.fx; if (!x || !x.entryId) return;
-    const st = S(), day = dayKey();
+    const st = S(), day = x.day || dayKey();
     const list = (st.diary[day] || []).filter((e) => e.id !== x.entryId);
     if (list.length) st.diary[day] = list; else delete st.diary[day];
+    markDeleted('food', x.entryId);
     O.save(); closeSheet(); O.render(); toast('Removed');
     fu.fx = null;
   }
@@ -608,7 +630,7 @@
   // ---------------------------------------------------------------------------
   function sheetQuick(entry) {
     const v = (k) => (entry && entry[k] ? esc(entry[k]) : '');
-    fu.fx = entry ? { entryId: entry.id, meal: entry.meal } : { meal: fu.meal };
+    fu.fx = entry ? { entryId: entry.id, meal: entry.meal, day: dayKey() } : { meal: fu.meal, day: dayKey() };
     openSheet(sheetHeader(entry ? 'Edit quick add' : 'Quick add')
       + '<form id="food-quick-form"><div class="field"><label>Name (optional)</label><input class="input" name="name" value="' + (entry && entry.name !== 'Quick add' ? esc(entry.name) : '') + '" placeholder="Quick add"></div>'
       + '<div class="field"><label>Calories</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" required value="' + v('kcal') + '"></div>'
@@ -620,14 +642,15 @@
       + (entry ? '<button class="btn danger block mt8" type="button" data-action="food-delete">Remove</button>' : '') + '</form>');
   }
   function submitQuick(form) {
-    const fd = new FormData(form); const st = S(), day = dayKey();
+    const fd = new FormData(form); const st = S();
     const kcal = num(fd.get('kcal'), NaN); if (!(kcal >= 0)) { toast('Enter calories'); return; }
     const x = fu.fx || { meal: fu.meal };
+    const day = x.day || dayKey();
     const entry = { id: x.entryId || uid(), food: null, meal: x.meal, qty: null, unit: null, amt: '', name: String(fd.get('name') || '').trim() || 'Quick add', brand: '',
       kcal: Math.round(kcal), p: r1(Math.max(0, num(fd.get('p'), 0))), c: r1(Math.max(0, num(fd.get('c'), 0))), f: r1(Math.max(0, num(fd.get('f'), 0))), at: Date.now() };
     const list = (st.diary[day] || []).slice();
     const i = list.findIndex((e) => e.id === entry.id);
-    if (i >= 0) list[i] = entry; else list.push(entry);
+    if (i >= 0) { entry.at = list[i].at || entry.at; list[i] = entry; } else list.push(entry);
     st.diary[day] = list;
     O.save(); closeSheet(); O.render(); toast(i >= 0 ? 'Saved' : 'Added to ' + MEALS[x.meal]);
     fu.fx = null;
@@ -640,7 +663,8 @@
     const sv = f.serving || (f.n ? { label: '100 g', g: 100, n: null } : null);
     const per = sv ? (sv.n || (f.n && sv.g ? scale(f.n, sv.g / 100) : null)) : null;
     const v = (x) => (x == null || x === '' ? '' : esc(typeof x === 'number' ? trimNum(x) : x));
-    fu.form = { id: food && food.src === 'custom' ? food.id : null, meal: opts.meal != null ? opts.meal : fu.meal, entryId: opts.entryId || null, qty: opts.qty, unit: opts.unit, liquid: !!(food && food.liquid) };
+    const r2 = (x) => Math.round(x * 100) / 100;  // 0.1 would shift the per-100 g numbers on a small serving
+    fu.form = { id: food && food.src === 'custom' ? food.id : null, orig: food && food.id, day: opts.day, meal: opts.meal != null ? opts.meal : fu.meal, entryId: opts.entryId || null, qty: opts.qty, unit: opts.unit, liquid: !!(food && food.liquid) };
     openSheet(sheetHeader(food && food.src === 'custom' ? 'Edit food' : 'New food')
       + (opts.msg ? '<div class="banner">' + esc(opts.msg) + '</div>' : '')
       + '<form id="food-form"><div class="field"><label>Name</label><input class="input" name="name" required value="' + v(f.name) + '" placeholder="e.g. Protein bar, chocolate"></div>'
@@ -650,10 +674,10 @@
       + '<div class="field-row"><div class="field"><label>Serving size</label><input class="input" name="slabel" value="' + v(sv ? sv.label : '1 serving') + '" placeholder="1 bar"></div>'
       + '<div class="field"><label>Serving ' + (f.liquid ? 'ml' : 'weight g') + '</label><input class="input" name="sg" type="number" inputmode="decimal" step="any" min="0" value="' + v(sv && sv.g) + '" placeholder="optional"></div></div>'
       + '<p class="tiny muted mb8">With the weight, you can also log this in grams or ounces.</p>'
-      + '<div class="field"><label>Calories per serving</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" required value="' + v(per && r1(per.kcal)) + '"></div>'
-      + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r1(per.p)) + '"></div>'
-      + '<div class="field"><label>Carbs g</label><input class="input" name="c" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r1(per.c)) + '"></div>'
-      + '<div class="field"><label>Fat g</label><input class="input" name="f" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r1(per.f)) + '"></div></div>'
+      + '<div class="field"><label>Calories per serving</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" required value="' + v(per && r2(per.kcal)) + '"></div>'
+      + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.p)) + '"></div>'
+      + '<div class="field"><label>Carbs g</label><input class="input" name="c" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.c)) + '"></div>'
+      + '<div class="field"><label>Fat g</label><input class="input" name="f" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.f)) + '"></div></div>'
       + '<button class="btn block" type="submit">Save food</button>'
       + (food && food.src === 'custom' ? '<button class="btn danger block mt8" type="button" data-action="food-forget">Delete this food</button>' : '')
       + '</form>');
@@ -667,11 +691,12 @@
     const perServing = { kcal, p: Math.max(0, num(fd.get('p'), 0)), c: Math.max(0, num(fd.get('c'), 0)), f: Math.max(0, num(fd.get('f'), 0)) };
     const old = fu.form && fu.form.id ? st.food.foods[fu.form.id] : null;
     const id = code.length >= 8 ? 'b' + code : (old && old.id[0] === 'c' ? old.id : 'c' + uid());
+    const prev = st.food.foods[id] || old || (fu.form && fu.form.orig ? st.food.foods[fu.form.orig] : null);
     const food = {
       id, src: 'custom', name, brand: String(fd.get('brand') || '').trim(), barcode: code.length >= 8 ? code : undefined,
       n: g ? scale(perServing, 100 / g) : null,
       serving: { label: String(fd.get('slabel') || '').trim() || '1 serving', g, n: g ? null : perServing },
-      servings: [], used: old ? old.used : undefined, last: old && old.id === id ? old.last : undefined,
+      servings: [], used: prev ? prev.used : undefined, last: prev && prev.id === id ? prev.last : undefined, fav: prev && prev.fav ? true : undefined,
       liquid: fu.form && fu.form.liquid ? true : undefined
     };
     Object.keys(food).forEach((k) => food[k] === undefined && delete food[k]);
@@ -683,7 +708,7 @@
     toast('Food saved');
     // Back to the amount: same entry and amount when editing one, else 1 serving.
     const keep = ctx.entryId && ctx.qty > 0 && unitOptions(food).some((o) => o.u === ctx.unit);
-    sheetAmount(food, { meal: ctx.meal, entryId: ctx.entryId, qty: keep ? ctx.qty : 1, unit: keep ? ctx.unit : 'srv' });
+    sheetAmount(food, { meal: ctx.meal, entryId: ctx.entryId, day: ctx.day, qty: keep ? ctx.qty : 1, unit: keep ? ctx.unit : 'srv' });
   }
   function forgetFood() {
     const f = fu.form && fu.form.id && S().food.foods[fu.form.id]; if (!f) return;
@@ -774,25 +799,34 @@
       if (codes.length) foundCode(codes[0]); else scanStatus('No barcode in that photo. Get closer, keep it flat, and use good light.');
     } catch (e) { scanStatus('Could not read that photo.'); }
   }
+  let scanSeq = 0;
   async function foundCode(raw) {
     const code = canonCode(raw);
     if (code.length < 8) { toast('That does not look like a barcode'); return; }
     if (navigator.vibrate) navigator.vibrate(50);
+    const seq = ++scanSeq;
+    // Only show the result if the scan sheet is still open and no newer scan started.
+    const current = () => seq === scanSeq && !!$('#scan-status');
+    const keys = [codeKey(code)]; const longForm = upcEtoA(code); if (longForm) keys.push(codeKey(longForm));
     // Your own foods first (a fixed or typed-in label wins), then the built-in list, then Open Food Facts.
-    const key = codeKey(code);
-    const mine = S().food.foods['b' + code] || Object.values(S().food.foods).find((f) => f.barcode && codeKey(f.barcode) === key && f.src === 'custom')
-      || Object.values(S().food.foods).find((f) => f.barcode && codeKey(f.barcode) === key);
+    const foods = Object.values(S().food.foods);
+    const mine = S().food.foods['b' + code] || foods.find((f) => f.barcode && keys.includes(codeKey(f.barcode)) && f.src === 'custom')
+      || foods.find((f) => f.barcode && keys.includes(codeKey(f.barcode)));
     if (mine) { sheetAmount(mine, { meal: fu.meal }); return; }
     scanStatus('Looking up ' + code + '…');
-    const listed = await loadDb().then(() => dbByCode.get(key), () => null);
+    const listed = await loadDb().then(() => keys.map((k) => dbByCode.get(k)).find(Boolean), () => null);
+    if (!current()) return;
     if (listed) { sheetAmount(listed, { meal: fu.meal }); return; }
     try {
-      const hit = await offProduct(code);
+      let hit = await offProduct(code);
+      if (!(hit && hit.food) && longForm) hit = (await offProduct(longForm)) || hit;
+      if (!current()) return;
       if (hit && hit.food) { sheetAmount(hit.food, { meal: fu.meal }); return; }
       const name = hit && hit.product ? String(hit.product.product_name || '').trim() : '';
       sheetFoodForm(name ? { name, brand: String(hit.product.brands || '').split(',')[0].trim(), src: 'new' } : null,
         { barcode: code, msg: name ? 'Found the product but not its nutrition. Type it from the label once and the barcode is remembered.' : 'This barcode is not in the database yet. Type it from the label once and the next scan finds it.' });
     } catch (e) {
+      if (!current()) return;
       sheetFoodForm(null, { barcode: code, msg: 'Could not reach the food database' + (navigator.onLine === false ? ' (offline)' : '') + '. Type it from the label, or try again later.' });
     }
   }
@@ -828,7 +862,8 @@
       case 'food-add': fu.search = ''; fu.off = null; fu.offError = ''; sheetAdd(+d.meal); break;
       case 'food-back': stopCamera(); sheetAdd(); break;
       case 'food-pick': {
-        const f = d.src === 'mine' ? S().food.foods[d.id] : d.src === 'usda' ? (db || []).find((x) => x.id === d.id) : (fu.off || []).find((x) => x.id === d.id);
+        // Your stored copy wins, so numbers you fixed are what gets logged.
+        const f = S().food.foods[d.id] || (d.src === 'usda' ? (db || []).find((x) => x.id === d.id) : d.src === 'off' ? (fu.off || []).find((x) => x.id === d.id) : null);
         if (f) sheetAmount(f, { meal: fu.meal });
         break;
       }
@@ -845,7 +880,7 @@
       case 'food-edit': editEntry(d.id); break;
       case 'food-fix': {
         const x = fu.fx; if (!x) break;
-        sheetFoodForm(x.food.src === 'custom' ? x.food : Object.assign({}, x.food, { src: 'new' }), { barcode: x.food.barcode, meal: x.meal, entryId: x.entryId, qty: x.qty, unit: x.unit });
+        sheetFoodForm(x.food.src === 'custom' ? x.food : Object.assign({}, x.food, { src: 'new' }), { barcode: x.food.barcode, meal: x.meal, entryId: x.entryId, day: x.day, qty: x.qty, unit: x.unit });
         break;
       }
       case 'food-forget': forgetFood(); break;
@@ -877,6 +912,7 @@
         const mi = +d.meal, st = S(), day = dayKey();
         if (!confirm('Remove everything from ' + MEALS[mi] + '?')) break;
         const list = entriesFor(day).filter((e) => e.meal !== mi);
+        entriesFor(day).forEach((e) => { if (e.meal === mi) markDeleted('food', e.id); });
         if (list.length) st.diary[day] = list; else delete st.diary[day];
         O.save(); closeSheet(); O.render(); toast(MEALS[mi] + ' cleared'); break;
       }

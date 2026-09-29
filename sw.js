@@ -1,14 +1,14 @@
 // Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v19';
+const CACHE = 'overload-v20';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=2.4',
-  './programs.js?v=2.4',
-  './app.js?v=2.4',
-  './sync.js?v=2.4',
-  './food.js?v=2.4',
-  './connector.js?v=2.4',
+  './styles.css?v=2.5',
+  './programs.js?v=2.5',
+  './app.js?v=2.5',
+  './sync.js?v=2.5',
+  './food.js?v=2.5',
+  './connector.js?v=2.5',
   './data/foods.json?db=4',
   './manifest.webmanifest',
   './icon.svg',
@@ -37,7 +37,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('overload-') && k !== CACHE).map((k) => caches.delete(k))))  // other sites share this origin
       .then(() => self.clients.claim())
   );
 });

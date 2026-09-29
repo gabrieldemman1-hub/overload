@@ -200,12 +200,16 @@ Data layout in Firestore:
 
 | Document                          | Contents                                          |
 | --------------------------------- | ------------------------------------------------- |
-| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, food targets, saved foods and meals |
+| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, weigh-ins, sleep, templates, food targets, saved foods and meals, deletion records |
 | `users/{uid}/workouts/{id}`       | one document per workout                          |
 | `users/{uid}/foodDays/{date}`     | one document per day of food log                  |
 
-Two phones logging the same day keep both sets of entries when a phone first
-signs in; after that the latest change to a day wins, as with workouts.
+Two phones never overwrite each other's lists: food entries merge by id, and
+weigh-ins and nights merge by date, even when a phone that was offline replays
+old writes. Deletions are recorded (kept 90 days) so a merge never brings back
+something you deleted. A change not uploaded yet wins over the cloud's copy.
+On first sign-in a phone's own workouts, templates and weigh-ins are kept, and
+its exercises are matched to the account's by name.
 
 Firebase project setup (one time, in the Firebase console):
 

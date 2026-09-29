@@ -73,7 +73,7 @@ jobs:
           url="https://overload-connector.$sub.workers.dev"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           for i in $(seq 1 20); do
-            if curl -fsS "$url/" | tee /tmp/health.json; then echo; break; fi
+            if curl -fsS "$url/" -o /tmp/health.json; then cat /tmp/health.json; echo; break; fi
             sleep 5
           done
           grep -q '"ok":true' /tmp/health.json || { echo "::error::$url/ did not answer"; exit 1; }
@@ -97,6 +97,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add connector.json
           git commit -m "connector.json: ${{ steps.url.outputs.url }}"
-          git push
+          git checkout -- connector/wrangler.toml   # the KV id filled in above is not meant to be committed
+          git pull --rebase origin main
+          git push origin HEAD:main
           # Pushes made by this workflow do not start a Pages build on their own.
           gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" >/dev/null && echo "Pages rebuild requested" || echo "::warning::Could not request a Pages build; it will update on the next push."

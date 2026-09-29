@@ -59,7 +59,9 @@ async function whoopToken(env) {
   const w = await getJ(env, 'whoop');
   if (!w) return null;
   if (w.expires - Date.now() > 5 * 60 * 1000) return w.access;
-  const t = await tokenRequest(env, { grant_type: 'refresh_token', refresh_token: w.refresh, scope: 'offline' });
+  let t;
+  try { t = await tokenRequest(env, { grant_type: 'refresh_token', refresh_token: w.refresh, scope: 'offline' }); }
+  catch (e) { throw Object.assign(new Error('WHOOP login expired. Connect WHOOP again'), { status: 409 }); }
   await putJ(env, 'whoop', { ...w, ...t, refresh: t.refresh || w.refresh });
   return t.access;
 }
@@ -80,10 +82,17 @@ async function whoopSleeps(env, days) {
   const start = new Date(Date.now() - (days + 1) * 86400000).toISOString();
   const token = await whoopToken(env);
   if (!token) throw Object.assign(new Error('WHOOP is not connected'), { status: 409 });
-  const [sl, rc] = await Promise.all([
-    whoopGet(env, '/activity/sleep', { start, limit: 25 }, token),
-    whoopGet(env, '/recovery', { start, limit: 25 }, token)
-  ]);
+  // WHOOP pages at 25 records; a 30-day first sync (with naps) can need more than one page.
+  const all = async (path) => {
+    let records = [], next = null;
+    for (let i = 0; i < 6; i++) {
+      const r = await whoopGet(env, path, { start, limit: 25, nextToken: next }, token);
+      records = records.concat(r.records || []);
+      next = r.next_token; if (!next) break;
+    }
+    return { records };
+  };
+  const [sl, rc] = await Promise.all([all('/activity/sleep'), all('/recovery')]);
   const recBySleep = {};
   (rc.records || []).forEach((r) => { if (r.score_state === 'SCORED' && r.score) recBySleep[r.sleep_id] = r.score; });
   return (sl.records || []).filter((s) => !s.nap && s.score_state === 'SCORED' && s.score && s.score.stage_summary).map((s) => {
@@ -111,7 +120,12 @@ async function whoopLogin(req, env, url) {
   a.searchParams.set('response_type', 'code');
   a.searchParams.set('scope', SCOPES);
   a.searchParams.set('state', state);
-  return Response.redirect(a.toString(), 302);
+  // The state is bound to this browser, so a WHOOP link started by someone else cannot pair their key.
+  return new Response(null, { status: 302, headers: { Location: a.toString(), 'Set-Cookie': 'ows=' + state + '; HttpOnly; Secure; SameSite=Lax; Path=/whoop; Max-Age=600', 'Cache-Control': 'no-store' } });
+}
+function cookie(req, name) {
+  const m = new RegExp('(?:^|;\\s*)' + name + '=([^;]*)').exec(req.headers.get('Cookie') || '');
+  return m ? m[1] : '';
 }
 async function whoopCallback(req, env, url) {
   const back = env.APP_URL ? '<p><a style="color:#ff5a4f" href="' + env.APP_URL + '">Back to Overload</a></p>' : '';
@@ -119,12 +133,14 @@ async function whoopCallback(req, env, url) {
   const state = url.searchParams.get('state') || '', code = url.searchParams.get('code') || '';
   const pending = state && await getJ(env, 'pending:' + state);
   if (!pending || !code) return page('Link expired', '<p>Start again from Overload → Settings → WHOOP.</p>' + back);
+  if (cookie(req, 'ows') !== state) return page('Start from Overload', '<p>This WHOOP login was not started from this browser. Open Overload → Settings → WHOOP → Connect WHOOP.</p>' + back);
   await env.KV.delete('pending:' + state);
   const t = await tokenRequest(env, { grant_type: 'authorization_code', code, redirect_uri: url.origin + '/whoop/callback' });
   const prof = await (await fetch(WHOOP_API + '/user/profile/basic', { headers: { Authorization: 'Bearer ' + t.access } })).json();
   const owner = (await getJ(env, 'owner')) || {};
   if (owner.whoopUser && owner.whoopUser !== prof.user_id) return page('Different WHOOP account', '<p>This connector already belongs to another WHOOP account.</p>');
-  if (!owner.whoopUser && owner.keyHash && owner.keyHash !== pending.keyHash) return page('Different phone', '<p>This connector is paired with another copy of Overload.</p>');
+  // Paired for reminders before WHOOP was set up: only that same copy of the app may add WHOOP.
+  if (!owner.whoopUser && owner.keyHash && owner.keyHash !== pending.keyHash) return page('Different phone', '<p>This connector is paired with another copy of Overload. To start over, delete the "owner" entry in the connector\'s KV storage (Cloudflare dashboard → Storage → KV → overload-connector).</p>');
   await putJ(env, 'owner', { keyHash: pending.keyHash, whoopUser: prof.user_id, name: prof.first_name || '' });
   await putJ(env, 'whoop', { ...t, since: new Date().toISOString() });
   return page('WHOOP connected ✓', '<p>Hi ' + String(prof.first_name || '').replace(/[<>&]/g, '') + '. Close this window and go back to Overload; your sleep fills in on its own.</p>' + back);
@@ -188,7 +204,10 @@ async function sendPush(env, msg) {
 // ---------------------------------------------------------------------------
 // Reminders
 // ---------------------------------------------------------------------------
-const DEFAULT_CFG = { tz: 'America/Los_Angeles', reminders: { checkin: { on: true, time: '07:30' }, workout: { on: true, time: '17:00' }, food: { on: false, time: '20:30' } }, training: [], done: {}, sent: {} };
+// cfg is written only by the app (PUT /config); `sent` has its own key, written only by the cron job,
+// so the two never overwrite each other.
+const DEFAULT_CFG = { tz: 'America/Los_Angeles', reminders: { checkin: { on: true, time: '07:30' }, workout: { on: true, time: '17:00' }, food: { on: false, time: '20:30' } }, training: [], done: {} };
+const defaultCfg = () => JSON.parse(JSON.stringify(DEFAULT_CFG));
 function localNow(tz, now) {
   const p = {};
   new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23' })
@@ -216,25 +235,26 @@ async function reminderMessage(env, kind, cfg, now) {
   return { title: 'Log today\'s food', tag: 'food', url, body: 'Add what you ate so today\'s calories and protein are right.' };
 }
 async function runReminders(env, when) {
-  const cfg = (await getJ(env, 'cfg')) || DEFAULT_CFG;
+  const cfg = (await getJ(env, 'cfg')) || defaultCfg();
   if (!((await getJ(env, 'subs')) || []).length) return [];
   const now = localNow(cfg.tz || DEFAULT_CFG.tz, when);
+  const sent = (await getJ(env, 'sent')) || {};
   const out = [];
   for (const kind of ['checkin', 'workout', 'food']) {
     const r = (cfg.reminders || {})[kind];
     if (!r || !r.on) continue;
     const [h, m] = String(r.time || '').split(':').map(Number);
-    const at = h * 60 + m;
+    const at = Math.floor((h * 60 + m) / 5) * 5;                    // cron runs every 5 min: 23:58 fires at 23:55
     if (!(now.min >= at && now.min - at < 180)) continue;          // due, and not hours late
-    if ((cfg.sent || {})[kind] === now.date) continue;              // once a day
+    if (sent[kind] === now.date) continue;                          // once a day
     if ((cfg.done || {})[kind] === now.date) continue;              // already done in the app
     if (kind === 'workout' && !(cfg.training || [])[now.wd]) continue; // rest day
     const msg = await reminderMessage(env, kind, cfg, now);
-    await sendPush(env, msg);
-    cfg.sent = { ...(cfg.sent || {}), [kind]: now.date };
+    if (!(await sendPush(env, msg))) continue;                      // not delivered: try again in 5 min
+    sent[kind] = now.date;
     out.push(kind);
   }
-  if (out.length) await putJ(env, 'cfg', cfg);
+  if (out.length) await putJ(env, 'sent', sent);
   return out;
 }
 
@@ -254,8 +274,12 @@ async function handle(req, env) {
     const key = ((await req.json().catch(() => ({}))).key || '');
     if (key.length < 16) return json({ error: 'bad key' }, 400);
     const owner = await getJ(env, 'owner'), h = await sha256(key);
-    if (owner && owner.keyHash && owner.keyHash !== h) return json({ error: 'This connector is paired with another copy of Overload. Log in to WHOOP from this phone to re-pair.' }, 403);
-    if (!owner) await putJ(env, 'owner', { keyHash: h });
+    if (owner && owner.keyHash === h) return json({ ok: true });
+    if (owner && owner.whoopUser) return json({ error: 'paired', whoop: true, message: 'Paired with another copy of Overload. Log in to WHOOP from this phone to pair it.' }, 403);
+    if (owner) return json({ error: 'paired', whoop: false, message: 'Paired with another copy of Overload.' }, 403);
+    // With WHOOP set up, the first pairing happens through the WHOOP login instead (it proves who you are).
+    if (env.WHOOP_CLIENT_ID && env.WHOOP_CLIENT_SECRET) return json({ error: 'whoop-first', message: 'Connect WHOOP to pair this phone.' }, 403);
+    await putJ(env, 'owner', { keyHash: h });
     return json({ ok: true });
   }
 
@@ -263,7 +287,7 @@ async function handle(req, env) {
   try {
     if (p === '/status') {
       const [owner, w, subs, cfg] = await Promise.all([getJ(env, 'owner'), getJ(env, 'whoop'), getJ(env, 'subs'), getJ(env, 'cfg')]);
-      return json({ whoop: w ? { connected: true, name: owner.name || '', since: w.since } : { connected: false, ready: !!(env.WHOOP_CLIENT_ID && env.WHOOP_CLIENT_SECRET) }, subs: (subs || []).length, cfg: cfg || DEFAULT_CFG });
+      return json({ whoop: w ? { connected: true, name: owner.name || '', since: w.since } : { connected: false, ready: !!(env.WHOOP_CLIENT_ID && env.WHOOP_CLIENT_SECRET) }, subs: (subs || []).length, cfg: cfg || defaultCfg() });
     }
     if (p === '/whoop/sleep') return json({ nights: await whoopSleeps(env, Math.min(30, Math.max(1, +url.searchParams.get('days') || 3))) });
     if (p === '/whoop/disconnect' && req.method === 'POST') {
@@ -272,8 +296,10 @@ async function handle(req, env) {
       return json({ ok: true });
     }
     if (p === '/push/subscribe' && req.method === 'POST') {
-      const sub = (await req.json()).subscription;
+      const body = await req.json(), sub = body.subscription;
       if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) return json({ error: 'bad subscription' }, 400);
+      // A subscription made with a different push key would get 403 on every send.
+      if (body.key && body.key !== (await vapidKeys(env)).publicKey) return json({ error: 'push key changed', key: (await vapidKeys(env)).publicKey }, 409);
       const subs = ((await getJ(env, 'subs')) || []).filter((s) => s.endpoint !== sub.endpoint);
       subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
       await putJ(env, 'subs', subs.slice(-5));
@@ -289,8 +315,8 @@ async function handle(req, env) {
       return json({ ok: sent > 0, sent });
     }
     if (p === '/config' && req.method === 'PUT') {
-      const b = await req.json(), old = (await getJ(env, 'cfg')) || DEFAULT_CFG;
-      const cfg = { ...old, tz: b.tz || old.tz, reminders: b.reminders || old.reminders, training: Array.isArray(b.training) ? b.training.slice(0, 7) : old.training, done: b.done || old.done };
+      const b = await req.json(), old = (await getJ(env, 'cfg')) || defaultCfg();
+      const cfg = { tz: b.tz || old.tz, reminders: b.reminders || old.reminders, training: Array.isArray(b.training) ? b.training.slice(0, 7) : old.training, done: b.done || old.done };
       try { localNow(cfg.tz); } catch (e) { cfg.tz = old.tz; }
       await putJ(env, 'cfg', cfg);
       return json({ ok: true });
