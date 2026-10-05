@@ -74,9 +74,9 @@ go past the top of the weekly sets target in Settings (default 20).
 - **Program library.** Eleven built-in programs on the Program tab: Chris
   Bumstead's 5-day split, Push/Pull/Legs, Olympia split and an Arnold-style
   split; Hany Rambod's FST-7 classic 5-day, FST-7 arms & calves twice, and the
-  Phil Heath FST-7 split; a 6-day Push/Pull/Legs on Renaissance
-  Periodization's method (every muscle twice a week, sets added from your
-  feedback, RIR 3→0, then a deload); and three arm-focused programs (RP's arm
+  Phil Heath FST-7 split; a 6-day, machine- and cable-based Push/Pull/Legs
+  on Renaissance Periodization's method (every muscle twice a week, sets
+  added from your feedback, RIR 3→0, then a deload); and three arm-focused programs (RP's arm
   specialization, a full-body arms emphasis in the RP app's style, and an
   upper/lower arms emphasis). View shows the week and every exercise's sets ×
   reps; Use switches to it, saving your own program under Templates first.
