@@ -315,6 +315,54 @@
       schedule: [0, 1, null, 2, 3, 4, null]
     },
     {
+      id: 'rp-ppl', name: 'Push/Pull/Legs, 6 Days (RP-style)', by: 'Renaissance Periodization method',
+      about: 'Push, pull, legs twice a week, every muscle trained twice. Day A and day B hit each muscle from a different angle: chest-led and shoulder-led pushes, lat-led and mid-back pulls, quad-led and hamstring-led legs. It starts low on purpose and builds up through the block.',
+      how: 'Week 1: about 3 reps in reserve on every set (RIR column). Each week get one rep closer to failure, until the last week of the block is at 0–1 RIR; then a deload week at half the sets and lighter weights. Run 4–6 weeks per block. Rate pump, joints and workload after each exercise and the soreness check-in: that is what adds sets week to week, the way RP does. Rest until you can repeat good reps, about 2–3 min on presses, rows and squats, 1–2 min on isolation.',
+      source: 'Built on Renaissance Periodization\'s published method (Mike Israetel: start near minimum effective volume, add sets from feedback, RIR 3→0, deload). RP\'s own PPL templates are in its paid app; this is not a copy of one',
+      days: [
+        { name: 'Push A (chest)', short: 'Push A', ex: [
+          ['Incline Dumbbell Press', 3, '8–12'],
+          ['Machine Chest Press', 2, '10–15'],
+          ['Cable Fly', 2, '12–20', 'Slow lowering, stretch at the bottom'],
+          ['Dumbbell Lateral Raise', 3, '12–20'],
+          ['Overhead Triceps Extension', 2, '10–15'],
+          ['Triceps Pushdown', 2, '12–20']] },
+        { name: 'Pull A (lats)', short: 'Pull A', ex: [
+          ['Lat Pulldown', 3, '8–12', 'Pull the elbows down to the hips'],
+          ['Chest-Supported Row', 3, '8–12'],
+          ['Straight-Arm Pulldown', 2, '12–20'],
+          ['Rear Delt Fly', 2, '15–20'],
+          ['EZ-Bar Curl', 2, '8–12'],
+          ['Incline Dumbbell Curl', 2, '10–15']] },
+        { name: 'Legs A (quads)', short: 'Legs A', ex: [
+          ['Hack Squat', 3, '8–12', 'Deep, controlled lowering'],
+          ['Romanian Deadlift', 2, '8–12'],
+          ['Leg Extension', 3, '12–20'],
+          ['Lying Leg Curl', 2, '10–15'],
+          ['Standing Calf Raise', 3, '10–15', 'Pause in the stretch']] },
+        { name: 'Push B (shoulders)', short: 'Push B', ex: [
+          ['Seated Dumbbell Shoulder Press', 3, '8–12'],
+          ['Flat Dumbbell Press', 2, '8–12'],
+          ['Pec Deck', 2, '12–20'],
+          ['Cable Lateral Raise', 3, '12–20'],
+          ['Skull Crushers', 2, '8–12'],
+          ['Dips', 2, '8–15', 'Assisted or weighted as needed']] },
+        { name: 'Pull B (mid-back)', short: 'Pull B', ex: [
+          ['Seated Cable Row', 3, '8–12'],
+          ['Pull-Ups', 3, '6–12', 'Use the lat pulldown if you cannot get 6'],
+          ['Face Pull', 2, '15–20'],
+          ['Preacher Curl', 2, '10–15'],
+          ['Hammer Curl', 2, '10–15']] },
+        { name: 'Legs B (hamstrings & glutes)', short: 'Legs B', ex: [
+          ['Seated Leg Curl', 3, '10–15'],
+          ['Leg Press', 3, '10–15'],
+          ['Hip Thrust', 2, '8–12'],
+          ['Bulgarian Split Squat', 2, '8–12', 'Per leg'],
+          ['Seated Calf Raise', 3, '12–20']] }
+      ],
+      schedule: [0, 1, 2, 3, 4, 5, null]
+    },
+    {
       id: 'rp-arms', name: 'Arm Specialization (RP)', by: 'Renaissance Periodization',
       about: 'RP\'s "new blueprint for massive arms": arms three times a week (heavy, moderate, light), one biceps, one triceps and one forearm exercise each time, everything else at maintenance.',
       how: 'Heavy day 5–10 reps, moderate 10–20, light 20–30. Start around 3 reps in reserve and get closer to failure each week; the app adds sets when your pump and soreness say you recover. Run 4–6 weeks, then deload a week. RP takes arms toward 20–30 sets a week: raise Settings → weekly volume target if you want the app to go past 20.',
