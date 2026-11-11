@@ -78,7 +78,16 @@ function loadKnown() {
     return k;
   } catch (e) { return null; }
 }
-function saveKnown() { try { known ? localStorage.setItem(SYNC_KEY, JSON.stringify(known)) : localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
+// While the app cannot save its own data, this phone's saved copy falls behind what was sent to the cloud.
+// Writing down that the cloud has it would make the next start delete or overwrite it there; without
+// the note, the next start takes the cloud's newer copies back. Forgetting (known = null) is always safe.
+function saveKnown() {
+  const h = host();
+  if (known && h && h.saveFailed) return;
+  try { known ? localStorage.setItem(SYNC_KEY, JSON.stringify(known)) : localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ }
+}
+// Cloud documents are parsed without keys that would change how objects behave (__proto__ and the like).
+const parse = (t) => JSON.parse(t, (k, v) => (k === '__proto__' || k === 'constructor' || k === 'prototype' ? undefined : v));
 function coreOf(s) { const o = {}; CORE_KEYS.forEach((k) => { o[k] = s[k]; }); return o; }
 function coreJson(s) { return JSON.stringify(coreOf(s)); }
 
@@ -99,8 +108,11 @@ const DELETED_KINDS = ['food', 'bw', 'sleep', 'workouts'];
 function mergeDeleted(a, b) {
   const out = {};
   DELETED_KINDS.forEach((k) => {
-    out[k] = Object.assign({}, (a && a[k]) || {});
-    Object.entries((b && b[k]) || {}).forEach(([id, t]) => { if (!(out[k][id] >= t)) out[k][id] = t; });
+    const m = Object.assign({}, (a && a[k]) || {});
+    Object.entries((b && b[k]) || {}).forEach(([id, t]) => { if (!(m[id] >= t)) m[id] = t; });
+    // Same order on every phone, so two phones holding the same records upload the same text
+    // (a different order would look like a change and they would re-send it to each other forever).
+    out[k] = {}; Object.keys(m).sort().forEach((id) => { out[k][id] = m[id]; });
   });
   return out;
 }
@@ -180,7 +192,7 @@ function schedulePush() {
 }
 
 async function push() {
-  if (!user || !known) return;
+  if (!user || !known || host().unreadable) return;
   const s = host().state;
   const now = Date.now();
   const ops = [];
@@ -230,11 +242,11 @@ function listen() {
     if (!snap.exists() || snap.metadata.hasPendingWrites) return;
     const remote = snap.data().core;
     if (typeof remote !== 'string' || hash(remote) === known.core) return;
-    let core; try { core = JSON.parse(remote); } catch (e) { return; }
+    let core; try { core = parse(remote); } catch (e) { return; }
     const local = host().state;
     const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));
-    known.core = hash(remote); baseCore = core; saveKnown();
-    host().setState(next);
+    known.core = hash(remote); baseCore = core;
+    host().setState(next); saveKnown();   // after the app's own save, so a failed save is known
     schedulePush();   // the merge may hold something the cloud lacks; push() only sends what differs
   }, (e) => { lastError = friendly(e); report(); }));
 
@@ -252,7 +264,7 @@ function listen() {
       } else {
         const j = ch.doc.data().data;
         if (typeof j !== 'string' || known.workouts[id] === hash(j)) return;
-        let w; try { w = JSON.parse(j); } catch (e) { return; }
+        let w; try { w = parse(j); } catch (e) { return; }
         const del = (host().state.deleted || {}).workouts || {};
         // Deleted here but brought back by another phone's old write: the next push deletes it again.
         if (del[id] && id !== host().state.active) { known.workouts[id] = hash(j); resurrected = true; return; }
@@ -264,8 +276,8 @@ function listen() {
     if (resurrected) { saveKnown(); schedulePush(); }
     if (!changed) return;
     list.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-    saveKnown();
     host().setState(Object.assign({}, host().state, { workouts: list }));
+    saveKnown();
   }, (e) => { lastError = friendly(e); report(); }));
 
   unsubs.push(onSnapshot(daysCol(), (qs) => {
@@ -285,7 +297,7 @@ function listen() {
       } else {
         const j = ch.doc.data().data;
         if (typeof j !== 'string' || known.days[date] === hash(j)) return;
-        let entries; try { entries = JSON.parse(j); } catch (e) { return; }
+        let entries; try { entries = parse(j); } catch (e) { return; }
         if (!Array.isArray(entries)) return;
         const merged = localAhead ? mergeDay(diary[date], entries, gone) : mergeDay(entries, diary[date], gone);
         if (merged.length) diary[date] = merged; else delete diary[date];
@@ -294,8 +306,8 @@ function listen() {
       }
     });
     if (!changed) return;
-    saveKnown();
     host().setState(Object.assign({}, host().state, { diary }));
+    saveKnown();
     if (pushBack) schedulePush();
   }, (e) => { lastError = friendly(e); report(); }));
 }
@@ -308,6 +320,7 @@ function stopListening() { unsubs.forEach((u) => u()); unsubs = []; }
 async function link() {
   const h = host();
   clearTimeout(linkTimer);
+  if (h.unreadable) return;   // the app could not read its saved data: nothing syncs until he chooses what to do
   const stored = loadKnown();
   if (stored && stored.uid === user.uid) {
     known = stored;
@@ -335,7 +348,7 @@ async function link() {
     if (meta.exists() && typeof meta.data().core === 'string') {
       // Cloud already has data: it wins for settings and program; everything dated or with an id is merged.
       fresh.core = hash(meta.data().core);
-      const cloud = JSON.parse(meta.data().core);
+      const cloud = parse(meta.data().core);
       baseCore = cloud;
       Object.assign(next, cloud);
       next.deleted = mergeDeleted(local.deleted, cloud.deleted);
@@ -365,7 +378,7 @@ async function link() {
     }
     ws.forEach((d) => {
       const j = d.data().data; if (typeof j !== 'string') return;
-      let w; try { w = JSON.parse(j); } catch (e) { return; }   // one broken document must not block sign-in
+      let w; try { w = parse(j); } catch (e) { return; }   // one broken document must not block sign-in
       fresh.workouts[d.id] = hash(j);
       const i = next.workouts.findIndex((x) => x.id === d.id);
       if (i >= 0) next.workouts[i] = w; else next.workouts.push(w);
@@ -376,7 +389,7 @@ async function link() {
     next.diary = Object.assign({}, local.diary || {});
     ds.forEach((d) => {
       const j = d.data().data; if (typeof j !== 'string') return;
-      let entries; try { entries = JSON.parse(j); } catch (e) { return; }
+      let entries; try { entries = parse(j); } catch (e) { return; }
       if (!Array.isArray(entries)) return;
       fresh.days[d.id] = hash(j);
       const merged = mergeDay(entries, next.diary[d.id], (next.deleted || {}).food);
@@ -384,9 +397,11 @@ async function link() {
     });
 
     applyDeleted(next);
+    // The account's settings and program are about to replace this phone's: keep a copy of what is here first.
+    if (fresh.core && h.safetyCopy) h.safetyCopy('cloud');
     known = fresh;
-    saveKnown();
     h.setState(next);
+    saveKnown();
     lastError = '';
     linkTries = 0;
   } catch (e) {
@@ -430,7 +445,10 @@ window.__overloadSync = {
   async signOut() {
     clearTimeout(pushTimer); clearTimeout(linkTimer); linkTries = 0;
     stopListening();
-    known = null; saveKnown();
+    // The stored note of what the cloud holds is kept (it names the account): signing back in to the same
+    // account then sends the changes made in between instead of taking the cloud's older copy.
+    // app.js removes it when Reset or Import runs while signed out.
+    known = null;
     lastSync = null; lastError = '';
     await signOut(auth);
   },
@@ -445,7 +463,8 @@ onAuthStateChanged(auth, (u) => {
   user = u;
   if (u) link();
   else { stopListening(); known = null; report(); }
-  if (host()) host().render();
+  const h = host();
+  if (h) { if (h.syncChanged) h.syncChanged(); else h.render(); }   // only the sync parts, not the whole screen
 });
 
 document.addEventListener('overload:save', schedulePush);

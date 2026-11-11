@@ -2,7 +2,8 @@
 
 A personal hypertrophy tracker for one phone. Log weight, sets and reps; the app
 tells you what to lift next time based on the rep range and how you recovered.
-Modelled on the RP Hypertrophy app's flow, but without mesocycles or deloads.
+Modelled on the RP Hypertrophy app's flow, without mesocycles; any workout can
+be logged as a deload.
 The Food tab logs calories, protein, carbs and fat against daily targets.
 
 No build step. Data lives in the browser on the phone, and optionally mirrors to
@@ -23,8 +24,11 @@ Details:
 
 - The rules are judged on the sets at the heaviest weight you used. Lighter
   back-off sets are logged but do not pull the next weight down.
-- When one jump is more than 10% of the weight (5 lb on a 25 lb dumbbell), the
-  top of the range stretches by 2 reps first: 14 on every set, then the jump.
+- When one jump is big for the weight (5 lb on a 30 lb cable), the top of the
+  range stretches first, to the reps that make the heavier weight still reach
+  the bottom of the range (30 lb × 17 ≈ 35 lb × 10), at most 20. If even 20
+  would not pay for the jump, the reason line suggests a smaller weight jump
+  for that exercise (Edit exercise → Weight jump).
 - Bodyweight moves with no added weight progress by reps only: the goal keeps
   going up past the range. Enter added weight (belt, vest) to switch to load.
 - Assisted moves (any exercise with "assist" in the name) go the other way: the
@@ -43,17 +47,21 @@ sets:
 | Anything else                                 | keep |
 
 Moderate joint pain blocks a weight increase for that session. "A lot" of joint
-pain drops the weight two jumps and suggests swapping the exercise. Sets are
+pain takes about 15% off the weight (at least one jump, never below one jump)
+and suggests swapping the exercise. Sets are
 capped between 1 and the "Max sets" setting (default 6). A +1 is also skipped
 when the muscle's planned weekly sets (prescribed sets × times scheduled) would
 go past the top of the weekly sets target in Settings (default 20).
 
 ## Also in the app
 
-- **Fast logging.** The reps box shows the goal. Tap ✓ on an empty box to log the goal as done; type a number only when you missed or beat it. Sets you typed but did not tick are counted when you finish.
-- **Reps in reserve.** Optional RIR column per set. Taps go – → 3+ → 2 → 1 → 0. 3+ on every set moves the weight up a session early (not when the jump is a big one).
+- **Fast logging.** The reps box shows the goal. Tap ✓ on an empty box to log the goal as done; type a number only when you missed or beat it. Unticking a set ticked that way empties it again. Sets you typed but did not tick are counted when you finish. A barbell, dumbbell, machine or cable set cannot be ticked at 0 lb. − Set removes the last empty set (it asks before removing a logged one).
+- **Back where you left off.** Opening the app or going back to Today during a workout scrolls to the next set, or to the check-in while it still has unanswered questions and nothing is ticked. The answered check-in folds to one line (Edit opens it) and finished exercises fold to one row with their sets, next weight and PR mark (tap to open).
+- **Reps in reserve.** Optional. Each set has a row of four buttons under it (3+, 2, 1, 0), greyed out until you tick the set, so ticking never moves the sets below. Tap the reps you had left; tap the picked one again to clear it. 3+ on every set moves the weight up a session early when the jump is not a big one and the spare reps would pay for it.
 - **Warm-up generator.** One tap builds a 50 / 70 / 85 percent ramp from your working weight, with its own shorter rest timer. Warm-ups never affect progression.
-- **Swap.** Replace an exercise for today only, without touching the program.
+- **Swap.** Replace an exercise for today only, without touching the program. Sets you already logged are kept: that exercise is finished as it is and the new one goes right after it.
+- **Deload.** Start as deload on Today (or the Deload switch in a workout) logs the session without changing any next-time weight, set count or goal, and without trophies. History tags it Deload, and the progress chart shows it as a hollow dot off the line (it does not count as your current top set).
+- **Finishing.** Finish workout asks first when exercises still have unticked sets. The cardio card keeps its size after Done, so the next tap cannot land on Finish by mistake.
 - **PR alerts.** Heaviest set, best estimated one-rep max, or most reps at a weight, flagged when you finish an exercise and listed under the progress chart.
 - **Weekly volume.** Sets per muscle this week against a target range you set.
 - **Body weight.** Weigh-in reminder at a frequency you choose, with a running-average chart and 30-day change.
@@ -79,15 +87,19 @@ go past the top of the weekly sets target in Settings (default 20).
   added from your feedback, RIR 3→0, then a deload); and three arm-focused programs (RP's arm
   specialization, a full-body arms emphasis in the RP app's style, and an
   upper/lower arms emphasis). View shows the week and every exercise's sets ×
-  reps; Use switches to it, saving your own program under Templates first.
-  Exercises you already have keep their weights. FST-7 finishers are their own
+  reps; Use switches to it, saving your own days and schedule under Templates
+  first. Every exercise gets the program's sets and rep range (and its note,
+  if it has none); weights stay. When some exercises already have your own
+  logged sets, it asks once whether to switch those too; OK gives them the
+  program's sets and ranges, Cancel keeps yours. Switching back to a template
+  does not bring your own sets and ranges back. FST-7 finishers are their own
   exercises ("Pec Deck (FST-7)"), always 7 sets with 35–50 s rest. Where a
   source was paywalled or thin, the program says what it was built from.
 - **Consistency calendar and streak.** Training days by month, rest days faded, streak counted across scheduled days only.
 - **Weekly review.** Workouts, sets, tonnage, weight increases, PRs and body weight trend for this week or last, with a Share button.
 - **Equipment-aware jumps.** Barbell, dumbbell, machine and cable each have their own default weight jump (2.5 / 5 / 5 / 5 lb), with a per-exercise override.
 - **Exercise notes and rest.** Seat height, handle, pin position, and a per-exercise rest time, shown and used during the workout.
-- **Fix a past workout.** Edit the sets of any finished workout. Deleting the latest workout for an exercise rolls its next-time weight back.
+- **Fix a past workout.** Edit the sets of any finished workout. Trophies are worked out again, and when it was the latest time you did an exercise and the correction changes how it went, next time's weight and goal follow. Deleting the latest workout for an exercise rolls its next-time weight back.
 - **Sound when rest is over.** A short beep, since iPhones ignore web vibration. The phone's mute switch silences it, and no web app can alert you while the phone is locked.
 
 ## Food log
@@ -121,11 +133,16 @@ Adding a food:
   the phone, so the next scan of that barcode is instant and works offline.
 - **Not found?** Type it in once from the label (per serving, with the serving
   weight if you want grams and ounces too). The barcode is remembered. "Numbers
-  wrong? Fix them" does the same for a product whose data is off.
-- **Quick add.** Just calories and macros, no food.
+  wrong? Fix them" does the same for a product whose data is off, and your
+  corrected version replaces the built-in one (its star and past entries stay).
+- **Quick add.** Just calories and macros, no food. Leave calories empty and
+  they are worked out from protein, carbs and fat; 0 is allowed.
 
 Faster logging:
 
+- **Several foods per trip.** After Add, the Add sheet stays open on the same
+  list or search, with an "Added: …" line and Done. Favorites and Recent rows
+  show what one tap logs, and their + logs it at once.
 - **Favorites.** Tap ☆ on a food to keep it at the top of the add sheet and of
   search results.
 - **Saved meals.** A meal's ⋯ menu → Save as a meal. It then sits at the top of
@@ -141,8 +158,15 @@ Faster logging:
 
 Amounts go in grams, ounces, the label serving, or a USDA serving (1 cup,
 1 medium). Switching units keeps the weight: 200 g becomes 7.1 oz. A food
-remembers the last amount you used. Each logged entry keeps its own numbers, so
-editing or deleting a food later never changes past days.
+remembers the last amount you used; a food you never logged opens at its first
+named portion, or at a whole one when the first is a cup (1 medium apple, half an
+avocado), and a big dry cup (rice, flour, beans) opens at a quarter or half cup.
+Each logged entry keeps its own numbers, so editing or deleting a
+food later never changes past days, and opening an entry and saving it with the
+same amount keeps them too.
+
+The Food tab goes back to today on a new day or after 30 minutes away. A past
+day, or a sheet still open from yesterday, names that day in its title.
 
 ## Files
 
@@ -160,6 +184,7 @@ editing or deleting a food later never changes past days.
 | `vendor/zxing/`        | Barcode reader (zxing-wasm 3.1.4, MIT), self-hosted |
 | `lab/scan.html`        | Stand-alone barcode test page (not linked from the app) |
 | `sync.js`              | Optional cloud sync via Firebase             |
+| `backup.js`            | Automatic daily safety copies (IndexedDB)    |
 | `firestore.rules`      | Firestore security rules to paste in Firebase|
 | `sw.js`                | Service worker so the app opens offline      |
 | `bump.sh`              | Bumps the version string everywhere at once  |
@@ -185,6 +210,9 @@ works (the service worker is skipped in that case).
 3. Tap Share, then **Add to Home Screen**.
 
 It launches full screen, works offline, and keeps its data between launches.
+After an update, open it once on Wi-Fi (Settings shows the new version) before you
+rely on it offline. If an update only half arrived on a weak signal, the app starts
+with the previous version it still has and finishes the update next time there is signal.
 
 ## Cloud sync (optional)
 
@@ -229,7 +257,8 @@ holds the WHOOP app secret, logs in to WHOOP for you, returns last night's
 sleep and recovery to the app, and sends push reminders (morning check-in,
 workout, food log) at the times set in Settings → Reminders. It skips a
 reminder once that thing is done in the app, and skips the workout reminder on
-rest days. The app pairs with it using a random key kept in Settings (synced).
+rest days. The app pairs with it using a random key kept in Settings (synced);
+the key never goes into a web address.
 
 What fills in from WHOOP: time asleep (light + deep + REM), REM, deep,
 recovery %, resting heart rate and HRV. Nights you typed yourself keep your
@@ -245,7 +274,7 @@ One-time setup:
    → Create, and copy the token.
 2. **WHOOP**: at developer.whoop.com, log in with your WHOOP account and create
    an app (development apps work right away for up to 10 people). Scopes:
-   read:sleep, read:recovery, read:cycles, read:profile (and offline if listed).
+   read:sleep, read:recovery, read:profile (and offline if listed).
    Redirect URL: `https://overload-connector.<your-subdomain>.workers.dev/whoop/callback`.
    If it asks for a privacy policy link, use the app's address. Copy the
    **Client ID** and **Client Secret**.
@@ -255,20 +284,50 @@ One-time setup:
 4. Actions → **Deploy connector** → Run workflow. Its summary shows the
    connector's address and the exact WHOOP redirect URL. It writes the address
    to `connector.json`, which is how the app finds it.
-5. On the phone, open Overload from its Home Screen icon: Settings → WHOOP →
-   Connect WHOOP, log in, close the page. Settings → Reminders → Turn on
-   reminders → Allow. (iPhone: iOS 16.4 or later, Home Screen app only.)
+5. Right after the first deploy (before anyone else can), on the phone, open
+   Overload from its Home Screen icon: Settings → WHOOP → Connect WHOOP and
+   log in. The last WHOOP page shows a 6-digit code: close the page, type the
+   code in the WHOOP card and tap Pair. The code works for 10 minutes; after 5
+   wrong tries, log in again. Then Settings → Reminders → Turn on reminders →
+   Allow. (iPhone: iOS 16.4 or later, Home Screen app only.)
+
+Pairing and fixing it later:
+
+- Type the code only in Overload. A link from someone else that opens the WHOOP
+  login cannot pair their app: only the person who sees the code can.
+- New phone, app reinstalled, or data reset: Connect WHOOP on that phone and
+  type the code (same WHOOP account). The old copy stops syncing, and its
+  reminders stop until it is paired again.
+- "WHOOP login expired" in Settings: tap Connect WHOOP and type the new code.
+- "Different WHOOP account" or "paired with another copy of Overload" when
+  you expected neither: in Cloudflare, Storage → KV → overload-connector,
+  delete the `owner` entry, then Connect WHOOP again.
 
 The workflow redeploys whenever `connector/` changes. Without the Cloudflare
-secrets it does nothing.
+secrets it does nothing. The wrangler version it uses is fixed in
+`connector/package.json`; change it there to update.
 
 ## Backups
 
 Without cloud sync, data lives only in that browser's storage. Settings →
-Export JSON opens the share sheet (Save to Files, AirDrop, Mail) with a file
-you can re-import later. iOS can clear website data for a home-screen app if
-you delete the app, so export now and then. If the phone ever refuses to save,
-a banner stays on screen with an Export button until saving works again.
+Backup → Export JSON opens the share sheet (Save to Files, AirDrop, Mail) with
+a file you can re-import later; Import shows what the file holds next to what
+is on the phone before replacing anything. iOS can clear website data for a
+home-screen app if you delete the app, so export now and then. The Backup card
+says when you last exported, and with cloud sync off Today reminds you after
+14 days without one.
+
+- **Automatic copies.** The app keeps its own copies on the phone (IndexedDB):
+  one a day for the last 7 days, plus one taken before each import, reset,
+  restore or first cloud sign-in. Settings → Backup lists them with Restore.
+  They live in the same browser storage, so they do not replace an export.
+- **Storage used.** The Backup card shows how much of the app's storage is in
+  use; Today warns from 70%. If saving ever fails, messages say "Not saved on
+  this phone" and a banner stays up with an Export button until saving works
+  again; a restart does not take that unsaved work out of the cloud copy.
+- **Unreadable data.** If the saved data cannot be read at start, the app does
+  not save over it: a screen offers Export (the exact stored text), Try again,
+  Restore a copy and Start fresh.
 
 ## Rebuilding the food list
 

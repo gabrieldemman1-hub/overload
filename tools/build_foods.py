@@ -156,6 +156,21 @@ def code_key(gtin):
     return re.sub(r'\D', '', str(gtin or '')).lstrip('0')
 
 
+# Values the USDA index gets wrong, per 100 g, by fdc_id. Worked out with 4 kcal
+# per g of protein and carbs and 9 per g of fat, from the row's own other numbers.
+FIXES = {
+    1458855: {'carbs': 74.1},  # Life Original Cereal: 375 kcal, P 9.8, F 4.4 leave 74 g carbs; the index says 52.3
+}
+
+
+def check_macros(name, kcal, p, c, fat):
+    """Warn (stderr) when calories do not fit protein, carbs and fat. Fibre and sugar
+    alcohols make honest labels run a little under, so only big gaps are reported."""
+    est = 4 * p + 4 * c + 9 * fat
+    if est < 0.8 * kcal - 5 or est > 1.35 * kcal + 5:
+        print('check macros: %s: %g kcal, but P %g C %g F %g make %g' % (name, kcal, p, c, fat, round(est)), file=sys.stderr)
+
+
 def load_branded(index_path, cats):
     picks = {}
     for line in open(os.path.join(HERE, 'branded.tsv'), encoding='utf-8'):
@@ -170,6 +185,9 @@ def load_branded(index_path, cats):
                 continue
             fdc, gtin, owner, brand, desc, cat, size, unit, house = r[:9]
             kcal, p, c, fat = (max(0.0, float(x)) for x in r[9:13])
+            fix = FIXES.get(int(fdc), {})
+            kcal, p, c, fat = (fix.get(k, v) for k, v in (('kcal', kcal), ('protein', p), ('carbs', c), ('fat', fat)))
+            check_macros(name, kcal, p, c, fat)
             serving, liquid = serving_of(size, unit, household(house))
             if cat not in cats:
                 cats.append(cat)
@@ -189,6 +207,7 @@ def load_branded(index_path, cats):
                 continue
             name, code, pname, brand, ssize, sgrams = parts[:6]
             kcal, p, c, fat = (max(0.0, float(x)) for x in parts[6:10])
+            check_macros(name, kcal, p, c, fat)
             liquid = bool(re.search(r'\d\s*ml\b', ssize, re.I))
             serving, _ = serving_of(sgrams, 'ml' if liquid else 'g', household(ssize))
             rows.append(['o' + code_key(code), name, round(kcal), round(p, 1), round(c, 1), round(fat, 1), cats.index(cat), 'offx', [], 0, pname,

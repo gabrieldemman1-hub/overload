@@ -2,6 +2,9 @@
 # Needs repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, plus
 # WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET for WHOOP. See README → WHOOP and reminders.
 # Writes the connector's address to connector.json so the app finds it.
+# Safety: wrangler is pinned to one exact version in connector/package.json; each step gets only
+# the secrets it needs; the job that runs downloaded code can only read this repository, and the
+# job that commits connector.json holds no Cloudflare or WHOOP secret.
 name: Deploy connector
 
 on:
@@ -11,24 +14,29 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pages: write
+  contents: read
 
 concurrency: deploy-connector
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      WHOOP_CLIENT_ID: ${{ secrets.WHOOP_CLIENT_ID }}
-      WHOOP_CLIENT_SECRET: ${{ secrets.WHOOP_CLIENT_SECRET }}
+    permissions:
+      contents: read
+    outputs:
+      url: ${{ steps.url.outputs.url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Check secrets
         id: check
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WHOOP_CLIENT_ID: ${{ secrets.WHOOP_CLIENT_ID }}
+          WHOOP_CLIENT_SECRET: ${{ secrets.WHOOP_CLIENT_SECRET }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::notice::Connector not deployed: add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Settings → Secrets and variables → Actions, then run this workflow."
@@ -36,10 +44,15 @@ jobs:
           fi
           if [ -z "$WHOOP_CLIENT_ID" ] || [ -z "$WHOOP_CLIENT_SECRET" ]; then
             echo "::warning::WHOOP_CLIENT_ID / WHOOP_CLIENT_SECRET are not set: reminders will work, WHOOP sync will not."
+          else
+            echo "whoop=1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: KV namespace
         if: steps.check.outputs.skip != '1'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID"
           auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
@@ -51,53 +64,82 @@ jobs:
           [ -n "$id" ] && [ "$id" != "null" ] || { echo "::error::Could not find or create the KV namespace. Check the API token has Workers KV Storage: Edit."; exit 1; }
           sed -i "s/KV_NAMESPACE_ID/$id/" connector/wrangler.toml
 
+      # No secrets here: the exact wrangler version comes from connector/package.json.
+      - name: Install wrangler
+        if: steps.check.outputs.skip != '1'
+        working-directory: connector
+        run: npm install --no-save --no-audit --no-fund
+
       - name: Deploy worker
         if: steps.check.outputs.skip != '1'
         working-directory: connector
-        run: npx --yes wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --no-install wrangler deploy
 
       - name: WHOOP secrets
-        if: steps.check.outputs.skip != '1' && env.WHOOP_CLIENT_ID != '' && env.WHOOP_CLIENT_SECRET != ''
+        if: steps.check.outputs.skip != '1' && steps.check.outputs.whoop == '1'
         working-directory: connector
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WHOOP_CLIENT_ID: ${{ secrets.WHOOP_CLIENT_ID }}
+          WHOOP_CLIENT_SECRET: ${{ secrets.WHOOP_CLIENT_SECRET }}
         run: |
           jq -n --arg id "$WHOOP_CLIENT_ID" --arg s "$WHOOP_CLIENT_SECRET" '{WHOOP_CLIENT_ID:$id, WHOOP_CLIENT_SECRET:$s}' > "$RUNNER_TEMP/secrets.json"
-          npx --yes wrangler@4 secret bulk "$RUNNER_TEMP/secrets.json"
+          npx --no-install wrangler secret bulk "$RUNNER_TEMP/secrets.json"
           rm -f "$RUNNER_TEMP/secrets.json"
 
       - name: Address and health check
         if: steps.check.outputs.skip != '1'
         id: url
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | jq -r .result.subdomain)
-          [ -n "$sub" ] && [ "$sub" != "null" ] || { echo "::error::No workers.dev subdomain yet. Open Workers & Pages in the Cloudflare dashboard once to pick one, then rerun."; exit 1; }
+          [[ "$sub" =~ ^[a-z0-9-]+$ ]] || { echo "::error::No workers.dev subdomain yet. Open Workers & Pages in the Cloudflare dashboard once to pick one, then rerun."; exit 1; }
           url="https://overload-connector.$sub.workers.dev"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
           for i in $(seq 1 20); do
             if curl -fsS "$url/" -o /tmp/health.json; then cat /tmp/health.json; echo; break; fi
             sleep 5
           done
           grep -q '"ok":true' /tmp/health.json || { echo "::error::$url/ did not answer"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
           {
             echo "### Connector is live"
             echo "- Address: $url"
             echo "- WHOOP redirect URL (paste into your WHOOP app): \`$url/whoop/callback\`"
             echo "- WHOOP keys set: $(jq -r .whoopReady /tmp/health.json)"
+            echo "- Now open Overload → Settings → WHOOP → Connect WHOOP and type the code it shows, before anyone else can."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Commits connector.json. Holds a write token but no Cloudflare or WHOOP secret, and runs no downloaded code.
+  publish:
+    needs: deploy
+    if: needs.deploy.outputs.url != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Tell the app where it is
-        if: steps.check.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
+          URL: ${{ needs.deploy.outputs.url }}
         run: |
-          printf '{ "url": "%s" }\n' "${{ steps.url.outputs.url }}" > connector.json
+          [[ "$URL" =~ ^https://overload-connector\.[a-z0-9-]+\.workers\.dev$ ]] || { echo "::error::Unexpected connector address; connector.json not changed."; exit 1; }
+          printf '{ "url": "%s" }\n' "$URL" > connector.json
           if git diff --quiet -- connector.json 2>/dev/null && git ls-files --error-unmatch connector.json >/dev/null 2>&1; then
             echo "connector.json unchanged"; exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add connector.json
-          git commit -m "connector.json: ${{ steps.url.outputs.url }}"
-          git checkout -- connector/wrangler.toml   # the KV id filled in above is not meant to be committed
+          git commit -m "connector.json: $URL"
           git pull --rebase origin main
           git push origin HEAD:main
           # Pushes made by this workflow do not start a Pages build on their own.

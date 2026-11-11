@@ -9,7 +9,11 @@
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
-  const VERSION = '2.7';
+  const SYNC_KEY = 'overload.sync.v1';   // cloud sync's note of what the cloud holds (sync.js)
+  const BACKUP_KEY = 'overload.backup';  // { since, lastExport, nagOff } (ms): this phone only, never synced
+  // How much the app can count on saving. The iPhone's real limit is not measured; this is a safe guess.
+  const STORE_LIMIT = 2500000;
+  const VERSION = '2.8';
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -87,7 +91,7 @@
 
   // Additions after v1 shipped. Existing saves pick these up once via normalize().
   const LIBRARY_V2 = [
-    // Curl Fitness Costa Mesa: Newtech OnHim line, plate-loaded and cable pieces.
+    // Newtech machine line, plate-loaded and cable pieces.
     ['Newtech Lat Pulldown', 'Back', 'Machine'],
     ['Newtech Seated Row (Inward grip)', 'Back', 'Machine'],
     ['Newtech Seated Row (Outward grip)', 'Back', 'Machine'],
@@ -134,6 +138,12 @@
     const p = (n) => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   }
+  // A date range for the backup questions and the copy list. Years show when it is not all this year.
+  function fmtRange(a, b, weekday) {
+    const yr = String(new Date().getFullYear()), years = String(a).slice(0, 4) !== yr || String(b).slice(0, 4) !== yr;
+    const f = (key) => { const [y, m, d] = String(key).split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, Object.assign({ month: 'short', day: 'numeric' }, years ? { year: 'numeric' } : weekday ? { weekday: 'short' } : {})).replace(/ /g, '\u00a0'); };   // each date stays on one line
+    return f(a) + ' – ' + f(b);
+  }
   function weekdayIndex(d) { return ((d || new Date()).getDay() + 6) % 7; } // Mon=0..Sun=6
   function fmtDate(key) {
     const [y, m, d] = key.split('-').map(Number);
@@ -176,21 +186,89 @@
     let raw = null;
     try {
       raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.v === 1) {
-          return normalize(parsed);
-        }
+      if (!raw) return seedState();   // first start: nothing saved yet
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.v === 1) {
+        return normalize(parsed);
       }
     } catch (e) { /* fall through */ }
-    // Unreadable data: keep a copy before starting fresh, so it can still be recovered.
+    // Saved data that cannot be read (damaged, or written by a newer version): never save over it. Keep a copy,
+    // forget what cloud sync knew (a later sign-in then downloads instead of deleting), and let him choose.
+    ui.unreadable = { raw };
     if (raw) { try { localStorage.setItem(STORAGE_KEY + '.bak', raw); } catch (e) { /* ignore */ } }
-    return seedState();
+    try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ }
+    return seedState();   // in memory only, so the app can run; nothing is saved until he chooses
+  }
+  // ---- Values from a backup file or the cloud: the right type, so nothing can show up as page markup ----
+  const BAD_KEY = /^(__proto__|constructor|prototype)$/;
+  const noProto = (k, v) => (BAD_KEY.test(k) ? undefined : v);   // JSON.parse reviver for imported files
+  const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  function dropBadKeys(o) { if (isObj(o)) Object.keys(o).forEach((k) => { if (BAD_KEY.test(k)) delete o[k]; }); }
+  // Numbers stay numbers, numeric text becomes a number, null / '' stay as they are (they mean "not set"); anything else is dropped.
+  function cleanNum(v) {
+    if (v == null || v === '') return v;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    return typeof v === 'string' && v.trim() !== '' && Number.isFinite(+v) ? +v : null;
+  }
+  const numFields = (o, keys) => { if (isObj(o)) keys.forEach((k) => { if (k in o) o[k] = cleanNum(o[k]); }); };
+  // Ids are made of letters and digits; anything else is replaced the same way everywhere, so references still match.
+  function cleanId(v) {
+    if (v == null) return v;
+    const s = String(v).replace(/[^A-Za-z0-9_.:-]/g, '_');
+    return s in Object.prototype ? 'x' + s : s;   // "constructor", "toString"… would reach built-in objects
+  }
+  const idField = (o, k) => { if (k in o) o[k] = cleanId(o[k]); };   // only where the field exists: older saves stay as they are
+  const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const inList = (v, list) => (list.includes(v) ? v : String(v == null ? '' : v).replace(/[<>&"']/g, ''));
+  const objects = (list) => (Array.isArray(list) ? list.filter(isObj) : []);
+  function cleanValues(st) {
+    const s = st.settings, d = defaultSettings();
+    ['increment', 'incDumbbell', 'incMachine', 'incCable', 'repMin', 'repMax', 'restSec', 'warmupRest', 'defaultSets', 'maxSets', 'volumeMin', 'volumeMax', 'weighEvery', 'cardioMin', 'checkinV']
+      .forEach((k) => { const v = cleanNum(s[k]); s[k] = typeof v === 'number' ? v : d[k]; });
+    if (s.units !== 'lb' && s.units !== 'kg') s.units = 'lb';
+    if (!['system', 'dark', 'light'].includes(s.theme)) s.theme = 'system';
+    st.exercises = objects(st.exercises);
+    st.exercises.forEach((e) => { idField(e, 'id'); if ('muscle' in e) e.muscle = inList(e.muscle, MUSCLES); if ('equipment' in e) e.equipment = inList(e.equipment, EQUIPMENT); numFields(e, ['increment', 'repMin', 'repMax', 'restSec', 'fixedSets']); });
+    if (Object.keys(st.presc).some((k) => cleanId(k) !== k || !isObj(st.presc[k]))) {
+      const p = {}; Object.keys(st.presc).forEach((k) => { if (isObj(st.presc[k])) p[cleanId(k)] = st.presc[k]; }); st.presc = p;
+    }
+    Object.keys(st.presc).forEach((k) => numFields(st.presc[k], ['weight', 'targetReps', 'sets', 'updatedAt']));
+    const cleanDay = (dy) => { idField(dy, 'id'); dy.exercises = (Array.isArray(dy.exercises) ? dy.exercises : []).map(cleanId); return dy; };
+    st.program.days = objects(st.program.days).map(cleanDay);
+    st.program.schedule = st.program.schedule.map(cleanId);
+    st.templates = objects(st.templates);
+    st.templates.forEach((t) => { idField(t, 'id'); t.days = objects(t.days).map(cleanDay); if (Array.isArray(t.schedule)) t.schedule = t.schedule.map(cleanId); if (!isDate(t.savedAt)) t.savedAt = todayKey(); });
+    st.workouts = objects(st.workouts);
+    st.workouts.forEach((w) => {
+      idField(w, 'id'); idField(w, 'dayId');
+      numFields(w, ['startedAt', 'finishedAt']);
+      if (!isDate(w.date)) w.date = todayKey(new Date(w.startedAt || w.finishedAt || Date.now()));
+      if (isObj(w.soreness)) { dropBadKeys(w.soreness); Object.keys(w.soreness).forEach((m) => { w.soreness[m] = cleanNum(w.soreness[m]); }); }
+      if (w.cardio != null && !isObj(w.cardio)) delete w.cardio;
+      if (w.cardio) { numFields(w.cardio, ['min', 'incline', 'speed', 'kcal']); if (w.cardio.speedUnit !== 'mph' && w.cardio.speedUnit !== 'km/h') w.cardio.speedUnit = s.units === 'kg' ? 'km/h' : 'mph'; }
+      w.entries = objects(w.entries);
+      w.entries.forEach((en) => {
+        idField(en, 'exId'); idField(en, 'swappedFrom');
+        numFields(en, ['plannedSets', 'weightAtStart', 'targetReps', 'pump', 'joint', 'workload']);
+        en.sets = objects(en.sets); en.sets.forEach((x) => numFields(x, ['weight', 'reps', 'rir']));
+        if (Array.isArray(en.warmups)) { en.warmups = objects(en.warmups); en.warmups.forEach((x) => numFields(x, ['weight', 'reps'])); }
+        numFields(en.next, ['weight', 'targetReps', 'sets', 'updatedAt']); numFields(en.prevPresc, ['weight', 'targetReps', 'sets', 'updatedAt']);
+      });
+    });
+    idField(st, 'active');
+    st.bodyweight = objects(st.bodyweight).filter((b) => isDate(b.date));
+    st.bodyweight.forEach((b) => numFields(b, ['weight']));
+    st.sleep = objects(st.sleep).filter((n) => isDate(n.date));
+    st.sleep.forEach((n) => numFields(n, ['total', 'rem', 'deep', 'light', 'recovery', 'rhr', 'hrv', 'perf']));
+    numFields(st.food.targets, ['kcal', 'protein', 'carbs', 'fat']);
+    Object.keys(st.diary).forEach((k) => { if (Array.isArray(st.diary[k])) st.diary[k] = objects(st.diary[k]); else delete st.diary[k]; });
   }
   // Fill in fields added after v1 shipped so older saves keep working.
   function normalize(st) {
+    // Keys that would change how objects behave (only a hand-made file can hold them).
+    [st, st.settings, st.presc, st.food, st.food && st.food.targets, st.food && st.food.foods, st.food && st.food.meals, st.diary, st.deleted].forEach(dropBadKeys);
     const hadCheckin = !!(st.settings && st.settings.checkinV);
-    st.settings = Object.assign(defaultSettings(), st.settings || {});
+    st.settings = Object.assign(defaultSettings(), isObj(st.settings) ? st.settings : {});
     // A partial backup or cloud copy must not leave the app unable to render.
     if (!Array.isArray(st.exercises)) st.exercises = [];
     if (!Array.isArray(st.workouts)) st.workouts = [];
@@ -217,6 +295,7 @@
     if (!st.food.foods || typeof st.food.foods !== 'object') st.food.foods = {};
     if (!st.food.meals || typeof st.food.meals !== 'object') st.food.meals = {};
     if (!st.diary || typeof st.diary !== 'object' || Array.isArray(st.diary)) st.diary = {};
+    cleanValues(st);
     if ((st.libVersion || 1) < 2) {
       const byName = {};
       st.exercises.forEach((e) => { byName[e.name.toLowerCase()] = e.id; });
@@ -240,23 +319,150 @@
     }
     return st;
   }
+  const NOT_SAVED = 'Not saved on this phone: the app\'s storage is full. Export a backup now.';
+  // Returns whether the data reached this phone's storage.
   function save() {
-    let ok = true;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    if (ui.unreadable) return false;   // the stored data could not be read: never write over it
+    let ok = true, text = null;
+    try { text = JSON.stringify(state); localStorage.setItem(STORAGE_KEY, text); ui.savedChars = text.length; }
     catch (e) { ok = false; }
+    // A workout was just finished: refresh today's automatic copy so it includes it.
+    if (ui.lastActive && !state.active) { const w = state.workouts.find((x) => x.id === ui.lastActive); if (w && w.finishedAt) safetyCopy('day', true, text); }
+    ui.lastActive = state.active;
     if (ok !== !ui.saveFailed) {
       // Stays on screen until a save works: a toast is too easy to miss when data is at stake.
       ui.saveFailed = !ok;
       renderSaveWarning();
     }
+    // A "Saved" / "Added" / "Workout saved" message shown right after this would not be true.
+    // This runs after the caller's own message, so it replaces it.
+    if (!ok && ui.booted) Promise.resolve().then(() => toast(NOT_SAVED));
     document.dispatchEvent(new CustomEvent('overload:save'));
+    return ok;
   }
   function renderSaveWarning() {
     const el = $('#save-warning'); if (!el) return;
     el.hidden = !ui.saveFailed;
-    el.innerHTML = ui.saveFailed ? '<div class="banner danger"><b>This phone refused to save.</b> Your latest changes are only in memory and are lost if the app closes. '
-      + ((window.__overloadSync && window.__overloadSync.user) ? 'Cloud sync still has them once it shows ☁ ✓. ' : '')
-      + 'Export a backup now, then free up storage on the phone.<div class="btn-row mt8"><button class="btn small" data-action="export">Export backup</button></div></div>' : '';
+    document.body.classList.toggle('has-save-warning', !!ui.saveFailed);
+    el.innerHTML = ui.saveFailed ? '<div class="banner danger"><b>The app\'s storage is full.</b> Your latest changes are not saved on this phone and are lost if the app closes. '
+      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">Export backup</button></div></div>' : '';
+    // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in styles.css).
+    document.documentElement.style.setProperty('--save-warning-h', ui.saveFailed ? el.offsetHeight + 'px' : '0px');
+  }
+  // ---- Automatic copies, storage use, last export (backup.js keeps the copies in IndexedDB) ----
+  // Before an import, reset or restore the text is taken now (the data is replaced right after);
+  // the daily copy builds it only if today has none yet.
+  function safetyCopy(kind, force, text) {
+    const B = window.__overloadBackup;
+    try { return B ? B.take(kind, text || (kind === 'day' ? () => JSON.stringify(state) : JSON.stringify(state)), force) : Promise.resolve(false); } catch (e) { return Promise.resolve(false); }
+  }
+  function backupInfo() { try { return JSON.parse(localStorage.getItem(BACKUP_KEY)) || {}; } catch (e) { return {}; } }
+  function setBackupInfo(patch) { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(Object.assign(backupInfo(), patch))); } catch (e) { /* ignore */ } }
+  // Characters stored by this site (key + value, as browsers count them), the app's data counted from its last save.
+  function storageUsed() {
+    let n = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        n += k.length + (k === STORAGE_KEY && ui.savedChars != null ? ui.savedChars : (localStorage.getItem(k) || '').length);
+      }
+    } catch (e) { /* ignore */ }
+    return n;
+  }
+  function agoText(ms) { const d = daysBetween(todayKey(new Date(ms)), todayKey()); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago'; }
+  function lastExportText() { const t = backupInfo().lastExport; return t ? 'Last export: ' + agoText(t) + '.' : 'No export from this phone yet.'; }
+  function syncOn() {
+    const sync = window.__overloadSync;
+    if (sync) return !!sync.user;
+    try { return !!localStorage.getItem(SYNC_KEY); } catch (e) { return false; }   // still loading: linked phones count as on
+  }
+  // Cloud sync off and no export for 14 days (counted from the first start of this version when there is none).
+  function exportDue() {
+    if (syncOn() || !(state.workouts.some((w) => w.finishedAt) || Object.keys(state.diary).length)) return false;
+    const b = backupInfo(), now = Date.now(), two = 14 * 864e5;
+    if (b.nagOff && now - b.nagOff < two) return false;
+    const from = b.lastExport || b.since;
+    return !!from && now - from > two;
+  }
+  // One line at the top of Today: storage nearly full, or the export reminder.
+  function noticesHtml() {
+    if (ui.unreadable || activeWorkout()) return '';
+    const pct = Math.round(storageUsed() / STORE_LIMIT * 100);
+    if (pct >= 70) return '<div class="notice"><span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
+    if (exportDue()) {
+      const t = backupInfo().lastExport;
+      return '<div class="notice"><span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">✕</button></div>';
+    }
+    return '';
+  }
+  function refreshNotices() { const el = $('#today-notices'); if (el) el.innerHTML = noticesHtml(); }
+  // Settings: the list of automatic copies is read from IndexedDB after the screen is drawn.
+  const COPY_KINDS = { import: 'Before import', reset: 'Before reset', restore: 'Before restore', cloud: 'Before cloud sign-in', unreadable: 'Unreadable data' };
+  function copyRow(m) {
+    const when = fmtDate(todayKey(new Date(m.at))) + (m.kind === 'day' ? '' : ', ' + new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+    const title = m.kind === 'day' ? when : (COPY_KINDS[m.kind] || 'Copy') + ' · ' + when;
+    const sub = m.workouts == null ? 'As it was found. Export it if you might need it.' : plural(+m.workouts || 0, 'workout') + (m.first ? ' · ' + fmtRange(m.first, m.last || m.first) : '') + (m.foodDays ? ' · ' + plural(+m.foodDays, 'food day') : '');
+    const btn = m.kind === 'unreadable' ? '<button class="btn small ghost" data-action="export-copy" data-id="' + esc(m.id) + '">Export</button>' : '<button class="btn small ghost" data-action="restore-copy" data-id="' + esc(m.id) + '">Restore</button>';
+    return '<div class="list-item copy-row"><div class="grow"><div class="title">' + esc(title) + '</div><div class="sub">' + esc(sub) + '</div></div>' + btn + '</div>';
+  }
+  function fillCopies(restorableOnly) {
+    const el = $('#safety-copies'); if (!el) return;
+    const B = window.__overloadBackup;
+    const none = (t) => { const box = $('#safety-copies'); if (box) box.innerHTML = '<p class="small muted">' + t + '</p>'; };
+    if (!B) { none('Automatic copies are not available.'); return; }
+    B.list().then((list) => {
+      if (restorableOnly) list = list.filter((m) => m.kind !== 'unreadable');
+      ui.copiesHtml = list.length ? '<div class="list">' + list.map(copyRow).join('') + '</div>' : '<p class="small muted">No copies yet.</p>';
+      const box = $('#safety-copies'); if (box) box.innerHTML = ui.copiesHtml;
+      const sec = $('#restore-section'); if (sec) sec.hidden = !list.length;   // unreadable screen: offered only if there is one
+    }, () => { none('Automatic copies are not available in this browser.'); const sec = $('#restore-section'); if (sec) sec.hidden = true; });
+  }
+  function renderBackupCard() {
+    const used = storageUsed(), pct = Math.round(used / STORE_LIMIT * 100), cls = pct >= 70 ? 'high' : 'ok';
+    return '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
+      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
+      + '<p class="small muted mt8" id="last-export">' + lastExportText() + '</p>'
+      + '<input type="file" accept="application/json,.json" id="import-file" hidden>'
+      + '<div class="toggle-row"><div><div>Storage used</div><div class="small muted">' + used.toLocaleString() + ' of about ' + STORE_LIMIT.toLocaleString() + ' characters the app can safely use. Today warns at 70%.</div>'
+      + '<span class="vol-bar store-bar"><span class="vol-fill ' + cls + '" style="width:' + Math.min(100, pct) + '%"></span></span></div><span class="vol-n ' + cls + '">' + pct + '%</span></div>'
+      + '<div class="mt12">Automatic copies</div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days, and one taken before each import, reset, restore or cloud sign-in.</p>'
+      + '<div id="safety-copies">' + (ui.copiesHtml || '<p class="small muted">Looking for copies…</p>') + '</div></div>';
+  }
+  // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
+  async function restoreCopy(id) {
+    const B = window.__overloadBackup; if (!B) return;
+    let rec = null, parsed = null;
+    try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
+    if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) { toast('That copy cannot be read'); return; }
+    const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
+    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced');
+    if (!confirm('Replace everything on this phone with ' + what + '?\n\n' + dataSummary(parsed, 'The copy') + here)) return;
+    replaceState(parsed, 'restore', 'Copy restored');
+  }
+  // The questions' line about a workout in progress. A copy or backup taken during it holds the same workout as it was then.
+  function activeLine(parsed, what) {
+    const w = activeWorkout(); if (!w) return '';
+    const same = parsed.active === w.id && Array.isArray(parsed.workouts) && parsed.workouts.some((x) => x && x.id === w.id && !x.finishedAt);
+    return same ? '\nThe workout in progress goes back to how it was in ' + what + '.' : '\nThe workout in progress will be lost.';
+  }
+  // Workouts, their date range and food days, for the questions before data is replaced.
+  function dataSummary(st, label) {
+    const ws = (Array.isArray(st.workouts) ? st.workouts : []).filter((w) => w && w.finishedAt && typeof w.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.date)).map((w) => w.date).sort();
+    const days = st.diary && typeof st.diary === 'object' ? Object.keys(st.diary).length : 0;
+    return label + ': ' + plural(ws.length, 'workout') + (ws.length ? ' (' + fmtRange(ws[0], ws[ws.length - 1], true) + ')' : '') + ', ' + plural(days, 'food day') + '.';
+  }
+  // Import and Restore: keep a copy of what is here, then put the new data in place.
+  function replaceState(parsed, kind, done) {
+    // An older copy may hold an older WHOOP connector link: this phone keeps its own.
+    if (kind === 'restore' && !ui.unreadable && isObj(parsed.settings)) ['connUrl', 'connKey'].forEach((k) => { if (state.settings[k]) parsed.settings[k] = state.settings[k]; });
+    if (!ui.unreadable) safetyCopy(kind);
+    forgetCloudIfSignedOut();
+    state = normalize(parsed);
+    stopTimer();   // it was counting rest for a set of the data just replaced
+    if (!activeWorkout()) state.active = null;
+    ui.lastActive = state.active;
+    if (ui.unreadable) { leaveUnreadable(); ui.screen = 'today'; }
+    applyTheme(); const ok = save(); render(); toast(ok ? done : NOT_SAVED);
   }
   // Theme: 'system' follows the phone, 'dark' / 'light' force one.
   function applyTheme() {
@@ -270,7 +476,7 @@
   }
   // Replace the whole state (used by cloud sync when remote data arrives).
   function setState(next) {
-    if (!next || next.v !== 1) return;
+    if (!next || next.v !== 1 || ui.unreadable) return;
     state = normalize(next);
     let ok = true;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
@@ -278,7 +484,15 @@
     // Keep state.active even if that workout is not here yet: cloud sync can deliver the settings
     // before the workout itself, and clearing it would end the workout on the other phone too.
     applyTheme();
-    render();
+    renderWhenIdle();
+  }
+  // Data from the cloud must not redraw the screen under a box being typed in (the keyboard closes and the
+  // typing is lost). Wait until no box on the screen has the keyboard, then draw once.
+  function typingInApp() { const a = document.activeElement; return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#app')); }
+  function renderWhenIdle() {
+    if (!typingInApp()) { render(); return; }
+    if (ui.renderLater) return;
+    ui.renderLater = setInterval(() => { if (typingInApp()) return; clearInterval(ui.renderLater); ui.renderLater = null; render(); }, 700);
   }
 
   function markDeleted(kind, id) { state.deleted[kind][id] = Date.now(); }
@@ -309,9 +523,10 @@
     const m = Math.max(1, Math.round(((w.finishedAt || Date.now()) - w.startedAt) / 60000));
     return m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + ' min';
   }
-  // True when no later workout (finished, or the one in progress) logged this exercise.
+  // True when no later workout (finished, or the one in progress) logged this exercise. A deload session does not
+  // count: it never changes a plan, so the plan still comes from the session before it.
   function isLatestSessionFor(exId, w) {
-    return !state.workouts.some((o) => o.id !== w.id && (o.finishedAt || o.id === state.active) && (o.startedAt || 0) > (w.startedAt || 0) && o.entries.some((en) => en.exId === exId && en.done));
+    return !state.workouts.some((o) => o.id !== w.id && !o.deload && (o.finishedAt || o.id === state.active) && (o.startedAt || 0) > (w.startedAt || 0) && o.entries.some((en) => en.exId === exId && en.done));
   }
   function lastEntryFor(exId) {
     for (let i = state.workouts.length - 1; i >= 0; i--) {
@@ -323,11 +538,13 @@
     return null;
   }
 
-  // Best weight / estimated 1RM / reps-at-weight for an exercise, excluding one workout.
-  function bestBefore(exId, excludeWorkoutId) {
+  // Best weight / estimated 1RM / reps-at-weight for an exercise, excluding one workout
+  // (and, given upTo, every workout not started before that one).
+  function bestBefore(exId, excludeWorkoutId, upTo) {
     const best = { weight: 0, e1rm: 0, repsAt: {}, sessions: 0 };
     state.workouts.forEach((w) => {
       if (!w.finishedAt || w.id === excludeWorkoutId) return;
+      if (upTo && !(w.startedAt && upTo.startedAt ? w.startedAt < upTo.startedAt : w.date < upTo.date)) return;
       w.entries.forEach((en) => {
         if (en.exId !== exId) return;
         let any = false;
@@ -343,11 +560,12 @@
     });
     return best;
   }
-  function detectPrs(exId, entry, workoutId) {
-    const best = bestBefore(exId, workoutId);
+  function detectPrs(exId, entry, workoutId, upTo) {
+    const best = bestBefore(exId, workoutId, upTo);
     if (!best.sessions) return [];
     const prs = [];
     const done = entry.sets.filter((st) => st.done && st.reps > 0);
+    if (!done.length) return prs;
     const top = done.reduce((a, b) => (b.weight > a.weight ? b : a), { weight: 0, reps: 0 });
     const assisted = isAssisted(exById(exId));
     if (top.weight > best.weight && !assisted) prs.push({ kind: 'weight', text: 'Heaviest ever: ' + fmtW(top.weight) + ' ' + state.settings.units + ' × ' + top.reps });
@@ -387,8 +605,8 @@
    *   - some sets hit repMax          -> hold weight, target repMax ("push the rest")
    *   - all sets >= repMin            -> hold weight, target = lowest reps + 1
    *   - any set < repMin              -> hold weight, target repMin
-   * When one increment is more than 10% of the weight (light dumbbells), the
-   * top of the range stretches by 2 reps before the jump.
+   * When one increment is big for the weight (light cables and dumbbells), the
+   * top of the range stretches to the reps that pay for the jump (at most 20).
    * Bodyweight moves with no added load progress by reps only. Assisted moves
    * progress by taking assistance off.
    * Joint pain "moderate" blocks the weight increase; "a lot" backs the load off.
@@ -415,9 +633,18 @@
     const next = { weight, targetReps: presc.targetReps, sets: presc.sets, soreCut: !!presc.soreCut, reasons, updatedAt: Date.now() };
     const unit = state.settings.units;
     const repsOnly = weight === 0 && (ex.equipment === 'Bodyweight' || assisted);
-    // A jump over 10% of the load needs more reps first (5 lb on a 25 lb dumbbell is 20%).
-    const big = !assisted && !repsOnly && weight > 0 && inc / weight > 0.1;
-    const top = big ? repMax + 2 : repMax;
+    // A jump that is big for the load needs more reps first, enough that the first sets after it still reach
+    // the bottom of the range (Epley: 30 lb × 17 ≈ 35 lb × 10). Capped at 20 reps; past that a smaller jump suits.
+    let top = repMax, tooBig = false, need = 0;
+    if (!assisted && !repsOnly && weight > 0) {
+      if (ex.equipment === 'Bodyweight') { if (inc / weight > 0.1) top = repMax + 2; }  // added load on a bodyweight move
+      else {
+        need = Math.ceil(30 * ((weight + inc) * (1 + repMin / 30) / weight - 1) - 1e-9);
+        const cap = Math.max(repMax, 20);
+        top = Math.min(Math.max(repMax, need), cap); tooBig = need > cap;
+      }
+    }
+    const big = top > repMax;
     const stepped = assisted ? Math.max(0, round(weight - inc, 0.01)) : round(weight + inc, 0.01);
     const stepText = assisted ? '−' + fmtW(inc) + ' ' + unit + ' assistance' : '+' + fmtW(inc) + ' ' + unit;
 
@@ -441,13 +668,14 @@
     } else if (allTop && jointHold) {
       next.targetReps = top;
       reasons.push('Hit ' + top + ' on every set, but holding weight because of joint pain');
-    } else if (lowest >= repMin && easy && !jointHold && !big) {
+    } else if (lowest >= repMin && easy && !jointHold && !big && lowest + 3 >= need) {
+      // 3+ in reserve: at least lowest + 3 were there, so jump early only when that pays for the jump.
       next.weight = stepped;
       next.targetReps = repMin;
       reasons.push('Every set had 3+ reps in reserve → ' + stepText + ' early, aim for ' + repMin);
     } else if (big && done.every((s) => s.reps >= repMax)) {
       next.targetReps = clamp(lowest + 1, repMax + 1, top);
-      reasons.push(fmtW(inc) + ' ' + unit + ' is a big jump from ' + fmtW(weight) + ' → earn it with ' + top + ' on every set, aim for ' + next.targetReps);
+      reasons.push(fmtW(weight) + ' → ' + fmtW(stepped) + ' ' + unit + ' is a big jump: earn it with ' + top + ' reps on every set');
     } else if (anyTop) {
       next.targetReps = repMax;
       reasons.push('Some sets hit ' + repMax + ' → hold weight, push every set to ' + repMax + backoff);
@@ -458,12 +686,21 @@
       next.targetReps = repMin;
       reasons.push('A set fell below ' + repMin + ' → hold weight, build back to ' + repMin + backoff);
     }
+    // More reps than the cap would be needed to pay for one jump: say so whatever this session gave.
+    if (tooBig) reasons[0] += '. A smaller weight jump would suit this exercise (Edit exercise → Weight jump)';
 
     if (fb.joint === 3) {
+      // Replaces the rep line above (reasons[0]): weight and goal no longer follow it, and the card shows the first line.
       next.targetReps = repMin;
-      if (repsOnly) reasons.push('A lot of joint pain → back to ' + repMin + ' reps. Consider swapping this exercise');
-      else if (assisted) { next.weight = round(weight + 2 * inc, 0.01); reasons.push('A lot of joint pain → +' + fmtW(2 * inc) + ' ' + unit + ' assistance. Consider swapping this exercise'); }
-      else { next.weight = Math.max(0, round(weight - 2 * inc, 0.01)); reasons.push('A lot of joint pain → dropped ' + fmtW(2 * inc) + ' ' + unit + '. Consider swapping this exercise'); }
+      if (repsOnly) reasons[0] = 'A lot of joint pain → back to ' + repMin + ' reps. Consider swapping this exercise';
+      else if (assisted) { next.weight = round(weight + 2 * inc, 0.01); reasons[0] = 'A lot of joint pain → ' + fmtW(2 * inc) + ' ' + unit + ' more assistance, aim for ' + repMin + '. Consider swapping this exercise'; }
+      else {
+        // About 15% off, rounded to the weight jump and at least one jump, but never below one jump.
+        next.weight = weight > inc ? Math.max(inc, round(weight - Math.max(inc, round(weight * 0.15, inc)), 0.01)) : weight;
+        const off = round(weight - next.weight, 0.01);
+        reasons[0] = off > 0 ? 'A lot of joint pain → dropped ' + fmtW(off) + ' ' + unit + ', aim for ' + repMin + '. Consider swapping this exercise'
+          : 'A lot of joint pain → this is already the lightest step, so the weight stays. Consider swapping this exercise';
+      }
     }
 
     if (ex.fixedSets) {
@@ -498,6 +735,24 @@
   // Rendering
   // ---------------------------------------------------------------------------
   function render() {
+    if (ui.renderLater) { clearInterval(ui.renderLater); ui.renderLater = null; }   // this draw brings the screen up to date
+    if (ui.unreadable) { renderUnreadable(); return; }
+    try {
+      renderScreen();
+      if (ui.screen === 'today' && !activeWorkout()) {
+        const html = '<div id="today-notices">' + noticesHtml() + '</div>', t = $('#app > .screen-title');
+        if (t) t.insertAdjacentHTML('afterend', html); else $('#app').insertAdjacentHTML('afterbegin', html);
+      }
+      if (ui.screen === 'settings') fillCopies();
+    } catch (e) {
+      // One bad record (or a bug) must not leave a blank screen: say so and offer Export. The other tabs keep working.
+      console.error(e);
+      $('#app').innerHTML = '<div class="card mt16"><p><b>This screen could not be shown.</b> Your saved data has not changed. Export a backup to keep it safe, then try another tab.</p>'
+        + '<p class="small muted mt8">' + esc((e && e.message) || e) + '</p>'
+        + '<div class="btn-row mt12"><button class="btn" data-action="export">Export backup</button></div></div>';
+    }
+  }
+  function renderScreen() {
     const app = $('#app');
     // Opened yesterday and still open: the selected day moves on with the date.
     if (ui.dayKey !== todayKey()) { ui.dayKey = todayKey(); ui.selectedDay = weekdayIndex(); ui.showOthers = false; }
@@ -550,9 +805,11 @@
         const p = prescFor(exId);
         return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + prescText(ex, p) + '</div></div><span class="chev">›</span></button>';
       }).join('');
-      body = '<div class="card flat"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div></div>'
-        + '<div class="list">' + (items || '<div class="empty">No exercises yet. Add some in Program.</div>') + '</div>'
-        + '<button class="btn block mt12" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start workout</button></div>' + otherHtml;
+      // Start sits right under the day name so it is on the first screen, above the exercise list.
+      body = '<div class="card flat"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div>'
+        + '<button class="btn small subtle deload-start" data-action="start-deload" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start as deload</button></div>'
+        + '<button class="btn block" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start workout</button>'
+        + '<div class="list mt12">' + (items || '<div class="empty">No exercises yet. Add some in Program.</div>') + '</div></div>' + otherHtml;
     }
     const last = state.workouts.filter((x) => x.finishedAt).slice(-1)[0];
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
@@ -674,6 +931,8 @@
     return p.sets + ' × ' + r.min + '–' + r.max + ' @ ' + wt + ' · goal ' + p.targetReps;
   }
 
+  // Finished exercises the person opened again (they show as one-line rows otherwise). Not saved.
+  const openDone = new WeakSet();
   function renderActiveWorkout(w) {
     const day = dayById(w.dayId);
     // Soreness prompts: one per muscle with prior history
@@ -681,18 +940,24 @@
     w.entries.forEach((en) => { const ex = exById(en.exId); if (ex && !muscles.includes(ex.muscle)) muscles.push(ex.muscle); });
     const askable = muscles.filter((m) => w.entries.some((en) => { const ex = exById(en.exId); return ex && ex.muscle === m && lastEntryFor(en.exId); }));
     let sorenessHtml = '';
-    if (askable.length) {
-      sorenessHtml = '<div class="card"><h3 class="mb8">Check-in</h3>' + askable.map((m) => {
+    const editing = ui.sorenessEdit === w.id;
+    if (askable.length && !editing && askable.every((m) => w.soreness[m] != null)) {
+      // Every question answered: fold to one line.
+      sorenessHtml = '<div class="card fold-row" id="soreness-card"><b>Check-in done</b><button class="btn small ghost" data-action="soreness-edit">Edit</button></div>';
+    } else if (askable.length) {
+      sorenessHtml = '<div class="card" id="soreness-card"><h3 class="mb8">Check-in</h3>' + askable.map((m) => {
         const v = w.soreness[m];
-        return '<div class="prompt"><div class="prompt-q">How sore did your <span style="color:var(--accent-2)">' + m.toLowerCase() + '</span> get after last time?</div>'
-          + '<div class="choice-grid">' + SORENESS.map((lbl, i) => '<button class="choice ' + (v === i ? 'on' : '') + '" data-action="set-soreness" data-m="' + m + '" data-v="' + i + '">' + lbl + '</button>').join('') + '</div></div>';
-      }).join('') + '</div>';
+        return '<div class="prompt"><div class="prompt-q">How sore did your <span style="color:var(--accent-2)">' + esc(m.toLowerCase()) + '</span> get after last time?</div>'
+          + '<div class="choice-grid">' + SORENESS.map((lbl, i) => '<button class="choice ' + (v === i ? 'on' : '') + '" data-action="set-soreness" data-m="' + esc(m) + '" data-v="' + i + '">' + lbl + '</button>').join('') + '</div></div>';
+      }).join('') + (editing ? '<button class="btn ghost block" data-action="soreness-done">Done</button>' : '') + '</div>';
     }
 
     const cards = w.entries.map((en, idx) => renderEntryCard(w, en, idx)).join('');
     const doneCount = w.entries.filter((e) => e.done).length;
     return '<div class="screen-title"><div><h1>' + esc(w.dayName) + '</h1><span class="sub">' + fmtDate(w.date) + ' · ' + doneCount + '/' + w.entries.length + ' done · <span id="elapsed">' + durationText(w) + '</span></span></div>'
       + '<button class="btn small ghost" data-action="add-entry">+ Exercise</button></div>'
+      + '<div class="deload-bar"><button class="deload-toggle' + (w.deload ? ' on' : '') + '" data-action="toggle-deload" aria-pressed="' + !!w.deload + '"><span class="sw"></span>Deload session</button>'
+      + (w.deload ? '<div class="small deload-hint">Deload: keep your weights (or a little lighter), do about half the sets, stop 3 or more reps short.</div>' : '') + '</div>'
       + sorenessHtml + cards + renderCardioCard(w)
       + '<div class="btn-row mt12"><button class="btn subtle" data-action="discard-workout">Discard</button><button class="btn success" data-action="finish-workout">Finish workout</button></div>';
   }
@@ -728,12 +993,17 @@
     const c = ensureCardio(w); if (!c) return '';
     const running = timer.handle && timer.kind === 'cardio';
     const last = lastCardio();
-    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : val) + '" data-field="cardio" data-k="' + k + '"></div>';
+    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : esc(val)) + '" data-field="cardio" data-k="' + k + '"' + (c.done ? ' disabled' : '') + '></div>';
+    // Done keeps the same layout, so nothing slides under the finger that tapped Done: Undo takes the timer
+    // button's place and a disabled "Logged" sits where Done was.
     return '<div class="card' + (c.done ? ' flat' : '') + '" id="cardio-card"><div class="row between"><h3>' + esc(c.name) + '</h3>' + (c.done ? '<span class="pill green">Done</span>' : '<span class="pill">Cardio</span>') + '</div>'
-      + (c.done ? '<div class="small mt8">' + esc(cardioText(c)) + '</div><div class="btn-row mt8"><button class="btn subtle small" data-action="cardio-undo">Undo</button></div>'
-        : '<div class="field-row mt8">' + field('Minutes', 'min', c.min, '1') + field('Incline %', 'incline', c.incline, '0.5') + field('Speed ' + (c.speedUnit || speedUnit()), 'speed', c.speed, '0.1') + '</div>'
-          + (last ? '<div class="tiny muted mb8">Last time: ' + esc(cardioText(last)) + '</div>' : '')
-          + '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn success" data-action="cardio-done">Done ✓</button></div>')
+      + '<div class="field-row mt8">' + field('Minutes', 'min', c.min, '1') + field('Incline %', 'incline', c.incline, '0.5') + field('Speed ' + esc(c.speedUnit || speedUnit()), 'speed', c.speed, '0.1') + '</div>'
+      // Last time before Done, today's summary after. Both sit in one spot and it keeps the taller one's height, so Done never changes it.
+      + '<div class="tiny muted mb8 cardio-line"><span' + (c.done ? ' class="off"' : '') + '>' + esc(last ? 'Last time: ' + cardioText(last) : 'First time logging cardio') + '</span>'
+      + '<span id="cardio-today"' + (c.done ? '' : ' class="off"') + '>Today: ' + esc(cardioText(c)) + '</span></div>'
+      + (c.done
+        ? '<div class="btn-row"><button class="btn subtle" data-action="cardio-undo">Undo</button><button class="btn success" disabled>Logged ✓</button></div>'
+        : '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn success" data-action="cardio-done">Done ✓</button></div>')
       + '</div>';
   }
 
@@ -742,18 +1012,35 @@
     if (!ex) return '';
     const p = prescFor(en.exId);
     const r = repRange(ex);
+    if (en.done && !openDone.has(en)) {
+      // A finished exercise folds to one row: name, sets done, PR mark, next time's weight. Tap to open the full card.
+      const n = en.sets.filter((s) => s.done && s.reps > 0).length;
+      const nx = en.next || p;
+      return '<div class="card ex-card done compact" data-card="' + idx + '"><button class="ex-fold" data-action="open-entry" data-e="' + idx + '"><span class="ex-fold-tick">✓</span>'
+        + '<span class="grow"><span class="ex-fold-name">' + esc(ex.name) + '</span><span class="ex-fold-sub">' + plural(n, 'set') + ' · next ' + (nx.weight > 0 ? esc(fmtW(nx.weight)) + ' ' + state.settings.units : 'goal ' + esc(nx.targetReps) + ' reps') + '</span></span>'
+        + (en.prs && en.prs.length ? '<span class="pill pr">🏆 PR</span>' : '') + '<span class="chev">›</span></button></div>';
+    }
     const last = lastEntryFor(en.exId);
-    const lastText = last ? 'Last time: ' + last.entry.sets.filter((s) => s.done).map((s) => fmtW(s.weight) + '×' + s.reps).join(', ') : 'First time logging this';
+    const lastText = last ? 'Last time' + (last.workout.deload ? ' (deload)' : '') + ': ' + last.entry.sets.filter((s) => s.done).map((s) => fmtW(s.weight) + '×' + s.reps).join(', ') : 'First time logging this';
     const reason = (!en.done && p.reasons && p.reasons.length) ? '<div class="ex-reason ' + (/\+/.test(p.reasons[0]) ? 'green' : '') + '">' + esc(p.reasons[0]) + '</div>' : '';
 
     const rir = !!state.settings.trackRir;
+    // Reps in reserve: once a set is ticked, four buttons under it (3+ 2 1 0). One tap picks, tapping the picked one clears it.
+    // Every set of an open exercise has its row, greyed out until the set is ticked, so ticking or unticking changes
+    // no heights: the ticks below stay where they were (catching up on several sets must not land on a RIR button).
+    const rirRow = (s, i) => {
+      if (!s.done) return '<tr class="rir-row idle" aria-hidden="true"><td colspan="4"><div class="rir-pick"><span class="rir-label">Reps left</span>'
+        + [3, 2, 1, 0].map((v) => '<button class="rir-btn" tabindex="-1" disabled>' + rirText(v) + '</button>').join('') + '</div></td></tr>';
+      return '<tr class="rir-row"><td colspan="4"><div class="rir-pick"><span class="rir-label">Reps left</span>'
+        + [3, 2, 1, 0].map((v) => { const on = rirIs(s.rir, v); return '<button class="rir-btn' + (on ? ' on' : '') + '" aria-pressed="' + on + '" aria-label="Set ' + (i + 1) + ': ' + rirText(v) + ' reps left" data-action="pick-rir" data-e="' + idx + '" data-s="' + i + '" data-v="' + v + '">' + rirText(v) + '</button>'; }).join('')
+        + '</div></td></tr>';
+    };
     const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : '') + '">'
       + '<td class="n">' + (i + 1) + '</td>'
       + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
       + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="' + (en.targetReps || 'reps') + '" data-field="reps" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + (rir ? '<td class="rir"><button class="rir-btn ' + (s.rir != null ? 'on' : '') + '" data-action="cycle-rir" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>' + rirText(s.rir) + '</button></td>' : '')
       + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>✓</button></td>'
-      + '</tr>').join('');
+      + '</tr>' + (rir && !en.done ? rirRow(s, i) : '')).join('');
 
     let warmHtml = '';
     if (en.warmups && en.warmups.length && !en.done) {
@@ -765,7 +1052,7 @@
 
     const allDone = en.sets.length > 0 && en.sets.every((s) => s.done);
     let feedback = '';
-    if (!en.done && en.sets.some((s) => s.done)) {
+    if (!en.done && en.sets.some((s) => s.done) && !w.deload) {
       feedback = '<div class="prompt mt12"><div class="prompt-q">How was it? <span class="hint">(optional, adjusts your sets)</span></div>'
         + choiceRow('Pump', PUMP, en.pump, idx, 'pump')
         + choiceRow('Joint pain', JOINT, en.joint, idx, 'joint')
@@ -776,17 +1063,19 @@
     if (en.done && en.next) {
       nextBox = '<div class="next-box"><div class="headline">Next time: ' + en.next.sets + ' × ' + r.min + '–' + r.max + ' @ ' + fmtW(en.next.weight) + ' ' + state.settings.units + ', goal ' + en.next.targetReps + '</div>'
         + '<ul>' + en.next.reasons.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
+    } else if (en.done && w.deload) {
+      nextBox = '<div class="next-box"><div class="headline">Deload: plan kept</div><ul><li>' + esc('Next time stays ' + p.sets + ' × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ ' + fmtW(p.weight) + ' ' + state.settings.units : '') + ', goal ' + p.targetReps) + '</li></ul></div>';
     }
 
     const body = en.done
-      ? '<div class="ex-body">' + nextBox + '<div class="card-actions"><button class="btn small subtle" data-action="reopen-entry" data-e="' + idx + '">Edit</button></div></div>'
-      : '<div class="ex-body">' + warmHtml + '<table class="set-table"><thead><tr><th class="n">Set</th><th>' + state.settings.units + (ex.equipment === 'Dumbbell' ? ' (each)' : '') + '</th><th>Reps</th>' + (rir ? '<th class="rir" title="Reps in reserve">RIR</th>' : '') + '<th></th></tr></thead><tbody>' + rows + '</tbody></table>'
+      ? '<div class="ex-body">' + nextBox + '<div class="card-actions"><button class="btn small subtle" data-action="reopen-entry" data-e="' + idx + '">Edit</button><button class="btn small subtle" data-action="close-entry" data-e="' + idx + '">Hide</button></div></div>'
+      : '<div class="ex-body">' + warmHtml + '<table class="set-table"><thead><tr><th class="n">Set</th><th>' + state.settings.units + (ex.equipment === 'Dumbbell' ? ' (each)' : '') + '</th><th>Reps</th>' + '<th></th></tr></thead><tbody>' + rows + '</tbody></table>'
         + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">+ Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>− Set</button><button class="btn small subtle" data-action="gen-warmup" data-e="' + idx + '" ' + (en.warmups && en.warmups.length ? 'disabled' : '') + '>Warm-up</button></div>'
         + '<div class="set-tools secondary"><button class="btn small subtle" data-action="swap-entry" data-e="' + idx + '">Swap exercise</button><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
         + feedback
         + '<button class="btn block mt12 ' + (allDone ? '' : 'ghost') + '" data-action="finish-entry" data-e="' + idx + '" ' + (en.sets.some((s) => s.done || s.reps > 0) ? '' : 'disabled') + '>Finish exercise</button></div>';
 
-    return '<div class="card ex-card ' + (en.done ? 'done' : '') + '"><div class="ex-head">'
+    return '<div class="card ex-card ' + (en.done ? 'done' : '') + '" data-card="' + idx + '"><div class="ex-head">'
       + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="row" style="gap:6px">' + prPill + '<span class="pill">' + esc(ex.muscle) + '</span></span></div>'
       + '<div class="ex-presc">' + p.sets + ' sets × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ <strong>' + fmtW(p.weight) + ' ' + state.settings.units + '</strong>' : '') + ' · goal <strong>' + en.targetReps + ' reps</strong></div>'
       + '<div class="ex-last">' + esc(lastText) + '</div>' + swapNote
@@ -797,7 +1086,7 @@
 
   // RIR: 3 means "3 or more" (enough to count as easy), so the button reads 3+.
   function rirText(v) { return v == null ? '–' : v >= 3 ? '3+' : String(v); }
-  function nextRir(v) { return v == null ? 3 : v >= 3 ? 2 : v === 0 ? null : v - 1; }
+  function rirIs(stored, v) { return stored != null && (stored === v || (v === 3 && stored >= 3)); }
 
   function choiceRow(label, opts, val, idx, field) {
     return '<div class="tiny muted mt8 mb8" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em">' + label + '</div><div class="choice-grid">'
@@ -817,7 +1106,7 @@
     const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" style="width:auto;min-width:170px" data-field="schedule" data-i="' + i + '">'
       + '<option value="">Rest</option>' + state.program.days.map((x) => '<option value="' + x.id + '" ' + (state.program.schedule[i] === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></div>').join('');
 
-    const templates = state.templates.map((t) => '<div class="list-item"><div class="grow"><div class="title">' + esc(t.name) + '</div><div class="sub">' + plural(t.days.length, 'day') + ' · saved ' + fmtDate(t.savedAt) + '</div></div>'
+    const templates = state.templates.map((t) => '<div class="list-item"><div class="grow"><div class="title">' + esc(t.name).replace(/\//g, '/<wbr>') + '</div><div class="sub">' + plural(t.days.length, 'day') + ' · saved ' + fmtDate(t.savedAt) + '</div></div>'
       + '<button class="btn small ghost" data-action="use-template" data-t="' + t.id + '">Use</button><button class="icon-btn danger" data-action="delete-template" data-t="' + t.id + '">✕</button></div>').join('');
 
     return '<div class="screen-title"><h1>Program</h1><button class="btn small" data-action="add-day">+ Day</button></div>'
@@ -848,7 +1137,7 @@
       + '<div class="row mb8" style="flex-wrap:wrap;gap:6px">' + week + '</div>'
       + (p.how ? '<div class="card flat small">' + esc(p.how) + '</div>' : '')
       + days
-      + '<p class="tiny muted mt8">Sets × reps as the program writes them. Exercises marked <b>new</b> are added to your list with that rep range. Exercises you already have keep your weights, rep ranges and set counts, and the app keeps progressing them as usual.'
+      + '<p class="tiny muted mt8">Sets × reps as the program writes them. Using it gives every exercise these sets and rep ranges; exercises marked <b>new</b> are added to your list. Your weights stay. If some exercises already have your own logged sets, you are asked first whether to switch those too.'
       + (p.source ? ' Source: ' + esc(p.source) + '.' : '') + '</p>'
       + '<button class="btn block mt12" data-action="program-use" data-p="' + p.id + '">Use this program</button>');
   }
@@ -866,11 +1155,51 @@
     const big = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Glutes'].includes(muscle);
     ex = { id: uid(), name, muscle, equipment: (base && base.equipment) || lib[1] || 'Machine', increment: null,
       repMin: lo > 0 ? lo : null, repMax: hi >= lo ? hi : (lo > 0 ? lo : null), custom: true,
-      notes: fst ? 'FST-7: 7 sets, ' + (big ? '45–60' : '30–45') + ' s rest. Stretch the muscle and sip water between sets' : (note || null),
+      notes: programNote(name, muscle, note),
       restSec: fst ? (big ? 50 : 35) : null, fixedSets: fst ? 7 : null };
     state.exercises.push(ex);
     state.presc[ex.id] = { weight: 0, targetReps: ex.repMin || state.settings.repMin, sets: fst ? 7 : clamp(sets, 1, state.settings.maxSets), reasons: [], updatedAt: null };
     return ex.id;
+  }
+  function programNote(name, muscle, note) {
+    if (!/\(FST-7\)$/.test(name)) return note || null;
+    return 'FST-7: 7 sets, ' + (['Chest', 'Back', 'Quads', 'Hamstrings', 'Glutes'].includes(muscle) ? '45–60' : '30–45') + ' s rest. Stretch the muscle and sip water between sets';
+  }
+  // After a rep range change the goal starts at the new bottom; an old reason line would contradict it.
+  function goalToRange(ex, p) {
+    const r = repRange(ex);
+    p.targetReps = r.min;
+    if (p.reasons && p.reasons.length) p.reasons = ['New rep range ' + r.min + '–' + r.max + ' → aim for ' + r.min];
+  }
+  // True when the exercise has a done set with reps in a finished workout or in the one in progress.
+  function everLogged(exId) {
+    return state.workouts.some((w) => (w.finishedAt || w.id === state.active) && w.entries.some((en) => en.exId === exId && en.sets.some((s) => s.done && s.reps > 0)));
+  }
+  // Give an exercise you already have a program row's rep range and set count, and its note when asked and the
+  // exercise has none. Weights stay; fixed sets (FST-7) stay. Returns true when the range or set count
+  // changes (with dry set, only says whether they would).
+  function applyProgramRow(ex, row, withNote, dry) {
+    const [name, sets, reps, note] = row;
+    const [lo, hi] = String(reps).split(/[–-]/).map((x) => parseInt(x, 10));
+    const repMin = lo > 0 ? lo : null, repMax = hi >= lo ? hi : repMin;
+    const was = repRange(ex), p = state.presc[ex.id];
+    const newSets = ex.fixedSets || clamp(sets, 1, state.settings.maxSets);
+    const rangeChanged = !!repMin && (was.min !== repMin || was.max !== repMax);
+    const setsChanged = newSets !== (p ? p.sets : ex.fixedSets || state.settings.defaultSets);
+    const newNote = withNote && !ex.notes ? programNote(name, ex.muscle, note) : null;
+    if (dry) return rangeChanged || setsChanged;
+    if (repMin) { ex.repMin = repMin; ex.repMax = repMax; }
+    if (newNote) ex.notes = newNote;
+    const pp = prescFor(ex.id);
+    pp.sets = newSets; pp.soreCut = false;  // the program's count is the new baseline: no cut set to give back
+    if (rangeChanged) goalToRange(ex, pp);
+    // Undoing a later Edit or deleting a workout restores the numbers from before it: keep those on the program too.
+    state.workouts.forEach((w) => w.entries.forEach((en) => {
+      if (en.exId !== ex.id || !en.prevPresc) return;
+      en.prevPresc.sets = newSets; en.prevPresc.soreCut = false;
+      if (rangeChanged) goalToRange(ex, en.prevPresc);
+    }));
+    return rangeChanged || setsChanged;
   }
   // A program's shape by names, so an untouched copy of a template or built-in program is recognized.
   function programSig(days, schedule, nameOf) {
@@ -886,13 +1215,27 @@
   function useProgram(id) {
     const p = programs().find((x) => x.id === id); if (!p) return;
     const keep = state.program.days.length && !alreadySaved();
-    if (!confirm('Switch to "' + p.name + '"? Your days and weekly schedule are replaced.' + (keep ? ' Your current program is saved under Templates first, so you can switch back.' : ''))) return;
-    if (keep) state.templates.push({ id: uid(), name: 'My program (before ' + p.name + ')', days: JSON.parse(JSON.stringify(state.program.days)), schedule: state.program.schedule.slice(), savedAt: todayKey() });
+    if (!confirm('Switch to "' + p.name + '"? Your days and weekly schedule are replaced.' + (keep ? ' Your current days and schedule are saved under Templates first, so you can switch back to them.' : ''))) return;
+    // Exercises you already have take the program's numbers from their first row in it. Ask before
+    // changing ones you have logged sets for.
+    const first = {};
+    p.days.forEach((d) => d.ex.forEach((row) => { const k = row[0].toLowerCase(); if (!first[k]) first[k] = row; }));
+    const mine = Object.keys(first).map((k) => exByName(first[k][0])).filter(Boolean);
+    const logged = new Set(mine.filter((ex) => everLogged(ex.id)).map((ex) => ex.id));
+    const ask = mine.filter((ex) => logged.has(ex.id) && applyProgramRow(ex, first[ex.name.toLowerCase()], false, true)).length;
+    const switchLogged = ask > 0 && confirm(plural(ask, 'exercise') + ' in this program already ' + (ask === 1 ? 'has' : 'have') + ' your own logged sets. Also switch ' + (ask === 1 ? 'it' : 'them') + ' to the program\'s sets and rep ranges? Your weights stay. Switching back later does not bring your own sets and ranges back.');
+    // A copy saved by an earlier apply has the same name: add the date (and a number if needed) so they differ.
+    let tName = 'My program (before ' + p.name + ')';
+    const taken = (n) => (state.templates || []).some((t) => t && t.name === n);
+    if (taken(tName)) { const base = tName + ' · ' + fmtDate(todayKey()); tName = base; for (let n = 2; taken(tName); n++) tName = base + ' (' + n + ')'; }
+    if (keep) state.templates.push({ id: uid(), name: tName, days: JSON.parse(JSON.stringify(state.program.days)), schedule: state.program.schedule.slice(), savedAt: todayKey() });
+    let changed = 0;
+    mine.forEach((ex) => { if ((!logged.has(ex.id) || switchLogged) && applyProgramRow(ex, first[ex.name.toLowerCase()], !logged.has(ex.id))) changed++; });
     const before = state.exercises.length;
     const days = p.days.map((d) => ({ id: uid(), name: d.name, exercises: d.ex.map(([name, sets, reps, note]) => ensureProgramExercise(name, sets, reps, note)) }));
     state.program = { days, schedule: p.schedule.map((i) => (i == null ? null : days[i].id)) };
     const added = state.exercises.length - before;
-    save(); closeSheet(); render(); toast('Now using ' + p.name + (added ? ' · ' + plural(added, 'new exercise') : ''));
+    save(); closeSheet(); render(); toast('Now using ' + p.name + (added ? ' · ' + plural(added, 'new exercise') : '') + (changed ? ' · ' + plural(changed, 'exercise') + ' set to the program\'s sets and reps' : ''));
   }
 
   // ---- Exercises -----------------------------------------------------------
@@ -930,7 +1273,7 @@
       const sets = w.entries.reduce((m, e) => m + e.sets.filter((s) => s.done).length, 0);
       const ups = w.entries.filter((e) => wentUp(e)).length;
       const prs = w.entries.filter((e) => e.prs && e.prs.length).length;
-      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
+      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + (w.deload ? ' <span class="pill amber">Deload</span>' : '') + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
     }).join('');
 
     return '<div class="screen-title"><h1>History</h1></div>' + stats + renderVolumeCard() + renderReviewCard() + renderCalendar() + chartSel + renderBwCard() + renderSleepCard()
@@ -1100,7 +1443,7 @@
         const done = e.sets.filter((s) => s.done && s.reps > 0);
         if (!done.length) return;
         const top = done.reduce((a, b) => (b.weight > a.weight || (b.weight === a.weight && b.reps > a.reps) ? b : a));
-        pts.push({ date: w.date, weight: top.weight, reps: top.reps, e1rm: top.weight * (1 + top.reps / 30) });
+        pts.push({ date: w.date, weight: top.weight, reps: top.reps, e1rm: top.weight * (1 + top.reps / 30), deload: !!w.deload });
       });
     });
     if (pts.length < 1) return '<div class="empty small">Nothing logged yet.</div>';
@@ -1110,19 +1453,21 @@
     if (hi === lo) { lo -= 5; hi += 5; }
     const x = (i) => padL + (pts.length === 1 ? (W - padL - padR) / 2 : (i / (pts.length - 1)) * (W - padL - padR));
     const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
-    const path = pts.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.weight).toFixed(1)).join(' ');
+    // Deload sessions are lighter on purpose: hollow dots, left out of the line and of "Current top set".
+    const lined = pts.some((p) => !p.deload) ? pts.map((p, i) => ({ p, i })).filter((o) => !o.p.deload) : pts.map((p, i) => ({ p, i }));
+    const path = lined.map((o, j) => (j ? 'L' : 'M') + x(o.i).toFixed(1) + ' ' + y(o.p.weight).toFixed(1)).join(' ');
     const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(v) + 3).toFixed(1) + '">' + fmtW(v) + '</text>').join('');
-    const dots = pts.map((p, i) => '<circle class="pt" cx="' + x(i).toFixed(1) + '" cy="' + y(p.weight).toFixed(1) + '" r="3.5"><title>' + p.date + ': ' + fmtW(p.weight) + '×' + p.reps + '</title></circle>').join('');
-    const first = pts[0], lastP = pts[pts.length - 1];
+    const dots = pts.map((p, i) => '<circle class="pt' + (p.deload ? ' deload' : '') + '" cx="' + x(i).toFixed(1) + '" cy="' + y(p.weight).toFixed(1) + '" r="3.5"><title>' + p.date + ': ' + fmtW(p.weight) + '×' + p.reps + (p.deload ? ' (deload)' : '') + '</title></circle>').join('');
+    const first = pts[0], lastP = pts[pts.length - 1], curP = lined[lined.length - 1].p;
     const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(first.date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">' + fmtDate(lastP.date) + '</text>';
     const best = pts.reduce((a, b) => (b.e1rm > a.e1rm ? b : a));
     const heaviest = pts.reduce((a, b) => (b.weight > a.weight || (b.weight === a.weight && b.reps > a.reps) ? b : a));
     const prCount = state.workouts.reduce((n, w) => n + w.entries.filter((e) => e.exId === exId && e.prs && e.prs.length).length, 0);
     const sessions = [];
-    state.workouts.forEach((w) => { if (!w.finishedAt) return; w.entries.forEach((e) => { if (e.exId !== exId) return; const done = e.sets.filter((s) => s.done && s.reps > 0); if (done.length) sessions.push({ date: w.date, text: done.map((s) => fmtW(s.weight) + '×' + s.reps).join(', '), pr: !!(e.prs && e.prs.length) }); }); });
-    const recent = '<div class="group-title" style="margin-top:14px">Recent sessions</div>' + sessions.slice(-8).reverse().map((s) => '<div class="hist-set"><span>' + fmtDate(s.date) + (s.pr ? ' 🏆' : '') + '</span><span><b>' + s.text + '</b></span></div>').join('');
+    state.workouts.forEach((w) => { if (!w.finishedAt) return; w.entries.forEach((e) => { if (e.exId !== exId) return; const done = e.sets.filter((s) => s.done && s.reps > 0); if (done.length) sessions.push({ date: w.date, text: done.map((s) => fmtW(s.weight) + '×' + s.reps).join(', '), pr: !!(e.prs && e.prs.length), deload: !!w.deload }); }); });
+    const recent = '<div class="group-title" style="margin-top:14px">Recent sessions</div>' + sessions.slice(-8).reverse().map((s) => '<div class="hist-set"><span>' + fmtDate(s.date) + (s.pr ? ' 🏆' : '') + (s.deload ? ' <span class="pill amber">Deload</span>' : '') + '</span><span><b>' + s.text + '</b></span></div>').join('');
     return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + '<path class="line" d="' + path + '"/>' + dots + labels + '</svg>'
-      + '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtW(lastP.weight) + '</div><div class="k">Current top set</div></div><div class="stat"><div class="v">' + fmtW(best.weight) + '×' + best.reps + '</div><div class="k">Best set</div></div><div class="stat"><div class="v">' + pts.length + '</div><div class="k">Sessions</div></div></div>'
+      + '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtW(curP.weight) + '</div><div class="k">Current top set</div></div><div class="stat"><div class="v">' + fmtW(best.weight) + '×' + best.reps + '</div><div class="k">Best set</div></div><div class="stat"><div class="v">' + pts.length + '</div><div class="k">Sessions</div></div></div>'
       + '<div class="review-list mt8 small"><div>🏆 Heaviest: <b>' + fmtW(heaviest.weight) + ' × ' + heaviest.reps + '</b> on ' + fmtDate(heaviest.date) + '</div><div>Est. 1RM: <b>' + fmtW(Math.round(best.e1rm)) + ' ' + state.settings.units + '</b> from ' + fmtW(best.weight) + ' × ' + best.reps + '</div><div>' + plural(prCount, 'PR session') + ' logged</div></div>' + recent;
   }
 
@@ -1140,7 +1485,7 @@
       + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec"></div>'
       + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets"></div>'
       + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets"></div>'
-      + '<div class="toggle-row"><div><div>Reps in reserve</div><div class="small muted">RIR column on each set. 3+ on every set moves weight up early</div></div><div class="seg"><button class="' + (s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="1">On</button><button class="' + (!s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="0">Off</button></div></div>'
+      + '<div class="toggle-row"><div><div>Reps in reserve</div><div class="small muted">After you tick a set, tap how many reps you had left (3+, 2, 1, 0). 3+ on every set moves weight up early</div></div><div class="seg"><button class="' + (s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="1">On</button><button class="' + (!s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="0">Off</button></div></div>'
       + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest"></div>'
       + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
       + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" style="width:auto" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
@@ -1153,9 +1498,7 @@
       + '</div>'
       + (window.__overloadConn ? window.__overloadConn.settingsCard() : '')
       + (window.__overloadFood ? window.__overloadFood.settingsCard() : '')
-      + '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
-      + '<div class="btn-row"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
-      + '<input type="file" accept="application/json,.json" id="import-file" hidden></div>'
+      + renderBackupCard()
       + renderCloudCard()
       + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
       + '<p class="tiny muted center mt16">Overload · v' + VERSION + '</p>';
@@ -1168,8 +1511,8 @@
       body = '<p class="small muted">Cloud sync is loading. If this never changes, the sync module could not load (offline, or sync.js is missing).</p>';
     } else if (sync.user) {
       const st = ui.sync;
-      const colour = st.status === 'error' ? 'var(--accent-2)' : st.status === 'synced' ? 'var(--green)' : 'var(--amber)';
-      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill" style="color:' + colour + '">' + esc(st.msg || 'Connected') + '</span></div>'
+      const colour = cloudColour(st.status);
+      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill" id="cloud-status" style="color:' + colour + '">' + esc(st.msg || 'Connected') + '</span></div>'
         + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
         + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
     } else {
@@ -1180,8 +1523,9 @@
         + '<div class="btn-row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-action="cloud-signup">Create account</button></div>'
         + '<button class="btn subtle block mt8" type="button" data-action="cloud-reset">Forgot password</button></form>';
     }
-    return '<div class="group-title">Cloud sync</div><div class="card">' + body + '</div>';
+    return '<div id="cloud-card"><div class="group-title">Cloud sync</div><div class="card">' + body + '</div></div>';
   }
+  function cloudColour(status) { return status === 'error' ? 'var(--accent-2)' : status === 'synced' ? 'var(--green)' : 'var(--amber)'; }
 
   async function cloudAction(kind) {
     const sync = window.__overloadSync; if (!sync) return;
@@ -1192,7 +1536,7 @@
       if (kind === 'signin') { if (!email || !password) return say('Enter your email and password.'); await sync.signIn(email, password); toast('Signed in'); }
       if (kind === 'signup') { if (!email || !password) return say('Enter an email and a password of at least 6 characters.'); await sync.createAccount(email, password); toast('Account created'); }
       if (kind === 'reset') { if (!email) return say('Enter your email first.'); await sync.resetPassword(email); say('Reset email sent. Check your inbox.'); }
-      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud.')) { await sync.signOut(); toast('Signed out'); } }
+      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud. Changes you make while signed out are sent when you sign back in.')) { await sync.signOut(); toast('Signed out'); } }
       if (kind === 'push') { await sync.pushNow(); toast('Sync requested'); }
     } catch (e) { say(e.message || 'Something went wrong.'); }
   }
@@ -1200,7 +1544,16 @@
   // ---------------------------------------------------------------------------
   // Sheets
   // ---------------------------------------------------------------------------
-  function openSheet(html) { ui.sheet = true; $('#sheet-panel').innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden'; }
+  function openSheet(html, key) {
+    // key names what the sheet shows (for example 'day:' + id); without one the title does.
+    const panel = $('#sheet-panel'), fresh = $('#sheet').hidden, was = panel.dataset.sheet;
+    ui.sheet = true; panel.innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden';
+    const h = panel.querySelector('.sheet-title h2'), now = key != null ? 'k:' + key : 't:' + (h ? h.textContent : '');
+    panel.dataset.sheet = now;
+    // A new sheet starts at its top, also when it replaces another one (Edit sets from a workout,
+    // Duplicate day); redrawing the open one (a renamed meal, a moved exercise) keeps its place.
+    if (fresh || was !== now) panel.scrollTop = 0;
+  }
   function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; document.dispatchEvent(new CustomEvent('overload:sheetclose')); }
   function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close">✕</button></div></div>'; }
 
@@ -1234,7 +1587,7 @@
       + '<div class="field"><label>Name</label><input class="input" value="' + esc(d.name) + '" data-field="day-name" data-day="' + dayId + '"></div>'
       + '<div class="list">' + (items || '<div class="empty small">No exercises yet</div>') + '</div>'
       + '<button class="btn block mt12" data-action="pick-ex" data-day="' + dayId + '">+ Add exercise</button>'
-      + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn subtle" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>');
+      + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn subtle" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>', 'day:' + dayId);
   }
 
   function sheetPicker(target) {
@@ -1266,12 +1619,12 @@
         + (fb ? '<div class="tiny muted mt8">' + fb + '</div>' : '')
         + (en.next && en.next.reasons.length ? '<div class="tiny mt8" style="color:var(--amber)">' + esc(en.next.reasons[0]) + '</div>' : '') + '</div>'; }).join('');
     const sore = Object.keys(w.soreness || {}).map((m) => m + ': ' + SORENESS[w.soreness[m]]).join(' · ');
-    openSheet(sheetHeader(esc(w.dayName)) + '<p class="small muted mb8">' + fmtDate(w.date) + (durationText(w) ? ' · ' + durationText(w) : '') + (sore ? ' · ' + esc(sore) : '') + '</p>' + (body || (w.cardio ? '' : '<div class="empty">Nothing logged</div>'))
+    openSheet(sheetHeader(esc(w.dayName)) + '<p class="small muted mb8">' + (w.deload ? '<span class="pill amber">Deload</span> ' : '') + fmtDate(w.date) + (durationText(w) ? ' · ' + durationText(w) : '') + (sore ? ' · ' + esc(sore) : '') + '</p>' + (body || (w.cardio ? '' : '<div class="empty">Nothing logged</div>'))
       + (w.cardio && w.cardio.done ? '<div class="card flat"><div class="row between"><b>' + esc(w.cardio.name) + '</b><span class="pill">Cardio</span></div><div class="hist-set"><span>' + esc(cardioText(w.cardio)) + '</span></div></div>' : '')
       + '<div class="btn-row mt8"><button class="btn ghost" data-action="edit-workout" data-w="' + w.id + '">Edit sets</button><button class="btn subtle" data-action="delete-workout" data-w="' + w.id + '">Delete workout</button></div>');
   }
 
-  // Fix a typo in a finished workout. Changes the log only; next-time prescriptions stay as computed.
+  // Fix a typo in a finished workout. Trophies follow; next time is redone only where this is the latest session.
   function sheetEditWorkout(wId) {
     const w = state.workouts.find((x) => x.id === wId); if (!w) return;
     const u = state.settings.units;
@@ -1280,8 +1633,58 @@
         + '<input class="input" style="text-align:center" type="number" inputmode="decimal" step="any" min="0" name="w-' + ei + '-' + si + '" value="' + (s.weight || '') + '" placeholder="' + u + '">'
         + '<input class="input" style="text-align:center" type="number" inputmode="numeric" min="0" name="r-' + ei + '-' + si + '" value="' + (s.reps || '') + '" placeholder="reps"></div>').join('');
       return rows ? '<div class="card flat"><b>' + esc(ex ? ex.name : 'Deleted exercise') + '</b>' + rows + '</div>' : ''; }).join('');
-    openSheet(sheetHeader('Edit sets') + '<form id="edit-workout-form" data-w="' + w.id + '"><p class="small muted mb8">' + esc(w.dayName) + ' · ' + fmtDate(w.date) + '. This fixes the log only; the next-time weights already set are not recalculated.</p>'
+    openSheet(sheetHeader('Edit sets') + '<form id="edit-workout-form" data-w="' + w.id + '"><p class="small muted mb8">' + esc(w.dayName) + ' · ' + fmtDate(w.date) + '. ' + (w.deload ? 'Deload workout: corrections fix the log only. Next-time numbers and trophies stay as they are.' : 'Trophies follow your corrections. If this is the latest time you did an exercise and a correction changes how it went, its next-time numbers are worked out again with its current rep range. Older sessions keep the ones already set.') + '</p>'
       + body + '<button class="btn block mt12" type="submit">Save changes</button></form>');
+  }
+  // After sets of a finished workout are corrected (changed: entry -> its sets before the correction): redo the
+  // trophies of each corrected exercise, here and in its later sessions, against the workouts before each. Where
+  // this is the exercise's latest session, judge it the way finishing it did, from the prescription in force
+  // before it, with the sets before and after the correction: next time follows only when the two differ, so a
+  // correction that changes nothing moves nothing (also when the rules or the rep range changed since). The set
+  // count does not depend on weights or reps, so it stays, unless the session goes from no reps to some or back.
+  // Numbers changed since (by hand or by a program) are kept. Returns the names of exercises whose next time changed.
+  function recalcEdited(wk, changed) {
+    const names = [];
+    const before = (a, b) => (a.startedAt && b.startedAt ? a.startedAt < b.startedAt : a.date < b.date);
+    changed.forEach((oldSets, en) => {
+      const ex = exById(en.exId);
+      if (!ex) return;
+      if (!wk.deload) en.prs = detectPrs(en.exId, en, wk.id, wk);
+      state.workouts.forEach((o) => {
+        if (o.deload || !(o.finishedAt || o.id === state.active) || !before(wk, o)) return;
+        o.entries.forEach((oe) => { if (oe.exId === en.exId && oe.done) oe.prs = detectPrs(oe.exId, oe, o.id, o); });
+      });
+      if (wk.deload || !en.next || !en.prevPresc || !isLatestSessionFor(en.exId, wk)) return;
+      // The same soreness the finish used: one "Still sore" cut per muscle, on the entry that took it.
+      let sore = wk.soreness ? wk.soreness[ex.muscle] : undefined;
+      const alreadyCut = sore === 3 && !en.soreCut && wk.entries.some((o) => o !== en && o.soreCut && exById(o.exId) && exById(o.exId).muscle === ex.muscle);
+      if (alreadyCut) sore = undefined;
+      const judge = (sets) => {
+        const base = JSON.parse(JSON.stringify(en.prevPresc)), cur = state.presc[en.exId];
+        state.presc[en.exId] = base;  // the weekly volume cap counts this exercise as it was before the session
+        try { return computeNext(ex, base, Object.assign({}, en, { sets }), sore); } finally { if (cur) state.presc[en.exId] = cur; else delete state.presc[en.exId]; }
+      };
+      const was = judge(oldSets), now = judge(en.sets), old = en.next;
+      if (now && alreadyCut) now.reasons.push('Still sore → the set cut already landed on an earlier ' + ex.muscle.toLowerCase() + ' exercise');
+      let res;
+      if (!now) res = Object.assign(JSON.parse(JSON.stringify(en.prevPresc)), { updatedAt: Date.now() });  // no reps left: as before the session
+      else if (!was) res = now;  // reps again after none
+      else if (was.weight !== now.weight || was.targetReps !== now.targetReps) res = Object.assign({}, old, { weight: now.weight, targetReps: now.targetReps, reasons: now.reasons, updatedAt: now.updatedAt });
+      else return;
+      if (!res.reasons) res.reasons = [];
+      const p = prescFor(en.exId);
+      let moved = false;
+      const since = (k) => (k === 'soreCut' ? !!p[k] !== !!old[k] : p[k] !== old[k]);  // changed since: keep
+      const take = (k) => { const v = k === 'soreCut' ? !!res[k] : res[k]; if (p[k] !== v) moved = true; p[k] = v; };
+      if (!since('weight')) take('weight');
+      if (!since('targetReps') && p.weight === res.weight) take('targetReps');  // a goal belongs to the weight it was worked out for
+      if (!since('sets')) take('sets');
+      if (!since('soreCut')) take('soreCut');
+      if (p.weight === res.weight && p.targetReps === res.targetReps) p.reasons = res.reasons;  // the first line names both
+      en.next = res;
+      if (moved) { p.updatedAt = res.updatedAt; names.push(ex.name); }
+    });
+    return names;
   }
 
   function sheetBodyweight() {
@@ -1292,6 +1695,8 @@
   // ---------------------------------------------------------------------------
   // Workout actions
   // ---------------------------------------------------------------------------
+  // Equipment where a set always has a load; a tick with no weight there would log 0.
+  const LOADED = ['Barbell', 'Dumbbell', 'Machine', 'Cable'];
   function newEntry(exId) {
     const p = prescFor(exId);
     const sets = [];
@@ -1299,9 +1704,45 @@
     return { exId, plannedSets: p.sets, weightAtStart: p.weight, targetReps: p.targetReps, sets, pump: null, joint: null, workload: null, done: false, next: null, prevPresc: null, warmups: null, prs: [], swappedFrom: null, soreCut: false };
   }
 
-  function startWorkout(dayId) {
+  // Redraw, keeping the bottom edge of one element where it was on screen, so a card that folds up
+  // does not pull what is below it under the finger.
+  function renderKeeping(sel) {
+    const el = $(sel); const before = el ? el.getBoundingClientRect().bottom : 0;
+    render();
+    const now = el && $(sel);
+    if (now) window.scrollBy(0, now.getBoundingClientRect().bottom - before);
+  }
+  // Bring the next thing to log up under the top bar: the first unticked set of the first unfinished exercise
+  // (the card top while nothing is ticked yet, so its name shows). Used only when the app opens and on switching to Today.
+  function scrollToNext() {
+    const w = activeWorkout(); if (!w || ui.screen !== 'today') return;
+    // The check-in decides set cuts, so while it has unanswered questions and nothing is logged yet, show it instead.
+    // Measured from the bottom of the top bar, or of the storage-full banner when it shows.
+    const warn = $('#save-warning');
+    const bar = Math.max($('.topbar').getBoundingClientRect().bottom, warn && !warn.hidden ? warn.getBoundingClientRect().bottom : 0);
+    const checkin = $('#soreness-card');
+    if (checkin && checkin.querySelector('.choice-grid') && !w.entries.some((en) => en.done || en.sets.some((s) => s.done))) {
+      window.scrollTo(0, Math.max(0, window.scrollY + checkin.getBoundingClientRect().top - bar - 8));
+      return;
+    }
+    const idx = w.entries.findIndex((en) => !en.done && exById(en.exId));
+    const card = idx >= 0 ? $('[data-card="' + idx + '"]') : null;
+    let target;
+    if (card) {
+      const en = w.entries[idx], si = en.sets.findIndex((s) => !s.done);
+      const row = si >= 0 ? card.querySelectorAll('.set-row')[si] : null;
+      if (!en.sets.some((s) => s.done)) target = card;
+      else if (row) target = row.previousElementSibling || row;  // the set just done (and its RIR) stays in view above it
+      else target = card.querySelector('.prompt') || card.querySelector('[data-action="finish-entry"]');
+    } else target = $('#cardio-card') || $('[data-action="finish-workout"]');
+    if (!target) return;
+    window.scrollTo(0, Math.max(0, window.scrollY + target.getBoundingClientRect().top - bar - 8));
+  }
+
+  function startWorkout(dayId, deload) {
     const day = dayById(dayId); if (!day) return;
     const w = { id: uid(), date: todayKey(), startedAt: Date.now(), finishedAt: null, dayId, dayName: day.name, soreness: {}, entries: day.exercises.filter(exById).map(newEntry) };
+    if (deload) w.deload = true;  // optional field: absent on normal workouts
     state.workouts.push(w);
     state.active = w.id;
     save(); render();
@@ -1320,6 +1761,13 @@
     if (!ex) { toast('That exercise was deleted'); return 0; }
     const ticked = tickTyped(en);
     const p = prescFor(en.exId);
+    if (w.deload) {
+      // A deload keeps the sets but leaves the plan alone: no next-time change, no PR, no set rule, nothing to roll back.
+      if (!en.sets.some((s) => s.done && s.reps > 0)) { toast('Log at least one set first'); return 0; }
+      en.done = true; en.next = null; en.prevPresc = null; en.prs = []; en.soreCut = false;
+      if (ticked) toast('Counted ' + plural(ticked, 'set') + ' you typed but did not tick');
+      return ticked;
+    }
     // "Still sore" costs one set per muscle per session, on the first exercise finished for it.
     let sore = w.soreness[ex.muscle];
     const alreadyCut = sore === 3 && w.entries.some((o, j) => j !== idx && o.done && o.soreCut && exById(o.exId) && exById(o.exId).muscle === ex.muscle);
@@ -1338,6 +1786,23 @@
     return ticked;
   }
 
+  // Deload on: exercises already finished in this workout get back the plan they had before it.
+  // Deload off: exercises finished during the deload are judged as usual now.
+  function setDeload(w, on) {
+    const done = w.entries.filter((en) => en.done && exById(en.exId));
+    let n = 0;
+    if (on) {
+      w.deload = true;
+      // Latest finished first, so an exercise logged twice ends on its earliest before-copy.
+      done.filter((en) => en.next && en.prevPresc).sort((a, b) => (b.next.updatedAt || 0) - (a.next.updatedAt || 0))
+        .forEach((en) => { state.presc[en.exId] = en.prevPresc; en.prevPresc = null; en.next = null; en.prs = []; en.soreCut = false; n++; });
+    } else {
+      delete w.deload;
+      done.forEach((en) => { if (!en.next) { en.done = false; finishEntry(w, w.entries.indexOf(en)); if (en.done) n++; } });
+    }
+    return n;  // how many finished exercises changed
+  }
+
   function reopenEntry(w, idx) {
     const en = w.entries[idx];
     if (en.prevPresc) state.presc[en.exId] = en.prevPresc;
@@ -1346,10 +1811,15 @@
 
   function swapEntry(w, idx, exId) {
     const old = w.entries[idx]; if (!old) return;
-    if (old.done) reopenEntry(w, idx);
     const ne = newEntry(exId);
     ne.swappedFrom = old.swappedFrom || old.exId;
-    w.entries[idx] = ne;
+    // Sets already logged are kept: finish the old exercise as it is (like Finish exercise) and add the new one after it.
+    if (!old.done && exById(old.exId) && old.sets.some((s) => s.reps > 0)) {
+      finishEntry(w, idx);
+      if (old.done && !old.prs.length) toast(exById(old.exId).name + ' kept with ' + plural(old.sets.filter((s) => s.done && s.reps > 0).length, 'set') + ' logged');
+    }
+    if (old.done) w.entries.splice(idx + 1, 0, ne);
+    else w.entries[idx] = ne;
   }
 
   function genWarmups(en) {
@@ -1388,6 +1858,12 @@
 
   function finishWorkout() {
     const w = activeWorkout(); if (!w) return;
+    // Exercises still open: ask once, before anything changes, so Cancel goes straight back to the workout.
+    // One with every set ticked is done in all but name (it is finished below without asking).
+    // In a deload, doing some of the sets is the plan: an exercise with a ticked set is not "not done".
+    const open = w.entries.filter((en) => !en.done && exById(en.exId) && !(en.sets.length && en.sets.every((s) => s.done)) && !(w.deload && en.sets.some((s) => s.done && s.reps > 0))).length;
+    const anyLogged = w.entries.some((en) => en.done || en.sets.some((s) => s.reps > 0)) || !!(w.cardio && w.cardio.done);
+    if (open && anyLogged && !confirm(plural(open, 'exercise') + ' not done. Finish anyway?')) return;
     // Auto-finish anything with logged sets that wasn't marked done, counting typed-but-unticked sets.
     let ticked = 0;
     w.entries.forEach((en, i) => { if (!en.done && exById(en.exId) && en.sets.some((s) => s.reps > 0)) ticked += finishEntry(w, i); });
@@ -1478,7 +1954,8 @@
   let toastHandle = null;
   function toast(msg) {
     const t = $('#toast'); t.textContent = msg; t.hidden = false;
-    clearTimeout(toastHandle); toastHandle = setTimeout(() => { t.hidden = true; }, 2200);
+    // Long messages stay longer (about 55 ms a character, 2.2 to 6 s) so they can be read.
+    clearTimeout(toastHandle); toastHandle = setTimeout(() => { t.hidden = true; }, Math.min(6000, Math.max(2200, String(msg).length * 55)));
   }
 
   // ---------------------------------------------------------------------------
@@ -1486,16 +1963,18 @@
   // ---------------------------------------------------------------------------
   // On iPhone the share sheet is the reliable way out of a home-screen app (Save to Files, AirDrop, Mail).
   async function exportJson() {
-    const name = 'overload-backup-' + todayKey() + '.json';
-    const text = JSON.stringify(state, null, 2);
+    if (await shareFile(JSON.stringify(state, null, 2), 'overload-backup-' + todayKey() + '.json', 'Overload backup')) exported();
+  }
+  // Resolves true when the file was handed over (false when he cancelled the share sheet).
+  async function shareFile(text, name, title) {
     try {
       const file = new File([text], name, { type: 'application/json' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Overload backup' });
-        return;
+        await navigator.share({ files: [file], title });
+        return true;
       }
     } catch (e) {
-      if (e && e.name === 'AbortError') return;
+      if (e && e.name === 'AbortError') return false;
     }
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1503,6 +1982,65 @@
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return true;
+  }
+  // ---- Saved data that could not be read at start ----
+  function renderUnreadable() {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    renderTopbar();
+    const raw = ui.unreadable.raw;
+    $('#app').innerHTML = '<div class="screen-title"><h1>Your data</h1></div>'
+      + '<div class="card"><p><b>Overload could not read the data saved on this phone.</b></p>'
+      + '<p class="small muted mt8">' + (raw ? 'Nothing has been changed or deleted. Save a copy of it first, then choose what to do.' : 'The phone did not let the app read its storage. Try again first.') + '</p>'
+      + '<div class="list mt12">' + (raw ? '<button class="btn block" data-action="unreadable-export">Export the unreadable copy</button>' : '')
+      + '<button class="btn ghost block" data-action="unreadable-retry">Try again</button></div></div>'
+      + '<div id="restore-section" hidden><div class="group-title">Restore an automatic copy</div><div class="card"><div id="safety-copies"></div></div></div>'
+      + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty app with the default program. If you used cloud sync, your cloud copy comes back once you are signed in.</p>'
+      + '<button class="btn danger block" data-action="unreadable-fresh">Start fresh</button></div>';
+    fillCopies(true);
+  }
+  // He chose: the data now in memory is the app's again. Sync starts over with a full download and merge.
+  function leaveUnreadable() {
+    const raw = ui.unreadable && ui.unreadable.raw;
+    ui.unreadable = null;
+    const sync = window.__overloadSync;
+    if (sync && sync.user && sync.pushNow) Promise.resolve(sync.pushNow()).catch(() => {});
+    // The hidden copy takes room from the app: drop it once the automatic copy of the same text is confirmed.
+    const B = window.__overloadBackup;
+    if (raw && B) B.get('before-unreadable').then((c) => { if (c && c.text === raw) { try { localStorage.removeItem(STORAGE_KEY + '.bak'); } catch (e) { /* ignore */ } } }, () => {});
+  }
+  async function unreadableAction(a, d) {
+    const raw = ui.unreadable && ui.unreadable.raw;
+    if (a === 'unreadable-retry') { location.reload(); return; }
+    if (a === 'unreadable-export') { if (raw) shareFile(raw, 'overload-unreadable-' + todayKey() + '.json', 'Overload data that could not be read'); return; }
+    if (a === 'export-copy') {
+      const B = window.__overloadBackup; let c = null;
+      try { c = B && await B.get(d.id); } catch (e) { c = null; }
+      if (c) shareFile(c.text, 'overload-unreadable-' + todayKey(new Date(c.at)) + '.json', 'Overload data that could not be read'); else toast('Could not read that copy');
+      return;
+    }
+    if (a === 'unreadable-fresh') {
+      if (!ui.unreadable) return;
+      let kept = false;
+      try { const c = raw && window.__overloadBackup && await window.__overloadBackup.get('before-unreadable'); kept = !!(c && c.text === raw); } catch (e) { kept = false; }
+      const msg = !raw ? 'Start fresh? The app could not read its storage, so it cannot tell what is there. Starting fresh replaces it.'
+        : 'Start fresh with an empty app?\n\n' + (kept ? 'The data that could not be read stays in Settings > Automatic copies, where you can export it.' : 'Export the unreadable copy first if you might need it: it is not kept anywhere else.');
+      if (!confirm(msg)) return;
+      state = seedState(); ui.lastActive = null;
+      leaveUnreadable();
+      applyTheme(); const ok = save(); ui.screen = 'today'; render(); toast(ok ? 'Started fresh' : NOT_SAVED);
+    }
+  }
+  function exported() {
+    setBackupInfo({ lastExport: Date.now() });
+    const el = $('#last-export'); if (el) el.textContent = lastExportText();
+    refreshNotices();
+  }
+  // Signed out, a reset or import must not keep the note of what the cloud holds: the next sign-in would treat
+  // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
+  function forgetCloudIfSignedOut() {
+    const sync = window.__overloadSync;
+    if (!(sync && sync.user)) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
   }
   // Signed in, a reset or import syncs out and replaces the cloud copy too. Say so.
   function cloudNote(verb) {
@@ -1513,12 +2051,21 @@
     const r = new FileReader();
     r.onload = () => {
       try {
-        const parsed = JSON.parse(r.result);
+        const parsed = JSON.parse(r.result, noProto);
         if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
-        if (!confirm('Replace everything on this phone with the backup?' + cloudNote('replaced'))) return;
-        state = normalize(parsed);
-        if (!activeWorkout()) state.active = null;
-        applyTheme(); save(); render(); toast('Backup restored');
+        if (!confirm('Replace everything on this phone with the backup?\n\n' + dataSummary(parsed, 'The backup') + '\n' + dataSummary(state, 'This phone now')
+          + activeLine(parsed, 'the backup') + cloudNote('replaced'))) return;
+        // A backup carries the WHOOP connector link. Take it from the file only when he says so;
+        // a backup without one (made before pairing) keeps this phone's link.
+        const cur = state.settings, inc = isObj(parsed.settings) ? parsed.settings : (parsed.settings = {});
+        if (!inc.connUrl && !inc.connKey) ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; });
+        else if (inc.connUrl !== cur.connUrl || inc.connKey !== cur.connKey) {
+          const okUrl = typeof inc.connUrl === 'string' && /^https:\/\/[^/@\s"'<>]+$/.test(inc.connUrl);
+          if (!(okUrl && confirm('This backup is linked to a WHOOP connector at ' + inc.connUrl + '. Use that link on this phone?\n\nCancel keeps ' + (cur.connUrl ? 'this phone\'s own link.' : 'this phone without one.')))) {
+            ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; else delete inc[k]; });
+          }
+        }
+        replaceState(parsed, 'import', 'Backup restored');
       } catch (e) { toast('That file is not an Overload backup'); }
     };
     r.readAsText(file);
@@ -1529,7 +2076,7 @@
   // ---------------------------------------------------------------------------
   document.addEventListener('click', (e) => {
     const tab = e.target.closest('.tab');
-    if (tab) { ui.screen = tab.dataset.screen; render(); window.scrollTo(0, 0); return; }
+    if (tab) { ui.screen = tab.dataset.screen; render(); window.scrollTo(0, 0); scrollToNext(); return; }
     const btn = e.target.closest('[data-action]');
     if (!btn || btn.disabled) return;
     const a = btn.dataset.action, d = btn.dataset;
@@ -1543,25 +2090,62 @@
       case 'toggle-others': ui.showOthers = !ui.showOthers; render(); break;
       case 'reload': location.reload(); break;
       case 'start-workout': startWorkout(d.day); break;
-      case 'set-soreness': w.soreness[d.m] = +d.v; save(); render(); break;
+      case 'start-deload': startWorkout(d.day, true); break;
+      case 'toggle-deload': {
+        const n = setDeload(w, !w.deload); save(); render();
+        toast(w.deload ? 'Deload on' + (n ? ' · next-time plans put back for ' + plural(n, 'finished exercise') : '') : 'Deload off' + (n ? ' · ' + plural(n, 'finished exercise') + ' judged as usual' : ''));
+        break;
+      }
+      case 'set-soreness': w.soreness[d.m] = +d.v; save(); renderKeeping('#soreness-card'); break;
+      case 'soreness-edit': ui.sorenessEdit = w.id; render(); break;
+      case 'soreness-done': ui.sorenessEdit = null; renderKeeping('#soreness-card'); break;
+      case 'open-entry': openDone.add(w.entries[+d.e]); render(); break;
+      case 'close-entry': openDone.delete(w.entries[+d.e]); renderKeeping('[data-card="' + d.e + '"]'); break;
       case 'toggle-set': {
         const en = w.entries[+d.e], s = en.sets[+d.s];
         if (!s.done) {
-          // Empty reps box: one tap logs the goal shown in it.
-          if (!(s.reps > 0)) { if (!(en.targetReps > 0)) { toast('Enter reps first'); return; } s.reps = en.targetReps; }
-          s.done = true; startTimer(restFor(exById(en.exId)));
-        } else { s.done = false; }
+          // A loaded lift with no weight would be logged at 0. Ask for the weight instead.
+          const ex = exById(en.exId);
+          if (!(s.weight > 0) && ex && LOADED.includes(ex.equipment) && !isAssisted(ex)) {
+            const inp = $('[data-field="weight"][data-e="' + d.e + '"][data-s="' + d.s + '"]');
+            if (inp) { inp.scrollIntoView({ block: 'center' }); inp.focus({ preventScroll: true }); }  // above the message, not under it
+            toast('Enter the weight first');
+            return;
+          }
+          // Empty reps box: one tap logs the goal shown in it (marked, so unticking takes it back out).
+          if (!(s.reps > 0)) { if (!(en.targetReps > 0)) { toast('Enter reps first'); return; } s.reps = en.targetReps; s.auto = true; }
+          s.done = true; startTimer(restFor(ex));
+        } else {
+          s.done = false; s.rir = null;  // its RIR row is hidden while unticked, so a picked value must not linger and count later
+          if (s.auto) { s.reps = 0; delete s.auto; }  // reps typed by hand stay
+        }
         save(); render(); break;
       }
       case 'add-set': { const en = w.entries[+d.e]; const last = en.sets[en.sets.length - 1]; en.sets.push({ weight: last ? last.weight : 0, reps: 0, done: false, rir: null }); save(); render(); break; }
-      case 'cycle-rir': { const s = w.entries[+d.e].sets[+d.s]; s.rir = nextRir(s.rir); save(); btn.textContent = rirText(s.rir); btn.classList.toggle('on', s.rir != null); break; }
+      case 'pick-rir': {
+        const s = w.entries[+d.e].sets[+d.s];
+        s.rir = rirIs(s.rir, +d.v) ? null : +d.v;
+        save();
+        // Update the four buttons in place (no redraw needed).
+        btn.parentNode.querySelectorAll('[data-action="pick-rir"]').forEach((b) => { const on = rirIs(s.rir, +b.dataset.v); b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+        break;
+      }
       case 'gen-warmup': genWarmups(w.entries[+d.e]); save(); render(); break;
       case 'clear-warmup': w.entries[+d.e].warmups = null; save(); render(); break;
       case 'toggle-warmup': { const wu = w.entries[+d.e].warmups[+d.s]; wu.done = !wu.done; if (wu.done) startTimer(state.settings.warmupRest); save(); render(); break; }
       case 'swap-entry': sheetPicker({ swap: +d.e }); break;
-      case 'remove-set': { const en = w.entries[+d.e]; if (en.sets.length > 1) en.sets.pop(); save(); render(); break; }
+      case 'remove-set': {
+        const en = w.entries[+d.e]; if (en.sets.length <= 1) break;
+        // Take the last empty set. If every set is ticked or has reps typed, ask before removing the last one.
+        let i = en.sets.length - 1; while (i >= 0 && (en.sets[i].done || en.sets[i].reps > 0)) i--;
+        if (i < 0) {
+          i = en.sets.length - 1; const s = en.sets[i];
+          if (!confirm('Set ' + (i + 1) + ' is ' + (s.done ? 'ticked' : 'filled in') + ': ' + fmtW(s.weight) + ' ' + state.settings.units + ' × ' + s.reps + '. Remove it?')) break;
+        }
+        en.sets.splice(i, 1); save(); render(); break;
+      }
       case 'set-fb': { const en = w.entries[+d.e]; en[d.f] = en[d.f] === +d.v ? null : +d.v; save(); render(); break; }
-      case 'finish-entry': finishEntry(w, +d.e); save(); render(); break;
+      case 'finish-entry': finishEntry(w, +d.e); openDone.delete(w.entries[+d.e]); save(); renderKeeping('[data-card="' + d.e + '"]'); break;
       case 'reopen-entry': reopenEntry(w, +d.e); save(); render(); break;
       case 'remove-entry': if (confirm('Remove this exercise from today?')) { if (w.entries[+d.e].done) reopenEntry(w, +d.e); w.entries.splice(+d.e, 1); save(); render(); } break;
       case 'add-entry': sheetPicker({ workout: true }); break;
@@ -1582,7 +2166,12 @@
       case 'day-remove-ex': { const day = dayById(d.day); day.exercises.splice(+d.i, 1); save(); sheetDay(d.day); render(); break; }
       case 'pick-ex': sheetPicker({ day: d.day }); break;
       case 'pick-ex-choose': {
-        if (ui.pickTarget.day) { dayById(ui.pickTarget.day).exercises.push(d.ex); save(); sheetDay(ui.pickTarget.day); render(); }
+        if (ui.pickTarget.day) {
+          dayById(ui.pickTarget.day).exercises.push(d.ex); save(); sheetDay(ui.pickTarget.day); render();
+          // show the exercise just added (last in the list) and the button to add another
+          const panel = $('#sheet-panel'), add = panel.querySelector('[data-action="pick-ex"]');
+          if (add) { const over = add.getBoundingClientRect().bottom + 12 - panel.getBoundingClientRect().bottom; if (over > 0) panel.scrollTop += over; }
+        }
         else if (ui.pickTarget.swap != null) { swapEntry(w, ui.pickTarget.swap, d.ex); save(); closeSheet(); render(); }
         else { w.entries.push(newEntry(d.ex)); save(); closeSheet(); render(); }
         break;
@@ -1643,7 +2232,10 @@
       case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
       case 'import': $('#import-file').click(); break;
-      case 'reset': if (confirm('Erase all exercises, program, history and food log on this phone?' + cloudNote('erased')) && confirm('Really erase everything?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) { state = seedState(); save(); render(); toast('Reset to defaults'); } break;
+      case 'restore-copy': restoreCopy(d.id); break;
+      case 'export-copy': case 'unreadable-export': case 'unreadable-retry': case 'unreadable-fresh': unreadableAction(a, d); break;
+      case 'export-nag-off': setBackupInfo({ nagOff: Date.now() }); refreshNotices(); break;
+      case 'reset': if (confirm('Erase all exercises, program, history and food log on this phone?' + cloudNote('erased')) && confirm('Really erase everything?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) { safetyCopy('reset'); forgetCloudIfSignedOut(); state = seedState(); save(); render(); toast('Reset to defaults'); } break;
 
       case 'sheet-close': closeSheet(); break;
 
@@ -1665,33 +2257,44 @@
       e.preventDefault();
       const wk = state.workouts.find((x) => x.id === ef.dataset.w); if (!wk) return;
       const fd = new FormData(ef);
-      wk.entries.forEach((en, ei) => en.sets.forEach((s, si) => {
+      const changed = new Map();  // entry -> its sets before the correction
+      wk.entries.forEach((en, ei) => { const oldSets = JSON.parse(JSON.stringify(en.sets)); en.sets.forEach((s, si) => {
         if (!s.done) return;
-        const wv = fd.get('w-' + ei + '-' + si), rv = fd.get('r-' + ei + '-' + si);
+        const wv = fd.get('w-' + ei + '-' + si), rv = fd.get('r-' + ei + '-' + si), was = s.weight + '×' + s.reps;
         if (wv != null) s.weight = Math.max(0, num(wv, s.weight));
         if (rv != null) s.reps = Math.max(0, Math.round(num(rv, s.reps)));
-      }));
-      save(); sheetWorkout(wk.id); render(); toast('Workout updated');
+        if (s.weight + '×' + s.reps !== was) changed.set(en, oldSets);
+      }); });
+      const redone = recalcEdited(wk, changed);
+      save(); sheetWorkout(wk.id); render(); toast('Workout updated' + (redone.length ? ' · next time recalculated for ' + (redone.length > 2 ? plural(redone.length, 'exercise') : redone.join(' and ')) : ''));
       return;
     }
     const form = e.target.closest('#ex-form'); if (!form) return;
     e.preventDefault();
     const f = new FormData(form);
     const name = String(f.get('name') || '').trim(); if (!name) return;
+    // A rep range needs both ends, low to high (one box alone used to give a one-number range like 10–10).
+    const repMin = num(f.get('repMin'), 0) > 0 ? Math.round(num(f.get('repMin'), 0)) : null;
+    const repMax = num(f.get('repMax'), 0) > 0 ? Math.round(num(f.get('repMax'), 0)) : null;
+    const refuse = (msg) => { if (document.activeElement) document.activeElement.blur(); toast(msg); };  // keyboard down, so the message shows
+    if (!repMin !== !repMax) { refuse('Fill in both Rep min and Rep max, or leave both blank'); return; }
+    if (repMin && repMax < repMin) { refuse('Rep min is higher than Rep max'); return; }
     let ex = form.dataset.ex ? exById(form.dataset.ex) : null;
+    const oldRange = repRange(ex);
     if (!ex) { ex = { id: uid(), custom: true }; state.exercises.push(ex); }
     ex.name = name; ex.muscle = f.get('muscle'); ex.equipment = f.get('equipment');
     ex.increment = num(f.get('increment'), 0) > 0 ? num(f.get('increment'), 0) : null;
     ex.notes = String(f.get('notes') || '').trim() || null;
     ex.restSec = num(f.get('restSec'), 0) > 0 ? Math.round(num(f.get('restSec'), 0)) : null;
-    ex.repMin = num(f.get('repMin'), 0) > 0 ? Math.round(num(f.get('repMin'), 0)) : null;
-    ex.repMax = num(f.get('repMax'), 0) > 0 ? Math.round(num(f.get('repMax'), 0)) : null;
+    ex.repMin = repMin; ex.repMax = repMax;
     ex.fixedSets = num(f.get('fixedSets'), 0) > 0 ? clamp(Math.round(num(f.get('fixedSets'), 0)), 1, 20) : null;
-    if (ex.repMin && ex.repMax && ex.repMax < ex.repMin) ex.repMax = ex.repMin;
     const p = prescFor(ex.id);
     p.weight = Math.max(0, num(f.get('weight'), 0));
     p.sets = ex.fixedSets || clamp(Math.round(num(f.get('sets'), p.sets)), 1, 20);
     p.targetReps = clamp(Math.round(num(f.get('targetReps'), p.targetReps)), 1, 100);
+    // A new range moves the goal to its bottom, unless the goal was typed in this same save.
+    const goalBox = form.elements.targetReps, r = repRange(ex);
+    if ((r.min !== oldRange.min || r.max !== oldRange.max) && (!goalBox || goalBox.value === goalBox.defaultValue || goalBox.value === '')) goalToRange(ex, p);
     save();
     // If we came from the picker, add the new exercise to its target.
     if (ui.pickTarget && !form.dataset.ex) {
@@ -1725,7 +2328,7 @@
           en.sets.forEach((x, j) => { if (j > i && !x.done && x.weight === old) x.weight = v; });
           document.querySelectorAll('[data-field="weight"][data-e="' + el.dataset.e + '"]').forEach((inp) => { inp.value = en.sets[+inp.dataset.s].weight || ''; });
         } else {
-          s.reps = Math.round(v);
+          s.reps = Math.round(v); delete s.auto;
           const fin = $('[data-action="finish-entry"][data-e="' + el.dataset.e + '"]'); if (fin && s.reps > 0) fin.disabled = false;
         }
         save(); break;
@@ -1734,7 +2337,13 @@
         const c = w && ensureCardio(w); if (!c) break;
         const v = el.value === '' ? null : Math.max(0, num(el.value, 0));
         if (el.dataset.k === 'min') c.min = v ? Math.round(v) : (state.settings.cardioMin || 20); else c[el.dataset.k] = v;
-        save(); if (el.dataset.k === 'min') render(); break;
+        save();
+        // Patch in place: rebuilding the screen here would swallow the tap that moved focus away.
+        el.value = c[el.dataset.k] == null ? '' : c[el.dataset.k];
+        const tb = $('[data-action="cardio-timer"]');
+        if (el.dataset.k === 'min' && tb && !(timer.handle && timer.kind === 'cardio')) tb.textContent = 'Start ' + c.min + ':00 timer';
+        const today = $('#cardio-today'); if (today) today.textContent = 'Today: ' + cardioText(c);
+        break;
       }
       case 'cardio-name': state.settings.cardioName = el.value.trim() || 'Cardio'; el.value = state.settings.cardioName; save(); break;
       case 'schedule': state.program.schedule[+el.dataset.i] = el.value || null; save(); render(); break;
@@ -1748,7 +2357,14 @@
         s[k] = v;
         if (s.repMax < s.repMin) s.repMax = s.repMin;
         if (s.volumeMax < s.volumeMin) s.volumeMax = s.volumeMin;
-        save(); render(); break;
+        save();
+        if (el.tagName === 'SELECT') { render(); break; }
+        // A number box: show the cleaned value (and its partner's) in place. Rebuilding the screen would swallow the next tap.
+        el.value = s[k];
+        const pair = { repMin: 'repMax', repMax: 'repMin', volumeMin: 'volumeMax', volumeMax: 'volumeMin' }[k];
+        const other = pair && $('[data-field="setting"][data-k="' + pair + '"]');
+        if (other && other !== document.activeElement) other.value = s[pair];
+        break;
       }
       case 'chart-ex': ui.chartEx = el.value || null; render(); break;
     }
@@ -1761,11 +2377,19 @@
   state = load();
   applyTheme();
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
-  save();
+  if (ui.unreadable) { if (ui.unreadable.raw) safetyCopy('unreadable', true, ui.unreadable.raw); } else save();
   if (activeWorkout()) ui.screen = 'today';
+  if (!backupInfo().since) setBackupInfo({ since: Date.now() });
   render();
+  ui.booted = true;
+  if (!ui.unreadable) safetyCopy('day');
+  // Ask the browser to keep this app's storage when the phone runs low on space (no question is shown on iPhone).
+  try { navigator.storage.persisted().then((p) => p || navigator.storage.persist()).catch(() => {}); } catch (e) { /* not available */ }
   setInterval(() => { const el = $('#elapsed'); const w = activeWorkout(); if (el && w) el.textContent = durationText(w); }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.dayKey !== todayKey() && !ui.sheet) render(); });
+  // A workout in progress opens at the next set, not at the top (and the browser must not restore an old position over it).
+  try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) { /* ignore */ }
+  scrollToNext();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // When a new service worker takes over, reload once so the new files are
@@ -1794,16 +2418,28 @@
   window.__overload = {
     get state() { return state; },
     get screen() { return ui.screen; },
+    get saveFailed() { return !!ui.saveFailed; },
+    get unreadable() { return !!ui.unreadable; },   // sync waits while the stored data could not be read
+    safetyCopy,
     setState, computeNext, save, render, toast, checkinDone,
     // Shared with food.js
     lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast, markDeleted },
     noteUpdateReady() { ui.updateReady = true; renderTopbar(); },
+    // Sync status: only the top-bar pill and the status text in Settings change. Redrawing the screen here
+    // threw away whatever was being typed in Settings (it changes twice for every upload).
     setSyncStatus(status, msg) {
       ui.sync = { status, msg: msg || '' };
       const pill = $('.sync-pill');
-      if (pill) { pill.className = 'pill sync-pill ' + status; pill.textContent = syncIcon(status); pill.title = ui.sync.msg; }
-      else if (status !== 'off') render();
-      if (ui.screen === 'settings') render();
+      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.textContent = syncIcon(status); pill.title = ui.sync.msg; }
+      else renderTopbar();
+      const cs = $('#cloud-status'); if (cs) { cs.textContent = ui.sync.msg || 'Connected'; cs.style.color = cloudColour(status); }
+    },
+    // Signed in or out: redraw the pill and the Cloud sync card only, not the screen.
+    syncChanged() {
+      renderTopbar();
+      const card = $('#cloud-card');
+      if (card) { const tmp = document.createElement('div'); tmp.innerHTML = renderCloudCard(); if (!card.isEqualNode(tmp.firstElementChild)) card.replaceWith(tmp.firstElementChild); }
+      refreshNotices();   // the export reminder depends on cloud sync
     }
   };
 })();

@@ -1,34 +1,51 @@
 // Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v22';
+const CACHE = 'overload-v23';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=2.7',
-  './programs.js?v=2.7',
-  './app.js?v=2.7',
-  './sync.js?v=2.7',
-  './food.js?v=2.7',
-  './connector.js?v=2.7',
-  './data/foods.json?db=4',
+  './styles.css?v=2.8',
+  './programs.js?v=2.8',
+  './backup.js?v=2.8',
+  './app.js?v=2.8',
+  './sync.js?v=2.8',
+  './food.js?v=2.8',
+  './connector.js?v=2.8',
+  './data/foods.json?db=5',
   './manifest.webmanifest',
   './icon.svg',
   './icon-180.png',
-  './icon-512.png'
+  './icon-512.png',
+  // Barcode reader (about 1 MB), so scanning works offline right after an update too.
+  './vendor/zxing/reader/index.js',
+  './vendor/zxing/share.js',
+  './vendor/zxing/zxing_reader.wasm'
 ];
 
 // Always go to the server for our own files. GitHub Pages sends a 10 minute
 // max-age, and going through the HTTP cache would hand back stale copies.
 const fresh = (req) => new Request(req, { cache: 'no-cache' });
 
+// The release this cache is for: the ?v= its files carry (bump.sh changes them all at once).
+// The app's page is stored only when it asks for this release's files, so a stored page
+// never asks for files that are not stored.
+const RELEASE = (ASSETS.find((a) => a.includes('?v=')) || '').split('?v=')[1] || '';
+const pageFits = (html) => !RELEASE || (String(html).match(/\?v=[^"'&\s>]+/g) || []).includes('?v=' + RELEASE);
+
 // All or nothing: if any file fails to download, the install fails and the
 // version already on the phone keeps running (and keeps its cache). The next
 // update check tries again. A half-filled cache would break the app offline.
+// The same goes for a page left over from the previous release (a server can
+// still hand it out for a few minutes after a release).
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
       .then((c) => Promise.all(ASSETS.map((a) => fetch(new Request(a, { cache: 'reload' })).then((res) => {
         if (!res.ok) throw new Error(a + ' ' + res.status);
-        return c.put(a, res);
+        if (a !== './' && a !== './index.html') return c.put(a, res);
+        return res.clone().text().then((html) => {
+          if (!pageFits(html)) throw new Error(a + ' is not from this release');
+          return c.put(a, res);
+        });
       }))))
       .then(() => self.skipWaiting(), (err) => caches.delete(CACHE).then(() => { throw err; }))
   );
@@ -46,6 +63,10 @@ self.addEventListener('activate', (e) => {
 // Gym wifi and one bar of signal are worse than offline: the request hangs.
 // If the network has not answered in NET_WAIT ms and a cached copy exists,
 // use the cached copy (the network reply still refreshes the cache).
+// An error page (site down or switched off) also gets the cached copy.
+// The app's own page is refreshed this way only with a page of this cache's
+// release (pageFits): a newer release's page asks for files that are not stored
+// yet, so it waits for that release's install.
 // Only our own files and the Firebase SDK scripts are cached; API traffic
 // (Open Food Facts lookups) is not.
 const NET_WAIT = 3000;
@@ -56,18 +77,29 @@ self.addEventListener('fetch', (e) => {
   const cacheable = sameOrigin || url.hostname === 'www.gstatic.com';
   if (!cacheable) return;
   const isPage = e.request.mode === 'navigate';
+  const scope = new URL(self.registration.scope).pathname;
+  const appPage = sameOrigin && (url.pathname === scope || url.pathname === scope + 'index.html');
   const cached = () => caches.match(e.request).then((hit) => hit || (isPage ? caches.match('./index.html') : undefined));
+  let stored;
   const net = fetch(sameOrigin ? fresh(e.request) : e.request).then((res) => {
-    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {}); }
+    if (res.ok) {
+      const copy = res.clone(), page = appPage ? res.clone() : null;
+      stored = (page ? page.text().then(pageFits) : Promise.resolve(true))
+        .then((keep) => keep && caches.open(CACHE).then((c) => c.put(e.request, copy))).catch(() => {});
+    }
     return res;
   });
-  e.waitUntil(net.catch(() => {}));
+  e.waitUntil(net.then(() => stored, () => {}));
   e.respondWith(new Promise((resolve) => {
     let settled = false;
     const done = (res) => { if (!settled && res) { settled = true; resolve(res); } };
     const fallback = () => cached().then((hit) => { if (hit) done(hit); return hit; });
     const t = setTimeout(fallback, NET_WAIT);
-    net.then((res) => { clearTimeout(t); done(res); }, () => {
+    net.then((res) => {
+      clearTimeout(t);
+      if (res.ok || res.type === 'opaqueredirect' || res.type === 'opaque') { done(res); return; }
+      fallback().then((hit) => { if (!hit) done(res); });   // an error page: only when nothing is stored
+    }, () => {
       clearTimeout(t);
       fallback().then((hit) => { if (!hit) done(Response.error()); });
     });

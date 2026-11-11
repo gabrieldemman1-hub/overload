@@ -5,19 +5,25 @@
  * - Reminders: stores the phone's Web Push subscription and, every 5 minutes (cron), sends
  *   the morning check-in, workout and food reminders that are due in the phone's time zone.
  *
- * The app proves who it is with a random key (Authorization: Bearer <key>). The first key to
- * claim the connector owns it; logging in to WHOOP again with the same WHOOP account re-pairs
- * a new key, so a lost key can be recovered.
+ * The app proves who it is with a random key (Authorization: Bearer <key>). With WHOOP set up,
+ * pairing goes through the WHOOP login: its last page shows a 6-digit code, and the app sends that
+ * code with its key (POST /pair). Only the person looking at that page sees the code, so a link
+ * from someone else cannot pair their key, and 5 wrong codes end that login. Logging in to WHOOP
+ * again with the same WHOOP account pairs a new key, so a lost key can be recovered. Without
+ * WHOOP set up, the first key to claim the connector owns it. The key never goes into an address.
  *
- * Storage (KV binding KV): owner, whoop (tokens), vapid (push keys), cfg (reminders), subs,
- * pending:<state> (OAuth logins in flight, 10 min).
+ * Storage (KV binding KV): owner, whoop (tokens), vapid (push keys), cfg (reminders), subs, sent,
+ * pair (a finished WHOOP login waiting for its code, 10 min), pair:tries:<id> (codes tried for it).
+ * KV refuses a second write to the same key within a second: a request writes each key at most once,
+ * and the reminder job waits a second between its writes to `sent`.
  * Secrets: WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET. Vars: APP_URL.
  */
 
 const WHOOP_AUTH = 'https://api.prod.whoop.com/oauth/oauth2/auth';
 const WHOOP_TOKEN = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API = 'https://api.prod.whoop.com/developer/v2';
-const SCOPES = 'read:sleep read:recovery read:cycles read:profile offline';
+const SCOPES = 'read:sleep read:recovery read:profile offline';
+const PAIR_TTL = 600, PAIR_TRIES = 5;   // a WHOOP login waits 10 minutes for its code; 5 wrong codes end it
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS' };
 
 // ---------------------------------------------------------------------------
@@ -32,9 +38,9 @@ const randomHex = (n) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) 
 async function sha256(s) { return b64u(await crypto.subtle.digest('SHA-256', enc.encode(s))); }
 async function getJ(env, k) { const v = await env.KV.get(k); return v ? JSON.parse(v) : null; }
 const putJ = (env, k, v, opts) => env.KV.put(k, JSON.stringify(v), opts);
-function page(title, body) {
+function page(title, body, headers) {
   return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + title + '</title>'
-    + '<body style="font-family:-apple-system,system-ui,sans-serif;background:#111214;color:#eee;padding:32px 20px;line-height:1.5"><h2>' + title + '</h2>' + body + '</body>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    + '<body style="font-family:-apple-system,system-ui,sans-serif;background:#111214;color:#eee;padding:32px 20px;line-height:1.5"><h2>' + title + '</h2>' + body + '</body>', { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 }
 
 async function authed(req, env) {
@@ -50,7 +56,7 @@ async function authed(req, env) {
 async function tokenRequest(env, params) {
   const res = await fetch(WHOOP_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ ...params, client_id: env.WHOOP_CLIENT_ID, client_secret: env.WHOOP_CLIENT_SECRET }) });
-  if (!res.ok) throw new Error('WHOOP token ' + res.status + ': ' + (await res.text()).slice(0, 200));
+  if (!res.ok) throw Object.assign(new Error('WHOOP token ' + res.status + ': ' + (await res.text()).slice(0, 200)), { whoopStatus: res.status });
   const t = await res.json();
   return { access: t.access_token, refresh: t.refresh_token, expires: Date.now() + (t.expires_in || 3600) * 1000 };
 }
@@ -61,7 +67,14 @@ async function whoopToken(env) {
   if (w.expires - Date.now() > 5 * 60 * 1000) return w.access;
   let t;
   try { t = await tokenRequest(env, { grant_type: 'refresh_token', refresh_token: w.refresh, scope: 'offline' }); }
-  catch (e) { throw Object.assign(new Error('WHOOP login expired. Connect WHOOP again'), { status: 409 }); }
+  catch (e) {
+    // Another request may have renewed it a moment ago (WHOOP accepts each renewal token once).
+    const now = await getJ(env, 'whoop');
+    if (now && now.refresh !== w.refresh && now.expires - Date.now() > 60 * 1000) return now.access;
+    // Only WHOOP refusing the renewal means the login is gone; anything else is an outage.
+    if (e.whoopStatus === 400 || e.whoopStatus === 401) throw Object.assign(new Error('WHOOP login expired. Connect WHOOP again'), { status: 409, expired: true });
+    throw Object.assign(new Error('WHOOP is not answering. Try again later'), { status: 502 });
+  }
   await putJ(env, 'whoop', { ...w, ...t, refresh: t.refresh || w.refresh });
   return t.access;
 }
@@ -73,7 +86,7 @@ async function whoopGet(env, path, params, token) {
   const url = new URL(WHOOP_API + path);
   Object.entries(params || {}).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-  if (!res.ok) throw Object.assign(new Error('WHOOP ' + path + ' ' + res.status), { status: res.status === 401 ? 409 : 502 });
+  if (!res.ok) throw Object.assign(new Error('WHOOP ' + path + ' ' + res.status), { status: res.status === 401 ? 409 : 502, expired: res.status === 401 });
   return res.json();
 }
 const mins = (ms) => (ms == null ? null : Math.round(ms / 60000));
@@ -109,41 +122,47 @@ async function whoopSleeps(env, days) {
 }
 
 async function whoopLogin(req, env, url) {
-  const key = url.searchParams.get('key') || '';
-  if (key.length < 16) return page('Missing key', '<p>Open this from Overload → Settings → WHOOP.</p>');
   if (!env.WHOOP_CLIENT_ID || !env.WHOOP_CLIENT_SECRET) return page('Not set up yet', '<p>The WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET secrets are missing on the connector.</p>');
-  const state = randomHex(16);
-  await putJ(env, 'pending:' + state, { keyHash: await sha256(key) }, { expirationTtl: 600 });
+  // Anyone can open this address, so it stores nothing and takes no key. The state (time + random)
+  // lives only in this browser's cookie, and only this browser can finish the login.
+  const state = Date.now().toString(36) + '.' + randomHex(16);
   const a = new URL(WHOOP_AUTH);
   a.searchParams.set('client_id', env.WHOOP_CLIENT_ID);
   a.searchParams.set('redirect_uri', url.origin + '/whoop/callback');
   a.searchParams.set('response_type', 'code');
   a.searchParams.set('scope', SCOPES);
   a.searchParams.set('state', state);
-  // The state is bound to this browser, so a WHOOP link started by someone else cannot pair their key.
-  return new Response(null, { status: 302, headers: { Location: a.toString(), 'Set-Cookie': 'ows=' + state + '; HttpOnly; Secure; SameSite=Lax; Path=/whoop; Max-Age=600', 'Cache-Control': 'no-store' } });
+  return new Response(null, { status: 302, headers: { Location: a.toString(), 'Set-Cookie': 'ows=' + state + '; HttpOnly; Secure; SameSite=Lax; Path=/whoop; Max-Age=' + PAIR_TTL, 'Cache-Control': 'no-store' } });
 }
 function cookie(req, name) {
   const m = new RegExp('(?:^|;\\s*)' + name + '=([^;]*)').exec(req.headers.get('Cookie') || '');
   return m ? m[1] : '';
 }
+const stateAge = (s) => { const m = /^([0-9a-z]{6,12})\.[0-9a-f]{32}$/.exec(s); return m ? Date.now() - parseInt(m[1], 36) : Infinity; };
 async function whoopCallback(req, env, url) {
-  const back = env.APP_URL ? '<p><a style="color:#ff5a4f" href="' + env.APP_URL + '">Back to Overload</a></p>' : '';
+  // No link back to the app on these pages: on iPhone they open in Safari's sheet, and a link would
+  // open a different, empty copy of Overload there (Safari's storage).
+  const back = '<p>Close this page and try again from Overload → Settings → WHOOP.</p>';
+  const done = { 'Set-Cookie': 'ows=; HttpOnly; Secure; SameSite=Lax; Path=/whoop; Max-Age=0' };   // this login is used up
   if (url.searchParams.get('error')) return page('WHOOP not connected', '<p>' + (url.searchParams.get('error_description') || url.searchParams.get('error')).replace(/[<>&]/g, '') + '</p>' + back);
   const state = url.searchParams.get('state') || '', code = url.searchParams.get('code') || '';
-  const pending = state && await getJ(env, 'pending:' + state);
-  if (!pending || !code) return page('Link expired', '<p>Start again from Overload → Settings → WHOOP.</p>' + back);
-  if (cookie(req, 'ows') !== state) return page('Start from Overload', '<p>This WHOOP login was not started from this browser. Open Overload → Settings → WHOOP → Connect WHOOP.</p>' + back);
-  await env.KV.delete('pending:' + state);
+  const age = stateAge(state);
+  if (!code || !(age > -60000 && age < PAIR_TTL * 1000)) return page('Link expired', '<p>This WHOOP login is too old.</p>' + back);
+  if (cookie(req, 'ows') !== state) return page('Start from Overload', '<p>This WHOOP login was not started from this browser.</p>' + back);
   const t = await tokenRequest(env, { grant_type: 'authorization_code', code, redirect_uri: url.origin + '/whoop/callback' });
-  const prof = await (await fetch(WHOOP_API + '/user/profile/basic', { headers: { Authorization: 'Bearer ' + t.access } })).json();
+  const res = await fetch(WHOOP_API + '/user/profile/basic', { headers: { Authorization: 'Bearer ' + t.access } });
+  const prof = res.ok ? await res.json().catch(() => null) : null;
+  // Without WHOOP saying whose account this is, nothing is paired.
+  if (!prof || prof.user_id == null) return page('WHOOP did not answer', '<p>Nothing was paired. Wait a minute, then close this page and try again from Overload → Settings → WHOOP. If this keeps happening, check that your WHOOP app has the read:profile permission.</p>', done);
   const owner = (await getJ(env, 'owner')) || {};
-  if (owner.whoopUser && owner.whoopUser !== prof.user_id) return page('Different WHOOP account', '<p>This connector already belongs to another WHOOP account.</p>');
-  // Paired for reminders before WHOOP was set up: only that same copy of the app may add WHOOP.
-  if (!owner.whoopUser && owner.keyHash && owner.keyHash !== pending.keyHash) return page('Different phone', '<p>This connector is paired with another copy of Overload. To start over, delete the "owner" entry in the connector\'s KV storage (Cloudflare dashboard → Storage → KV → overload-connector).</p>');
-  await putJ(env, 'owner', { keyHash: pending.keyHash, whoopUser: prof.user_id, name: prof.first_name || '' });
-  await putJ(env, 'whoop', { ...t, since: new Date().toISOString() });
-  return page('WHOOP connected ✓', '<p>Hi ' + String(prof.first_name || '').replace(/[<>&]/g, '') + '. Close this window and go back to Overload; your sleep fills in on its own.</p>' + back);
+  if (owner.whoopUser && owner.whoopUser !== prof.user_id) return page('Different WHOOP account', '<p>This connector already belongs to another WHOOP account. To start over, delete the "owner" entry in the connector\'s KV storage (Cloudflare dashboard → Storage → KV → overload-connector).</p>', done);
+  // Pairing finishes in the app with this code (POST /pair): only whoever sees this page has it.
+  const pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+  const name = String(prof.first_name || '').slice(0, 60);
+  await putJ(env, 'pair', { id: randomHex(8), codeHash: await sha256('pair:' + pin), exp: Date.now() + PAIR_TTL * 1000, whoopUser: prof.user_id, name, whoop: { ...t, since: new Date().toISOString() } }, { expirationTtl: PAIR_TTL });
+  return page('WHOOP connected ✓', '<p>Hi' + (name ? ' ' + name.replace(/[<>&]/g, '') : '') + '. To finish, close this page and type this code in Overload → Settings → WHOOP:</p>'
+    + '<p id="code" style="font-size:40px;font-weight:700;letter-spacing:6px;margin:12px 0">' + pin.slice(0, 3) + ' ' + pin.slice(3) + '</p>'
+    + '<p>It works for 10 minutes. Type it only in Overload; nobody else ever needs it.</p>', done);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +259,13 @@ async function runReminders(env, when) {
   const now = localNow(cfg.tz || DEFAULT_CFG.tz, when);
   const sent = (await getJ(env, 'sent')) || {};
   const out = [];
+  // KV refuses a second write to one key within a second: space the writes to `sent` in this run.
+  let lastPut = 0;
+  const putSent = async () => {
+    const gap = 1100 - (Date.now() - lastPut);
+    if (lastPut && gap > 0) await new Promise((r) => setTimeout(r, gap));
+    try { await putJ(env, 'sent', sent); } finally { lastPut = Date.now(); }
+  };
   for (const kind of ['checkin', 'workout', 'food']) {
     const r = (cfg.reminders || {})[kind];
     if (!r || !r.on) continue;
@@ -250,12 +276,34 @@ async function runReminders(env, when) {
     if ((cfg.done || {})[kind] === now.date) continue;              // already done in the app
     if (kind === 'workout' && !(cfg.training || [])[now.wd]) continue; // rest day
     const msg = await reminderMessage(env, kind, cfg, now);
-    if (!(await sendPush(env, msg))) continue;                      // not delivered: try again in 5 min
+    // Mark it sent before sending: if the mark cannot be saved, skip it (no reminder beats 36 repeats).
+    const before = sent[kind];
     sent[kind] = now.date;
+    try { await putSent(); } catch (e) { sent[kind] = before; continue; }
+    if (!(await sendPush(env, msg))) {                               // not delivered: take the mark back, try again in 5 min
+      sent[kind] = before;
+      try { await putSent(); } catch (e) { /* the mark stays: no retry today, never a repeat */ }
+      continue;
+    }
     out.push(kind);
   }
-  if (out.length) await putJ(env, 'sent', sent);
   return out;
+}
+
+// Reminders go only to real push services (the worker posts every reminder to these addresses).
+const PUSH_HOST = /^(web\.push\.apple\.com|fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
+function pushSubOk(sub) {
+  try {
+    const u = new URL(sub.endpoint);
+    return typeof sub.endpoint === 'string' && sub.endpoint.length < 1024 && u.protocol === 'https:' && !u.port && !u.username && PUSH_HOST.test(u.hostname)
+      && unb64u(sub.keys.p256dh).length === 65 && unb64u(sub.keys.auth).length === 16;
+  } catch (e) { return false; }
+}
+// A new key owns the connector: the reminder destinations added under the old key go with it
+// (the app sends its own again after pairing and on every start).
+async function setOwner(env, old, owner) {
+  if ((!old || old.keyHash !== owner.keyHash) && await env.KV.get('subs')) await env.KV.delete('subs');
+  await putJ(env, 'owner', owner);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,21 +314,53 @@ async function handle(req, env) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (p === '/') return json({ ok: true, app: 'overload-connector', whoopReady: !!(env.WHOOP_CLIENT_ID && env.WHOOP_CLIENT_SECRET) });
   if (p === '/whoop/login') return whoopLogin(req, env, url);
-  if (p === '/whoop/callback') return whoopCallback(req, env, url).catch((e) => page('WHOOP not connected', '<p>' + String(e.message).replace(/[<>&]/g, '') + '</p><p>Try again from Overload → Settings → WHOOP.</p>'));
+  if (p === '/whoop/callback') return whoopCallback(req, env, url).catch((e) => page('WHOOP not connected', '<p>' + String(e.message).replace(/[<>&]/g, '') + '</p><p>Close this page and try again from Overload → Settings → WHOOP.</p>'));
   if (p === '/push/key') return json({ key: (await vapidKeys(env)).publicKey });
 
   // Pair the app with the connector: the first key claims it.
   if (p === '/claim' && req.method === 'POST') {
-    const key = ((await req.json().catch(() => ({}))).key || '');
+    const b = await req.json().catch(() => null), key = b && typeof b.key === 'string' ? b.key : '';
     if (key.length < 16) return json({ error: 'bad key' }, 400);
     const owner = await getJ(env, 'owner'), h = await sha256(key);
     if (owner && owner.keyHash === h) return json({ ok: true });
-    if (owner && owner.whoopUser) return json({ error: 'paired', whoop: true, message: 'Paired with another copy of Overload. Log in to WHOOP from this phone to pair it.' }, 403);
+    if (owner && owner.whoopUser) return json({ error: 'paired', whoop: true, message: 'Paired with another copy of Overload. Connect WHOOP from this phone and type the code to pair it.' }, 403);
     if (owner) return json({ error: 'paired', whoop: false, message: 'Paired with another copy of Overload.' }, 403);
-    // With WHOOP set up, the first pairing happens through the WHOOP login instead (it proves who you are).
+    // With WHOOP set up, the first pairing happens through the WHOOP login and its code instead.
     if (env.WHOOP_CLIENT_ID && env.WHOOP_CLIENT_SECRET) return json({ error: 'whoop-first', message: 'Connect WHOOP to pair this phone.' }, 403);
-    await putJ(env, 'owner', { keyHash: h });
+    await setOwner(env, owner, { keyHash: h });
     return json({ ok: true });
+  }
+
+  // Finish pairing after a WHOOP login: the app sends its key (header) and the code that page showed.
+  if (p === '/pair' && req.method === 'POST') {
+    const m = /^Bearer\s+(\S{16,200})$/.exec(req.headers.get('Authorization') || '');
+    if (!m) return json({ error: 'bad key' }, 400);
+    const b = await req.json().catch(() => null), code = String((b && b.code) || '').replace(/\D/g, '');
+    const pend = await getJ(env, 'pair');
+    const again = 'Tap Connect WHOOP and log in again.';
+    const endLogin = async () => { try { await env.KV.delete('pair'); } catch (e) { /* it runs out in 10 minutes anyway */ } };
+    if (!pend || !(pend.exp > Date.now())) return json({ error: 'no-login', message: 'That code has run out. ' + again }, 410);
+    // Count the try before checking it, under its own key (this request then writes each key once).
+    // Each try carries a random mark: when another guess was saved at the same moment, only the one
+    // whose mark is stored goes on, so a burst of guesses cannot skip the count.
+    const tk = 'pair:tries:' + pend.id, tries = ((await getJ(env, tk)) || {}).n || 0;
+    if (tries >= PAIR_TRIES) { await endLogin(); return json({ error: 'bad-code', left: 0, message: 'Too many wrong codes. ' + again }, 403); }
+    const mark = randomHex(8), busy = () => json({ error: 'busy', message: 'The connector is busy. Wait a moment and tap Pair again.' }, 429);
+    try { await putJ(env, tk, { n: tries + 1, mark }, { expirationTtl: Math.max(60, Math.ceil((pend.exp - Date.now()) / 1000)) }); } catch (e) { return busy(); }
+    if (((await getJ(env, tk)) || {}).mark !== mark) return busy();
+    if (code.length !== 6 || await sha256('pair:' + code) !== pend.codeHash) {
+      const left = PAIR_TRIES - tries - 1;
+      if (!left) await endLogin();
+      return json({ error: 'bad-code', left, message: left ? 'Wrong code. ' + left + (left === 1 ? ' try' : ' tries') + ' left.' : 'Too many wrong codes. ' + again }, 403);
+    }
+    const owner = await getJ(env, 'owner'), h = await sha256(m[1]);
+    if (owner && owner.whoopUser && owner.whoopUser !== pend.whoopUser) return json({ error: 'paired', message: 'This connector belongs to another WHOOP account.' }, 403);
+    // Paired for reminders before WHOOP was set up: only that same copy of the app may add WHOOP.
+    if (owner && !owner.whoopUser && owner.keyHash !== h) return json({ error: 'paired', message: 'This connector is paired with another copy of Overload. To start over, delete the "owner" entry in the connector\'s KV storage (Cloudflare → Storage → KV → overload-connector).' }, 403);
+    await setOwner(env, owner, { keyHash: h, whoopUser: pend.whoopUser, name: pend.name });
+    await putJ(env, 'whoop', pend.whoop);
+    await endLogin();      // already paired: if this fails, the code (which only he has) runs out on its own
+    return json({ ok: true, name: pend.name });
   }
 
   if (!(await authed(req, env))) return json({ error: 'unauthorized' }, 401);
@@ -296,11 +376,14 @@ async function handle(req, env) {
       return json({ ok: true });
     }
     if (p === '/push/subscribe' && req.method === 'POST') {
-      const body = await req.json(), sub = body.subscription;
-      if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) return json({ error: 'bad subscription' }, 400);
+      const body = await req.json().catch(() => null), sub = body && body.subscription;
+      if (!pushSubOk(sub)) return json({ error: 'bad subscription', message: 'Reminders only go through the phone\'s own push service (Apple, Google, Mozilla or Microsoft).' }, 400);
       // A subscription made with a different push key would get 403 on every send.
       if (body.key && body.key !== (await vapidKeys(env)).publicKey) return json({ error: 'push key changed', key: (await vapidKeys(env)).publicKey }, 409);
-      const subs = ((await getJ(env, 'subs')) || []).filter((s) => s.endpoint !== sub.endpoint);
+      const stored = (await getJ(env, 'subs')) || [];
+      // The app sends its subscription again on every start: nothing to write when it is already there.
+      if (stored.some((s) => s.endpoint === sub.endpoint && s.keys && s.keys.p256dh === sub.keys.p256dh && s.keys.auth === sub.keys.auth)) return json({ ok: true, subs: stored.length });
+      const subs = stored.filter((s) => s.endpoint !== sub.endpoint);
       subs.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
       await putJ(env, 'subs', subs.slice(-5));
       return json({ ok: true, subs: subs.length });
@@ -322,7 +405,7 @@ async function handle(req, env) {
       return json({ ok: true });
     }
   } catch (e) {
-    return json({ error: e.message }, e.status || 500);
+    return json({ error: e.message, ...(e.expired ? { expired: true } : {}) }, e.status || 500);
   }
   return json({ error: 'not found' }, 404);
 }

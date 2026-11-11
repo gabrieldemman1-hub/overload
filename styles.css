@@ -13,6 +13,10 @@
   --green-soft: rgba(62, 207, 110, 0.16);
   --amber: #f5b342;
   --amber-soft: rgba(245, 179, 66, 0.16);
+  /* Text on the soft amber and green backgrounds (darker in light mode so it stays readable). */
+  --amber-text: #f5b342;
+  --green-text: #3ecf6e;
+  --muted-on-green: #aeb0b7;   /* muted text on the green finished-exercise row */
   --sl-deep: #5b6cff;
   --sl-rem: #a78bfa;
   --radius: 14px;
@@ -42,6 +46,9 @@
   --green-soft: rgba(30, 154, 78, 0.14);
   --amber: #a8720f;
   --amber-soft: rgba(168, 114, 15, 0.14);
+  --amber-text: #845700;
+  --green-text: #136f37;
+  --muted-on-green: #5c5f68;
   --sl-deep: #3f4fd6;
   --sl-rem: #8b6cf0;
   --bar-bg: rgba(243, 243, 245, 0.92);
@@ -140,7 +147,7 @@ p { margin: 0; }
 }
 .pill.accent { background: var(--accent-soft); color: var(--accent-2); border-color: transparent; }
 .pill.green { background: var(--green-soft); color: var(--green); border-color: transparent; }
-.pill.amber { background: var(--amber-soft); color: var(--amber); border-color: transparent; }
+.pill.amber { background: var(--amber-soft); color: var(--amber-text); border-color: transparent; }
 
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
@@ -171,11 +178,33 @@ p { margin: 0; }
 .ex-presc { color: var(--muted); font-size: 14px; margin-top: 4px; line-height: 1.5; }
 .ex-last { color: var(--muted); font-size: 13px; margin-top: 2px; }
 .ex-presc strong { color: var(--text); }
-.ex-reason { margin-top: 10px; font-size: 14px; line-height: 1.4; color: var(--amber); background: var(--amber-soft); padding: 8px 10px; border-radius: 10px; }
-.ex-reason.green { color: var(--green); background: var(--green-soft); }
+.ex-reason { margin-top: 10px; font-size: 14px; line-height: 1.4; color: var(--amber-text); background: var(--amber-soft); padding: 8px 10px; border-radius: 10px; }
+.ex-reason.green { color: var(--green-text); background: var(--green-soft); }
 .ex-body { border-top: 1px solid var(--border); padding: 14px 16px 16px; }
 .ex-card.done { border-color: rgba(62, 207, 110, 0.5); }
 .ex-card.done .ex-head { background: linear-gradient(180deg, var(--green-soft), transparent); }
+/* A finished exercise folded to one row; tap to open the full card */
+.ex-fold { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 14px; border: 0; background: var(--green-soft); color: var(--text); text-align: left; }
+.ex-fold-tick { flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; background: var(--green); color: #05130a; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.ex-fold-name { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex-fold-sub { display: block; font-size: 13px; color: var(--muted-on-green); }
+.ex-fold .pill { flex-shrink: 0; }
+.ex-fold .pill.pr { background: var(--card); color: var(--green-text); }
+.ex-fold .chev { color: var(--muted); }
+/* Deload session: switch under the workout title, and its hint */
+.deload-bar { margin: -6px 0 14px; }
+.deload-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--card-2); color: var(--muted); font-weight: 700; font-size: 14px; }
+.deload-toggle .sw { position: relative; flex-shrink: 0; width: 36px; height: 22px; border-radius: 999px; background: var(--border); transition: background 0.15s; }
+.deload-toggle .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); transition: transform 0.15s; }
+.deload-toggle.on { color: var(--amber-text); border-color: var(--amber); background: var(--amber-soft); }
+.deload-toggle.on .sw { background: var(--amber); }
+.deload-toggle.on .sw::after { transform: translateX(14px); }
+.deload-hint { margin-top: 8px; color: var(--amber-text); background: var(--amber-soft); border-radius: 10px; padding: 8px 10px; line-height: 1.4; }
+.card-head .deload-start { flex-shrink: 0; min-height: 44px; }
+.card-head > div:first-child { min-width: 0; overflow-wrap: break-word; overflow-wrap: anywhere; } /* a long day name wraps instead of widening the page */
+/* The soreness check-in folded to one line once answered */
+.fold-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 6px 6px 16px; }
+.fold-row .btn, .ex-card .card-actions .btn { min-height: 44px; }
 
 .set-table { width: 100%; border-collapse: collapse; }
 .set-table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: center; padding: 0 4px 8px; }
@@ -223,6 +252,10 @@ p { margin: 0; }
   -webkit-appearance: none; appearance: none;
 }
 .input:focus, .select:focus { outline: none; border-color: var(--accent); }
+#cardio-card .input:disabled { opacity: 0.55; }
+.cardio-line { display: grid; }
+.cardio-line > span { grid-area: 1 / 1; }
+.cardio-line > .off { visibility: hidden; }
 .select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 32px; }
 .field-row { display: flex; gap: 10px; }
 .field-row .field { flex: 1; }
@@ -240,7 +273,7 @@ p { margin: 0; }
   display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--border);
   border-radius: 14px; padding: 14px 16px; min-height: 60px; width: 100%; text-align: left; color: var(--text);
 }
-.list-item .title { font-weight: 600; }
+.list-item .title { font-weight: 600; overflow-wrap: anywhere; }
 .list-item .sub { color: var(--muted); font-size: 14px; margin-top: 2px; }
 .list-item .chev { color: var(--muted); }
 .group-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; margin: 22px 0 10px; }
@@ -271,10 +304,14 @@ p { margin: 0; }
 .sheet-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 
 .toast {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 20px);
-  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 600; font-size: 14px; z-index: 50;
+  position: fixed; left: 16px; right: 16px; margin: 0 auto; width: -webkit-fit-content; width: fit-content; max-width: calc(100% - 32px);
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 20px); text-align: center; overflow-wrap: break-word;
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 16px; font-weight: 600; font-size: 14px; z-index: 50;
   box-shadow: 0 8px 24px var(--shadow);
+  pointer-events: none; /* never swallows a tap meant for what is under it */
 }
+/* While the rest timer shows, sit above it (timer is about 68 px tall, plus a gap). #rest-timer comes before #toast in index.html. */
+#rest-timer:not([hidden]) ~ .toast { bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 92px); }
 
 /* Chart */
 .chart { width: 100%; height: 160px; display: block; }
@@ -288,7 +325,8 @@ p { margin: 0; }
 .stat .v { font-size: 22px; font-weight: 800; }
 .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
 
-.hist-set { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); padding: 2px 0; }
+.hist-set { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 2px 0; }
+.hist-set .pill { padding: 0 7px; font-size: 11px; line-height: 16px; vertical-align: middle; }
 .nowrap { white-space: nowrap; }
 .hist-set b { color: var(--text); }
 
@@ -296,8 +334,17 @@ p { margin: 0; }
 /* Shown while saves to this phone fail. Pinned under the top bar so it cannot scroll away. */
 .save-warning { position: fixed; z-index: 30; top: calc(var(--topbar-h) + var(--safe-top) + 8px); left: 0; right: 0; max-width: 640px; margin: 0 auto; padding: 0 16px; }
 .save-warning[hidden] { display: none; }
+/* The screen starts below the banner, so nothing under it is out of reach (app.js sets the height). */
+body.has-save-warning .screen { padding-top: calc(var(--topbar-h) + var(--safe-top) + 16px + var(--save-warning-h, 0px)); }
 .banner.danger { background: var(--card, #1b1c20); color: var(--text); border: 1px solid var(--accent); box-shadow: 0 6px 24px rgba(0,0,0,.35); font-weight: 500; margin: 0; }
 .banner.danger b { color: var(--accent-2); }
+/* Today: one line when storage is nearly full or a backup is due. Settings: storage meter and automatic copies. */
+.notice { display: flex; align-items: center; gap: 8px; background: var(--amber-soft); color: var(--text); border-radius: 12px; padding: 6px 6px 6px 12px; font-size: 14px; margin-bottom: 12px; }
+.notice > span { flex: 1; min-width: 0; }
+.notice .btn, .copy-row .btn { min-height: 44px; }
+.notice .icon-btn { width: 44px; height: 44px; flex: none; }
+.store-bar { display: block; margin-top: 8px; }
+.backup-btns .btn { min-width: 0; padding-left: 8px; padding-right: 8px; }
 
 /* Cloud sync pill in the top bar */
 .sync-pill { font-size: 12px; min-height: 28px; }
@@ -305,10 +352,15 @@ p { margin: 0; }
 .sync-pill.syncing, .sync-pill.offline { color: var(--amber); }
 .sync-pill.error { color: var(--accent-2); border-color: var(--accent); }
 
-/* Reps in reserve */
-.set-table .rir { width: 48px; text-align: center; }
-.rir-btn { width: 44px; height: 50px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-2); color: var(--muted); font-weight: 700; font-size: 17px; }
+/* Reps in reserve: four buttons under a ticked set */
+.set-table .rir-row td { padding: 0 5px 8px; }
+.rir-pick { display: flex; align-items: center; gap: 6px; }
+.rir-label { flex-shrink: 0; width: 40px; font-size: 12px; line-height: 1.2; font-weight: 600; color: var(--muted); }
+.rir-btn { flex: 1; min-width: 0; min-height: 44px; padding: 0; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-2); color: var(--muted); font-weight: 700; font-size: 16px; }
 .rir-btn.on { color: var(--text); border-color: var(--amber); background: var(--amber-soft); }
+/* The next set's row before it is ticked: shown greyed out so that ticking it moves nothing below. */
+.rir-row.idle .rir-pick { opacity: 0.35; }
+.rir-row.idle .rir-btn { pointer-events: none; }
 
 /* Warm-ups */
 .warmups { background: var(--bg-2); border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
@@ -328,7 +380,7 @@ p { margin: 0; }
 .vol-fill { display: block; height: 100%; border-radius: 999px; }
 .vol-fill.low { background: var(--amber); } .vol-fill.ok { background: var(--green); } .vol-fill.high { background: var(--accent); }
 .vol-n { width: 28px; text-align: right; font-weight: 700; font-size: 14px; }
-.vol-n.low { color: var(--amber); } .vol-n.ok { color: var(--green); } .vol-n.high { color: var(--accent-2); }
+.vol-n.low { color: var(--amber-text); } .vol-n.ok { color: var(--green-text); } .vol-n.high { color: var(--accent-2); }
 
 /* Calendar */
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
@@ -344,6 +396,7 @@ p { margin: 0; }
 .review-list { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
 .review-list div { padding: 3px 0; }
 .chart .pt.faint { opacity: 0.5; }
+.chart .pt.deload { fill: var(--card); stroke: var(--accent-2); stroke-width: 1.5; }
 .chart .sl-deep, .sl-key.sl-deep { fill: var(--sl-deep); background: var(--sl-deep); }
 .chart .sl-rem, .sl-key.sl-rem { fill: var(--sl-rem); background: var(--sl-rem); }
 .chart .sl-other, .sl-key.sl-other { fill: var(--border); background: var(--border); }
@@ -400,6 +453,18 @@ body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none
 .f-scanview { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
 .f-scanview video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .f-scanview .guide { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 12px; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.25); }
+/* Add sheet: what was added this trip (stays in view while the list scrolls), and + on Favorites / Recent */
+#food-added { position: sticky; top: -16px; z-index: 2; background: var(--bg-2); margin-top: -4px; padding: 4px 0 12px; }
+.f-added { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--green-soft); overflow-wrap: anywhere; }
+.f-added.none { background: none; border: 1px dashed var(--border); }
+.f-added .grow { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.f-added b { color: var(--green-text); }
+.f-added .btn { flex-shrink: 0; min-height: 44px; }
+.f-qrow { padding: 0; gap: 6px; }
+.f-qpick { flex: 1; min-width: 0; display: flex; align-items: center; background: none; border: 0; padding: 10px 2px; min-height: 52px; text-align: left; color: var(--text); }
+.f-plus { width: 44px; height: 44px; flex-shrink: 0; font-size: 22px; font-weight: 700; }
+.f-plus:disabled { opacity: 1; color: var(--green); border-color: var(--green); background: var(--green-soft); }
+.f-addbtns .btn { min-width: 0; white-space: normal; padding-left: 6px; padding-right: 6px; line-height: 1.2; }  /* three across fit at 320 px */
 label.btn { cursor: pointer; }
 @media (max-width: 380px) { .tab { font-size: 10px; letter-spacing: 0.02em; } }
 /* Food: favorites, saved meals, meal menu */
