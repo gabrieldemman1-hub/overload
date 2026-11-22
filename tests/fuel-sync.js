@@ -16,7 +16,11 @@
  *   - A second Fuel phone: an added, an edited and a deleted entry, a deleted saved food and saved meal, a
  *     changed target and a day that lost its last entry travel both ways, and nothing deleted comes back,
  *     also not when a phone that was offline sends its old copies later.
- *   - Nothing is uploaded while the first server read has not worked.
+ *   - An account that holds Overload's core but no food days gives what it has; the log pasted afterwards
+ *     goes up without doubling anything.
+ *   - Nothing is uploaded while the first server read has not worked; an upload the cloud refuses is sent
+ *     again; a day whose name is not a date or an entry without an id is never sent; a note left behind on a
+ *     phone that lost its data deletes nothing; Reset and Restore while signed in change the account's copy.
  *   - Changes made while signed out are sent after signing in again.
  *   - A training app signed in to the same account at the same time (v2.8 in a storage of its own, and this
  *     tree's root app in the same storage as Fuel) is not affected by Fuel and does not affect it.
@@ -440,7 +444,11 @@ async function accountRun(browser, v28, setUpOnly) {
     await deleteEntry(b, YESTERDAY, E1);
     await rest(world);
     onlyFuelPaths(cloud, mark);
-    need(cloud.writes({ from: mark }).every((w) => w.who === 'B'), 'A wrote in answer: ' + brief(cloud.writes({ from: mark, who: 'A' })));
+    // (A may send the day once more, as it now has it, when its own upload timer runs before the day arrives.
+    // What must never happen: a copy of the day with the deleted entry going up again, or A sending the core back.)
+    const ws = cloud.writes({ from: mark });
+    need(ws.filter((w) => w.type === 'set' && w.path === FUEL_DAYS + '/' + YESTERDAY).every((w) => !ids(JSON.parse(JSON.parse(w.json).data)).includes(E1)), 'the day went up with the deleted entry: ' + brief(ws));
+    need(!ws.some((w) => w.who === 'A' && w.path === FUEL_META), 'A sent the core in answer: ' + brief(ws));
     const sa = await F.live(a);
     need(!ids(sa.diary[YESTERDAY]).includes(E1) && sa.diary[YESTERDAY].length === 14, 'A still has it');
     need(sa.deleted.food[E1] > 0 && coreOfCloud(cloud).deleted.food[E1] > 0, 'the record did not travel');
@@ -480,7 +488,8 @@ async function accountRun(browser, v28, setUpOnly) {
     await rest(world);
     const ws = cloud.writes({ from: mark });
     need(ws.some((w) => w.type === 'delete' && w.path === FUEL_DAYS + '/' + D0 && w.who === 'A'), 'no delete of fuelDays/' + D0 + ': ' + brief(ws));
-    need(ws.every((w) => w.who === 'A'), 'B wrote in answer (it put the day back?): ' + brief(ws.filter((w) => w.who !== 'A')));
+    // (B may delete the document once more, when its own upload timer runs before the news of the deletion arrives.)
+    need(!ws.some((w) => w.type === 'set' && w.path === FUEL_DAYS + '/' + D0), 'the day was put back: ' + brief(ws.filter((w) => w.type === 'set')));
     need(!cloud.get(FUEL_DAYS + '/' + D0) && !(await F.live(b)).diary[D0], 'the day is still there');
     need(!!cloud.get(OLD_DAYS + '/' + D0), 'Overload\'s document of that day is gone too');
     return D0 + ': deleted in fuelDays, still in foodDays';
@@ -710,6 +719,42 @@ async function accountRun(browser, v28, setUpOnly) {
     return Object.keys(want.diary).length + ' days back on the phone, no write';
   });
 
+  await guard('the same when he was signed out, taps Start fresh and then signs in: the note is not believed, nothing is deleted', async () => {
+    const days = JSON.stringify(cloud.snapshot(FUEL_DAYS)), core = cloud.get(FUEL_META).core, want = travels(await F.live(b));
+    await signOutInSettings(b);
+    need((await noteOf(b)).uid === 'U1', 'B has no note');
+    await b.evaluate((k) => localStorage.removeItem(k), F.KEY);
+    await closeFuel(B);
+    const mark = cloud.mark();
+    b = await openFuel(B);
+    need((await F.screen(b)) === 'welcome', 'the screen is ' + await F.screen(b));
+    await b.click('[data-action="fuel-fresh"]');
+    await b.waitForSelector('.f-meal');
+    need((await noteOf(b)).uid === 'U1' && Object.keys((await F.stored(b)).diary).length === 0, 'this check needs the old note next to an empty diary');
+    await signInInSettings(b);
+    await rest(world);
+    const ws = cloud.writes({ from: mark });
+    need(!ws.some((w) => w.type === 'delete'), 'days were deleted in the account: ' + brief(ws.filter((w) => w.type === 'delete')));
+    need(ws.length === 0 && JSON.stringify(cloud.snapshot(FUEL_DAYS)) === days && cloud.get(FUEL_META).core === core, 'the account changed: ' + brief(ws));
+    same(travels(await F.live(b)), want, 'B\'s data after signing in');
+    return Object.keys(want.diary).length + ' days back on the phone, no write';
+  });
+
+  await guard('of the settings only units and theme are sent; a setting that only one phone has stays on that phone', async () => {
+    await a.evaluate(() => { const O = window.__overload; O.state.settings.onlyHere = 'kept on this phone'; O.state.settings.theme = 'light'; O.save(); });
+    await rest(world);
+    same(coreOfCloud(cloud).settings, { units: 'lb', theme: 'light' }, 'settings in meta/fuel');
+    need(!cloud.text(FUEL_META).includes('onlyHere'), 'the other setting is in meta/fuel');
+    same((await F.live(b)).settings, { units: 'lb', theme: 'light' }, 'B\'s settings');
+    await b.evaluate(() => { const O = window.__overload; O.state.settings.theme = 'dark'; O.save(); });
+    await rest(world);
+    same((await F.live(a)).settings, { units: 'lb', theme: 'dark', onlyHere: 'kept on this phone' }, 'A\'s settings after B changed the theme');
+    await a.evaluate(() => { const O = window.__overload; delete O.state.settings.onlyHere; O.save(); });
+    await rest(world);
+    same(travels(await F.live(a)), travels(await F.live(b)), 'A against B');
+    return 'meta/fuel: ' + JSON.stringify(coreOfCloud(cloud).settings);
+  });
+
   // ---- the training apps on the same account ----
   const both = (title, fn) => step('training app', title, fn);
   await both('v2.8, signed in all along in its own storage: nothing changed for it, and it wrote nothing', async () => {
@@ -923,7 +968,59 @@ async function clipboardRun(browser, docs) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. One phone and a new account: Create account, Reset, Restore
+// 3. The account has Overload's core but no food days (cloud sync was turned on in Overload after 2.8, which
+//    uploads no food): signing in brings what is there, and the log itself still comes by Copy my food log
+// ---------------------------------------------------------------------------
+async function noDaysRun(browser, docs) {
+  const world = { browser, cloud: createCloud(), phones: [] };
+  const { cloud } = world;
+  const step = (title, fn) => run.step('account without food days', title, fn);
+  cloud.addAccount(EMAIL, PASSWORD);
+  Object.keys(docs).filter((p) => !p.startsWith(OLD_DAYS + '/')).forEach((p) => cloud.docs.set(p, docs[p]));
+  const overload0 = overloadDocs(cloud);
+  const G = await makePhone(world, 'G', TREE, { clipboard: true });
+  let g = null;
+  const ok = await step('signing in at Welcome brings saved foods, saved meals and targets; Settings still offers to bring the log', async () => {
+    g = await openFuel(G);
+    await signInAtWelcome(g);
+    await rest(world);
+    const st = await F.stored(g);
+    same(st.food.foods, fx.state.food.foods, 'food.foods');
+    same(st.food.meals, fx.state.food.meals, 'food.meals');
+    same(st.food.targets, fx.state.food.targets, 'food.targets');
+    need(Object.keys(st.diary).length === 0 && st.moved === null, 'diary days: ' + Object.keys(st.diary).length + ', moved: ' + JSON.stringify(st.moved));
+    const ws = cloud.writes();
+    need(ws.length === 1 && ws[0].path === FUEL_META && ws[0].state === 'applied', 'writes: ' + brief(ws));
+    await lib.openTab(g, 'settings');
+    need(/can be brought here at any time/.test(await F.text(g, '#app')), 'Settings says the log was brought across');
+    return Object.keys(st.food.foods).length + ' saved foods, ' + Object.keys(st.food.meals).length + ' saved meals, no days; one write (meta/fuel)';
+  });
+  if (ok) {
+    await step('then the food log is pasted (Settings): every day goes up to fuelDays, saved foods are not doubled', async () => {
+      const mark = cloud.mark();
+      await g.click('[data-action="fuel-import"]');
+      await g.click('[data-action="fuel-paste-box"]');
+      await g.fill('#fuel-paste', F.foodText(F.payloadFrom(fx.state, NOW - 60000), true));
+      await g.click('#fuel-paste-form button[type="submit"]');
+      await F.toast(g, /Brought in/);
+      await rest(world);
+      const st = await F.stored(g), ws = cloud.writes({ from: mark });
+      same(st.diary, fx.state.diary, 'diary');
+      same(st.food.foods, fx.state.food.foods, 'food.foods');
+      need(ws.filter((w) => w.type === 'set' && w.path.startsWith(FUEL_DAYS + '/') && w.state === 'applied').length === COUNTS.foodDays && ws.every((w) => FUEL_PATH.test(w.path)), 'writes: ' + brief(ws));
+      for (const date of DATES) need(cloud.get(FUEL_DAYS + '/' + date).data === JSON.stringify(st.diary[date]), 'fuelDays/' + date + ' is not the phone\'s day');
+      same(coreOfCloud(cloud).deleted.food, fx.state.deleted.food, 'the deletion records in meta/fuel');
+      need(overloadDocs(cloud) === overload0, 'meta/state or workouts changed');
+      onlyFuelPaths(cloud);
+      F.assertClean(G, 'phone G');
+      return COUNTS.foodDays + ' days written; ' + Object.keys(st.food.foods).length + ' saved foods';
+    });
+  }
+  for (const p of world.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
+// 4. One phone and a new account: Create account, Reset, Restore
 // ---------------------------------------------------------------------------
 async function soloRun(browser) {
   const world = { browser, cloud: createCloud(), phones: [] };
@@ -992,6 +1089,7 @@ async function soloRun(browser) {
       if (!docs) run.say(false, 'clipboard first', 'needs the account v2.8 fills in the first run', 'not run');
       else await clipboardRun(browser, docs).catch((e) => run.say(false, 'clipboard first', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
     }
+    if (docs && (!args.only || args.only === 'clipboard')) await noDaysRun(browser, docs).catch((e) => run.say(false, 'account without food days', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
     if (!args.only || args.only === 'solo') await soloRun(browser).catch((e) => run.say(false, 'one phone', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
   } finally {
     await browser.close();

@@ -8,7 +8,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 // Where the three production stylesheets are, as seen from dev/design/system/. The two app stylesheets are meant to
 // move to their installed places (./train.css and fuel/fuel.css) in the commit that applies the design: change them here.
-const CSS = { ui: '../../../shared/ui.css', overload: 'train.css', fuel: 'fuel.css' };
+const CSS = { ui: '../../../shared/ui.css', overload: '../../../train.css', fuel: '../../../fuel/fuel.css' };
 
 // ---- page ------------------------------------------------------------------
 // opts: app ('overload' | 'fuel'), title, scroll (px the shot scrolls to), body

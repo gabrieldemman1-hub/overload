@@ -67,7 +67,7 @@ for (const [name, t] of Object.entries(themes)) {
   }
 }
 // The rest dock: the dark tokens with Overload's accent, on the dock's own surfaces (declared on .rest-timer in train.css).
-const tcss = fs.readFileSync(path.join(__dirname, '..', 'train.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+const tcss = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'train.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const dockRule = /\.rest-timer\s*\{([^}]*)\}/.exec(tcss), dockT = Object.assign({}, themes['dark / overload']);
 if (!dockRule) { console.error('.rest-timer not found in train.css'); process.exit(2); }
 dockRule[1].split(';').forEach((d) => { const i = d.indexOf(':'); if (i < 0) return; const k = d.slice(0, i).trim(); if (k.startsWith('--')) dockT[k] = d.slice(i + 1).trim(); });

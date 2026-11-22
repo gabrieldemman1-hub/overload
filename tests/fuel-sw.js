@@ -21,7 +21,9 @@
  *     training cache, other sites' caches and a cache merely starting "fuel" stay; the Firebase files move
  *     to the new cache without the network; the page reloads once;
  *   - one file of the install list failing leaves no cache behind, and the next try completes; the install
- *     does not need the Firebase files at all.
+ *     does not need the Firebase files at all, and nothing waits for them when they hang;
+ *   - a release made with bump.sh (in a temporary copy of the tree) arrives: fuel-v2, the page on the new
+ *     number after one reload.
  *
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree).
  *
@@ -532,6 +534,77 @@ async function openPage(phone, url, ready) {
     }
     site.down = false;
     await p4.close();
+
+    // =====================================================================
+    // Phone 5: www.gstatic.com does not answer at all (worse than failing: every request hangs)
+    // =====================================================================
+    const p5 = await phone('five', { seed: seedFuel });
+    const HANG = 12000;
+    await p5.context.route(/^https:\/\/www\.gstatic\.com\//, (route) => { setTimeout(() => route.abort().catch(() => {}), HANG); });
+    await run.step('install', 'while the Firebase files hang, the app starts, its worker takes over, and the next start is not held up', async () => {
+      const pg = await p5.context.newPage();
+      pg.on('dialog', (d) => d.accept().catch(() => {}));
+      let t0 = Date.now();
+      await pg.goto(at('fuel/index.html'), { waitUntil: 'commit' });   // the page's "load" waits for the sync module, which hangs
+      await pg.waitForFunction(fuelStarted, null, { timeout: 8000 });
+      const first = Date.now() - t0;
+      need(await until(async () => (await controller(pg)) === FUEL_SW, 9000), 'the worker did not take over while the Firebase files hung; controller: ' + await controller(pg));
+      // The worker is in control now and its own requests for the Firebase files are still hanging.
+      t0 = Date.now();
+      await pg.goto(at('fuel/index.html'), { waitUntil: 'commit' });
+      await pg.waitForFunction(fuelStarted, null, { timeout: 15000 });
+      const second = Date.now() - t0;
+      need(second < 5000, 'the second start took ' + second + ' ms: it waited for www.gstatic.com');
+      need((await F.screen(pg)) === 'food' && (await controller(pg)) === FUEL_SW, 'screen ' + (await F.screen(pg)) + ', controller ' + await controller(pg));
+      return 'first start ' + first + ' ms, second (under the worker) ' + second + ' ms, with every Firebase request hanging for ' + HANG / 1000 + ' s';
+    });
+    await p5.close();
+
+    // =====================================================================
+    // Phone 6: a release made the way releases are made, with bump.sh
+    // =====================================================================
+    const next = copyTree(TREE);
+    site.root = next;
+    const p6 = await phone('six', { seed: seedFuel });
+    const six = (title, fn) => run.step('bump.sh', title, fn);
+    let f6 = null;
+    ok = await six('set-up: both apps installed from this tree (3.0)', async () => {
+      const t = await openPage(p6, at('index.html'), () => !!window.__overload);
+      f6 = await openPage(p6, at('fuel/index.html'));
+      need(await until(async () => { const c = await cachesOf(f6); return c[now.cache] && c[root.cache] && (await controller(f6)) === FUEL_SW && (await controller(t)) === ROOT_SW && now.sdk.every((u) => c[now.cache].includes(u)); }, 30000), 'the two workers did not install');
+      await t.close();
+      return now.cache + ' and ' + root.cache;
+    });
+    if (ok) {
+      await six('sh bump.sh 3.1, then an update check: Fuel reloads once into 3.1 from fuel-v2, and starts with no network', async () => {
+        let said = '';
+        try { said = execSync('sh bump.sh 3.1', { cwd: next, stdio: ['ignore', 'pipe', 'pipe'] }).toString(); }
+        catch (e) { throw new Error('bump.sh failed: ' + String(e.stderr || e.message).trim().split('\n').slice(0, 3).join(' | ')); }
+        const then = workerFacts(next, 'fuel/sw.js');
+        need(then.cache === 'fuel-v2' && then.release === '3.1' && then.assets.length === now.assets.length, 'after bump.sh the worker says ' + then.cache + ', release ' + then.release);
+        await updateScope(f6, '/overload/fuel/');
+        const cs = await until(async () => { const c = await cachesOf(f6); return c['fuel-v2'] && !c[now.cache] ? c : null; }, 30000);
+        need(cs, 'the release did not install; caches: ' + Object.keys(await cachesOf(f6).catch(() => ({}))).join(', '));
+        const lacking = then.assets.map(abs).concat(now.sdk).filter((u) => !cs['fuel-v2'].includes(u));
+        need(lacking.length === 0, 'fuel-v2 lacks ' + lacking.join(', '));
+        need(await until(() => f6.loads === 2, 8000), 'the page did not reload (loads: ' + f6.loads + ')');
+        await f6.waitForFunction(fuelStarted, null, { timeout: 15000 });
+        await sleep(1500);
+        need(f6.loads === 2, 'the page loaded ' + f6.loads + ' times');
+        need((await f6.evaluate(() => document.querySelector('script[src*="fuel.js"]').getAttribute('src'))) === './fuel.js?v=3.1', 'the page is not the 3.1 one');
+        await lib.openTab(f6, 'settings');
+        need(/Fuel · v3\.1/.test(await F.text(f6, '#app')), 'Settings does not say v3.1');
+        site.down = true;
+        p6.device.blockSdk(true);
+        const o = await openPage(p6, at('fuel/index.html'));
+        need((await o.evaluate(() => document.querySelector('script[src*="fuel.js"]').getAttribute('src'))) === './fuel.js?v=3.1' && (await F.screen(o)) === 'food', 'the start with no network is not 3.1');
+        await o.waitForFunction(() => !!window.__overloadSync, null, { timeout: 8000 });
+        site.down = false;
+        return said.trim().split('\n')[0] + '; ' + cs['fuel-v2'].length + ' entries in fuel-v2';
+      });
+    }
+    site.down = false;
+    await p6.close();
   } catch (e) {
     run.say(false, 'fuel-sw', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
   }

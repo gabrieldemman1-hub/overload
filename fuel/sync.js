@@ -43,6 +43,7 @@ const firebaseConfig = {
 };
 
 const SYNC_KEY = 'fuel.sync.v1';
+const STATE_KEY = 'fuel.state.v1';   // fuel.js's saved data: only looked at here, once, to see whether there was any (noteTrusted)
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig, 'fuel');   // Overload's is the default app; this one must not be
@@ -60,6 +61,13 @@ let lastError = '';
 let linking = null;        // uid of the account whose first read is in flight
 let linkTimer = null;
 let linkTries = 0;
+// The note in storage says what the cloud holds of THIS phone's data, and a push deletes in the cloud whatever
+// the note lists and the phone no longer has. So a note is only believed when the page started on saved data.
+// A page that started with none (a new phone at Welcome, or storage that lost the data but kept the note)
+// has nothing the note could describe: it links as a new phone, which downloads and deletes nothing. From
+// that link on, the note is this session's own.
+let noteTrusted = false;
+try { noteTrusted = localStorage.getItem(STATE_KEY) !== null; } catch (e) { noteTrusted = false; }
 
 const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 const obj = (x) => (isObj(x) ? x : {});
@@ -155,15 +163,12 @@ function mergeDeleted(a, b) {
   });
   return out;
 }
-// The entries of a list that can be merged: each needs an id. The app gives every entry one when it loads,
-// so only a hand-made document can hold one without. (A number is taken as text, as the app does.)
+// An entry can be merged only by its id. The app gives every entry one when it loads, so only a hand-made
+// document can hold one without.
+const hasId = (e) => isObj(e) && typeof e.id === 'string' && !!e.id;
+// The entries of a list from the cloud that can be merged. (A number as id is taken as text, as the app does.)
 function usable(list) {
-  const out = [];
-  (Array.isArray(list) ? list : []).forEach((e) => {
-    if (isObj(e) && typeof e.id === 'number') e = Object.assign({}, e, { id: String(e.id) });
-    if (isObj(e) && typeof e.id === 'string' && e.id) out.push(e);
-  });
-  return out;
+  return (Array.isArray(list) ? list : []).map((e) => (isObj(e) && typeof e.id === 'number' ? Object.assign({}, e, { id: String(e.id) }) : e)).filter(hasId);
 }
 const timeOf = (e) => (typeof e.at === 'number' && Number.isFinite(e.at) ? e.at : 0);
 // Two copies of one day's food log: every entry from both, `first` winning for the same entry. In the order
@@ -285,7 +290,7 @@ async function push() {
     // Every entry needs an id: other phones merge a day entry by entry, and entries without one would all
     // become one there. Such a day waits on this phone (the app gives ids at every start) and is not deleted
     // in the cloud meanwhile.
-    if (usable(list).length !== list.length) return;
+    if (!list.every(hasId)) return;
     const j = JSON.stringify(list), dh = hash(j);
     if (known.days[date] !== dh) { const ref = dayRef(date); ops.push((b) => b.set(ref, { data: j, updatedAt: now, v: 1 })); known.days[date] = dh; }
   });
@@ -456,20 +461,22 @@ function addFromOverload(next, from) {
   if (!next.bodyweight.length && from.weight) {
     next.bodyweight = [{ date: from.weight.date, weight: inUnits(from.weight.weight, unitsOf({ units: from.units }), unitsOf(next.settings)) }];
   }
-  const any = !!(Object.keys(from.days).length || Object.keys(from.foods).length || Object.keys(from.meals).length);
-  // The note Settings shows under "From Overload" (fuel.js keeps the same one after an import).
-  if (any && !next.moved) next.moved = { from: 'Overload account', at: Date.now(), days: Object.keys(from.days).length, entries: from.entries, madeAt: null };
-  return any;
+  const days = Object.keys(from.days).length;
+  // The note Settings shows under "From Overload" (fuel.js keeps the same one after an import). Only when
+  // the account held food days: an account without them (cloud sync was turned on in Overload after 2.8)
+  // has brought no log across, and Settings should go on offering Copy my food log.
+  if (days && !next.moved) next.moved = { from: 'Overload account', at: Date.now(), days, entries: from.entries, madeAt: null };
+  return !!(days || Object.keys(from.foods).length || Object.keys(from.meals).length);
 }
 
 async function link() {
   const h = host();
   clearTimeout(linkTimer);
   if (!h || h.unreadable) return;   // the app could not read its saved data (or waits at Add to Home Screen): nothing syncs until he chooses what to do
-  // At Welcome the phone has no data of its own, whatever a note left in storage says: with the note, the
-  // push below would take "not here" for "deleted here" and empty the account. Without it the account's copy
-  // comes down first.
-  const stored = h.screen === 'welcome' ? null : loadKnown();
+  // Not on a page that started without saved data (see noteTrusted): with a note left in storage, the push
+  // below would take "not here" for "deleted here" and empty the account. Without the note the account's
+  // copy comes down first.
+  const stored = noteTrusted ? loadKnown() : null;
   if (stored && stored.uid === user.uid) {
     known = stored;
     listen();
@@ -484,6 +491,7 @@ async function link() {
   // a bad connection can never make this phone overwrite the cloud copy.
   const uid = user.uid;
   const fresh = { uid, core: null, days: {} };
+  baseCore = null;   // what was known of another account's core says nothing about this one's
   linking = uid;
   inflight++; report();
   try {
@@ -524,6 +532,7 @@ async function link() {
     known = fresh;
     h.setState(next);
     saveKnown();
+    noteTrusted = true;
     lastError = '';
     linkTries = 0;
   } catch (e) {
