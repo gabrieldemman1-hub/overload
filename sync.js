@@ -4,9 +4,18 @@
  * localStorage; this module mirrors changes to the cloud and applies remote
  * changes back. Layout in Firestore:
  *
- *   users/{uid}/meta/state          { core: <json>, updatedAt }   settings, exercises, prescriptions, program, body weight, sleep, food targets and saved foods
- *   users/{uid}/workouts/{workout}  { data: <json>, updatedAt }   one document per workout
- *   users/{uid}/foodDays/{date}     { data: <json>, updatedAt }   one document per day of food log (its entries)
+ *   users/{uid}/meta/state          { core: <json>, updatedAt, v }   settings, exercises, prescriptions, program, body weight, sleep, templates, deletion records; plus the food part (below)
+ *   users/{uid}/workouts/{workout}  { data: <json>, updatedAt, v }   one document per workout
+ *   users/{uid}/foodDays/{date}     the food log as versions up to 2.8 kept it. Never read, written or deleted here.
+ *
+ * Food moved to the diet app in 3.0. This module no longer syncs food in either direction:
+ *   - the food part of meta/state (food targets, saved foods and meals, and the food deletion records) is sent
+ *     back exactly as the cloud already holds it, whatever this phone's own old food copy looks like;
+ *   - nothing from the cloud is merged into the old food copy on this phone (state.food, state.diary,
+ *     state.deleted.food);
+ *   - foodDays is left alone, so phones still on 2.8 and the diet app's first sign-in find it as 2.8 left it.
+ * Versions up to 2.8 can run again on the same data (a roll-back, or the old files during an update), so the
+ * note in localStorage (overload.sync.v1) keeps their meaning.
  *
  * Firestore's persistent cache queues writes while offline and replays them
  * when the network is back, so logging in the gym without signal is fine.
@@ -40,6 +49,7 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 const host = () => window.__overload;
 let user = null;
 let known = null;          // { uid, core: hash|null, workouts: { id: hash }, days: { date: hash } } — what the cloud is known to hold
+                           // (days: the food days as a version up to 2.8 noted them; this version only ever removes from it, see forgetDays)
 let unsubs = [];
 let pushTimer = null;
 let inflight = 0;
@@ -73,7 +83,7 @@ function loadKnown() {
     // Older versions stored full JSON copies. Shrink them to hashes.
     k.core = toHash(k.core);
     Object.keys(k.workouts).forEach((id) => { k.workouts[id] = toHash(k.workouts[id]); });
-    // Before the food log there were no days; the listener fills them in.
+    // A note from before the food log has no days. Nothing here adds any: food days are not synced any more.
     if (!k.days || typeof k.days !== 'object') k.days = {};
     return k;
   } catch (e) { return null; }
@@ -88,22 +98,54 @@ function saveKnown() {
 }
 // Cloud documents are parsed without keys that would change how objects behave (__proto__ and the like).
 const parse = (t) => JSON.parse(t, (k, v) => (k === '__proto__' || k === 'constructor' || k === 'prototype' ? undefined : v));
-function coreOf(s) { const o = {}; CORE_KEYS.forEach((k) => { o[k] = s[k]; }); return o; }
+// Food moved to the diet app. This app no longer reads or changes food, on the phone or in the cloud:
+// the core document is sent with the food part the cloud already holds, and foodDays is never touched.
+let cloudFood;   // undefined: the cloud's core not seen yet in this session; null: the account has no core; else its food part
+const foodPart = (core) => ({ food: core.food, del: core.deleted && core.deleted.food });
+// The core as it is sent. Once the cloud's food part is known it replaces this phone's (the old food copy here
+// can be older, emptied by a reset or removed on purpose: none of that may reach the account). Only an account
+// with no core at all gets this phone's own food part, with its first upload.
+function coreOf(s) {
+  const o = {}; CORE_KEYS.forEach((k) => { o[k] = s[k]; });
+  if (cloudFood) { o.food = cloudFood.food; o.deleted = Object.assign({}, s.deleted, { food: cloudFood.del }); }
+  return o;
+}
 function coreJson(s) { return JSON.stringify(coreOf(s)); }
 
 function metaRef() { return doc(db, 'users', user.uid, 'meta', 'state'); }
 function workoutRef(id) { return doc(db, 'users', user.uid, 'workouts', id); }
 function workoutsCol() { return collection(db, 'users', user.uid, 'workouts'); }
-function dayRef(date) { return doc(db, 'users', user.uid, 'foodDays', date); }
-function daysCol() { return collection(db, 'users', user.uid, 'foodDays'); }
+
+// Food days. Versions up to 2.8 kept the food log in foodDays and noted every day in known.days; their push
+// deletes in the cloud every day the note lists and the phone no longer has. This version sends nothing there.
+// It only forgets: a day that is gone from this phone leaves the note, so an older version started on this
+// data again can never delete it in the cloud (it downloads the day instead). Days the phone still has stay
+// noted exactly as the older version wrote them, so that version finds nothing to upload either.
+function forgetDays(note, diary) {
+  let changed = false;
+  Object.keys(note.days).forEach((date) => { if (!diary[date]) { delete note.days[date]; changed = true; } });
+  return changed;
+}
+// Done at every save of the app, signed in or not (signed out, the note waits in storage for the next sign-in),
+// and not left to the push a second later: the app can be closed in between.
+function forgetDaysNow() {
+  const h = host();
+  if (!h || h.unreadable || h.saveFailed) return;   // not saved: the stored data still has its days, and the stored note belongs to it
+  const note = known || loadKnown();
+  if (!note || !forgetDays(note, h.state.diary || {})) return;
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(note)); } catch (e) { /* ignore */ }
+}
 // ---------------------------------------------------------------------------
 // Merging. Two phones can change the same data, and Firestore replays a phone's
 // offline writes as-is when it reconnects. So lists are merged, never replaced:
-// food entries by id, weigh-ins and nights by date, minus anything in the
-// deletion records (state.deleted, merged too). Changes this phone has not
-// uploaded yet win over the cloud's copy.
+// weigh-ins and nights by date, minus anything in the deletion records
+// (state.deleted, merged too). Changes this phone has not uploaded yet win over
+// the cloud's copy. Food is not merged at all: this phone's old food copy and the
+// cloud's food part each stay as they are.
 // ---------------------------------------------------------------------------
 let baseCore = null;   // the core document as the cloud last held it, for telling which side changed a key
+// 'food' stays in this list only so that the four kinds keep their order in the text every phone writes.
+// Both callers put this phone's own food records back over the merged ones.
 const DELETED_KINDS = ['food', 'bw', 'sleep', 'workouts'];
 function mergeDeleted(a, b) {
   const out = {};
@@ -123,31 +165,26 @@ function unionByDate(first, second, gone) {
   (first || []).forEach((x) => by.set(x.date, x));
   return [...by.values()].filter((x) => !(gone && gone[x.date])).sort((a, b) => (a.date < b.date ? -1 : 1));
 }
-// Two copies of one day's food log: every entry from both, `first` winning for the same entry.
-function mergeDay(first, second, gone) {
-  const byId = new Map((second || []).map((e) => [e.id, e]));
-  (first || []).forEach((e) => byId.set(e.id, e));
-  return [...byId.values()].filter((e) => !(gone && gone[e.id])).sort((a, b) => (a.at || 0) - (b.at || 0));
-}
+// The result has no `food` key: the caller lays it over the state, whose own food stays.
 function mergeCore(local, remote) {
   const localAhead = hash(coreJson(local)) !== known.core;
   const out = {};
   CORE_KEYS.forEach((k) => {
+    if (k === 'food') return;   // the cloud's food part is never taken into the old food copy
     // A key this phone changed and has not uploaded yet stays; otherwise the cloud's copy.
     const changedHere = localAhead && baseCore && JSON.stringify(local[k]) !== JSON.stringify(baseCore[k]);
     out[k] = changedHere || remote[k] === undefined ? local[k] : remote[k];
   });
   out.deleted = mergeDeleted(local.deleted, remote.deleted);
+  out.deleted.food = (local.deleted && local.deleted.food) || {};   // nor are its food deletion records
   out.bodyweight = localAhead ? unionByDate(local.bodyweight, remote.bodyweight, out.deleted.bw) : unionByDate(remote.bodyweight, local.bodyweight, out.deleted.bw);
   out.sleep = localAhead ? unionByDate(local.sleep, remote.sleep, out.deleted.sleep) : unionByDate(remote.sleep, local.sleep, out.deleted.sleep);
   return out;
 }
-// Drop anything the deletion records say is gone (after new records arrive from another phone).
+// Drop the workouts the deletion records say are gone (after new records arrive from another phone).
+// The food log is not filtered: a food deletion record must not remove entries from the old food copy.
 function applyDeleted(st) {
-  const del = st.deleted || {}; const food = del.food || {}, ws = del.workouts || {};
-  const diary = {};
-  Object.keys(st.diary || {}).forEach((d) => { const list = st.diary[d].filter((e) => !food[e.id]); if (list.length) diary[d] = list; });
-  st.diary = diary;
+  const ws = (st.deleted || {}).workouts || {};
   st.workouts = (st.workouts || []).filter((w) => !ws[w.id] || w.id === st.active);
   return st;
 }
@@ -196,10 +233,15 @@ async function push() {
   const s = host().state;
   const now = Date.now();
   const ops = [];
+  // Food days: nothing is sent, and a day that is gone from this phone is only forgotten (see forgetDays).
+  // Before the copy for rollback is taken, so that a rejected batch cannot put a forgotten day back in the note.
+  forgetDays(known, s.diary || {});
   const before = JSON.stringify(known);   // what the cloud held before this push, for rollback on failure
 
+  // The core goes only once the cloud's own core has been seen in this session (cloudFood is set): until then
+  // the food part it must carry is not known, and sending this phone's would overwrite the account's.
   const cj = coreJson(s), ch = hash(cj);
-  if (ch !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = ch; baseCore = JSON.parse(cj); }
+  if (cloudFood !== undefined && ch !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = ch; baseCore = JSON.parse(cj); cloudFood = foodPart(baseCore); }
 
   const seen = {};
   s.workouts.forEach((w) => {
@@ -210,14 +252,6 @@ async function push() {
     if (!seen[id]) { ops.push((b) => b.delete(workoutRef(id))); delete known.workouts[id]; }
   });
 
-  const diary = s.diary || {};
-  Object.keys(diary).forEach((date) => {
-    const j = JSON.stringify(diary[date]), h = hash(j);
-    if (known.days[date] !== h) { ops.push((b) => b.set(dayRef(date), { data: j, updatedAt: now, v: 1 })); known.days[date] = h; }
-  });
-  Object.keys(known.days).forEach((date) => {
-    if (!diary[date]) { ops.push((b) => b.delete(dayRef(date))); delete known.days[date]; }
-  });
   saveKnown();
   if (!ops.length) return;
 
@@ -239,13 +273,20 @@ async function push() {
 function listen() {
   stopListening();
   unsubs.push(onSnapshot(metaRef(), { includeMetadataChanges: false }, (snap) => {
-    if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+    // Every snapshot of the core, this phone's own unsent writes included, shows the food part the cloud holds
+    // (or will hold once the write lands). It is noted for the next upload and never taken into the app.
+    // The first one of a session is what lets the core be sent at all (see push).
+    const unseen = cloudFood === undefined;
+    // No core in the account. Only the server's own word counts: an empty cache while offline says nothing.
+    if (!snap.exists()) { if (unseen && !snap.metadata.fromCache) { cloudFood = null; schedulePush(); } return; }
     const remote = snap.data().core;
-    if (typeof remote !== 'string' || hash(remote) === known.core) return;
+    if (typeof remote !== 'string') return;
     let core; try { core = parse(remote); } catch (e) { return; }
+    if (!core || typeof core !== 'object') return;
+    if (snap.metadata.hasPendingWrites || hash(remote) === known.core) { cloudFood = foodPart(core); if (unseen) schedulePush(); return; }
     const local = host().state;
-    const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));
-    known.core = hash(remote); baseCore = core;
+    const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));   // before cloudFood moves on: mergeCore compares with the core known so far
+    known.core = hash(remote); baseCore = core; cloudFood = foodPart(core);
     host().setState(next); saveKnown();   // after the app's own save, so a failed save is known
     schedulePush();   // the merge may hold something the cloud lacks; push() only sends what differs
   }, (e) => { lastError = friendly(e); report(); }));
@@ -279,37 +320,7 @@ function listen() {
     host().setState(Object.assign({}, host().state, { workouts: list }));
     saveKnown();
   }, (e) => { lastError = friendly(e); report(); }));
-
-  unsubs.push(onSnapshot(daysCol(), (qs) => {
-    let changed = false, pushBack = false;
-    const diary = Object.assign({}, host().state.diary);
-    const gone = ((host().state.deleted || {}).food) || {};
-    qs.docChanges().forEach((ch) => {
-      if (ch.doc.metadata.hasPendingWrites) return;
-      const date = ch.doc.id;
-      const localAhead = diary[date] && hash(JSON.stringify(diary[date])) !== known.days[date];
-      if (ch.type === 'removed') {
-        if (known.days[date] === undefined) return;
-        delete known.days[date]; changed = true;
-        // Entries logged here and not uploaded yet survive the other phone clearing the day.
-        const keep = localAhead ? diary[date].filter((e) => !gone[e.id]) : [];
-        if (keep.length) { diary[date] = keep; pushBack = true; } else delete diary[date];
-      } else {
-        const j = ch.doc.data().data;
-        if (typeof j !== 'string' || known.days[date] === hash(j)) return;
-        let entries; try { entries = parse(j); } catch (e) { return; }
-        if (!Array.isArray(entries)) return;
-        const merged = localAhead ? mergeDay(diary[date], entries, gone) : mergeDay(entries, diary[date], gone);
-        if (merged.length) diary[date] = merged; else delete diary[date];
-        known.days[date] = hash(j); changed = true;
-        if (JSON.stringify(merged) !== j) pushBack = true;
-      }
-    });
-    if (!changed) return;
-    host().setState(Object.assign({}, host().state, { diary }));
-    saveKnown();
-    if (pushBack) schedulePush();
-  }, (e) => { lastError = friendly(e); report(); }));
+  // No listener on foodDays: food days are neither read nor merged here any more.
 }
 
 function stopListening() { unsubs.forEach((u) => u()); unsubs = []; }
@@ -320,6 +331,7 @@ function stopListening() { unsubs.forEach((u) => u()); unsubs = []; }
 async function link() {
   const h = host();
   clearTimeout(linkTimer);
+  cloudFood = undefined;   // what was seen belongs to the listeners before this link, maybe to another account
   if (h.unreadable) return;   // the app could not read its saved data: nothing syncs until he chooses what to do
   const stored = loadKnown();
   if (stored && stored.uid === user.uid) {
@@ -334,12 +346,13 @@ async function link() {
   // First link: read what the account already holds, from the server itself
   // (not the offline cache). Until that read succeeds nothing is uploaded, so
   // a bad connection can never make this phone overwrite the cloud copy.
+  // foodDays is not read, and the new note lists no food days.
   const uid = user.uid;
   const fresh = { uid, core: null, workouts: {}, days: {} };
   linking = uid;
   inflight++; report();
   try {
-    const [meta, ws, ds] = await Promise.all([getDocFromServer(metaRef()), getDocsFromServer(workoutsCol()), getDocsFromServer(daysCol())]);
+    const [meta, ws] = await Promise.all([getDocFromServer(metaRef()), getDocsFromServer(workoutsCol())]);
     if (!user || user.uid !== uid) return;
     const local = h.state;
     const localHasHistory = local.workouts.some((w) => w.finishedAt);
@@ -347,15 +360,17 @@ async function link() {
 
     if (meta.exists() && typeof meta.data().core === 'string') {
       // Cloud already has data: it wins for settings and program; everything dated or with an id is merged.
+      // Except food: this phone's old food copy (or its empty one) stays exactly as it is, the account's is not taken.
       fresh.core = hash(meta.data().core);
       const cloud = parse(meta.data().core);
       baseCore = cloud;
+      const mine = { food: next.food, del: (next.deleted || {}).food || {} };
       Object.assign(next, cloud);
+      next.food = mine.food;
       next.deleted = mergeDeleted(local.deleted, cloud.deleted);
+      next.deleted.food = mine.del;
       next.bodyweight = unionByDate(cloud.bodyweight, local.bodyweight, next.deleted.bw);
       next.sleep = unionByDate(cloud.sleep, local.sleep, next.deleted.sleep);
-      // Foods saved only on this phone are kept alongside the account's.
-      if (local.food && local.food.foods && next.food) next.food.foods = Object.assign({}, local.food.foods, next.food.foods || {});
       // This phone's workouts and templates use its own exercise ids: match them to the account's by name.
       next.exercises = (next.exercises || []).slice();
       next.presc = Object.assign({}, next.presc || {});
@@ -385,18 +400,10 @@ async function link() {
     });
     next.workouts.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
     if (next.active && !next.workouts.some((w) => w.id === next.active)) next.active = null;
-    // Food days are merged entry by entry, so neither phone's log is lost.
-    next.diary = Object.assign({}, local.diary || {});
-    ds.forEach((d) => {
-      const j = d.data().data; if (typeof j !== 'string') return;
-      let entries; try { entries = parse(j); } catch (e) { return; }
-      if (!Array.isArray(entries)) return;
-      fresh.days[d.id] = hash(j);
-      const merged = mergeDay(entries, next.diary[d.id], (next.deleted || {}).food);
-      if (merged.length) next.diary[d.id] = merged; else delete next.diary[d.id];
-    });
-
     applyDeleted(next);
+    // The food part every core sent from here on carries: the account's, as the server just gave it
+    // (parsed again, so nothing in the app shares these objects). null: no core yet, the first upload creates it.
+    cloudFood = meta.exists() && typeof meta.data().core === 'string' ? foodPart(parse(meta.data().core)) : null;
     // The account's settings and program are about to replace this phone's: keep a copy of what is here first.
     if (fresh.core && h.safetyCopy) h.safetyCopy('cloud');
     known = fresh;
@@ -428,6 +435,18 @@ window.__overloadSync = {
   get user() { return user ? { email: user.email, uid: user.uid } : null; },
   get lastSync() { return lastSync; },
   get error() { return lastError; },
+  // Does the account hold this phone's whole old food log? True only when the note proves it: the phone has
+  // food days, every one is noted with exactly the content it has now, the note lists no other day, and the
+  // saved foods, meals and targets are the ones in the account. This version uploads no food, so whatever a
+  // version up to 2.8 had not sent is on this phone only: the app can ask here before it says that signing in
+  // to the diet app brings the food log across.
+  get foodInCloud() {
+    if (!user || !known || !cloudFood) return false;
+    const s = host().state, diary = s.diary || {}, dates = Object.keys(diary);
+    return dates.length > 0 && Object.keys(known.days).length === dates.length
+      && dates.every((date) => known.days[date] === hash(JSON.stringify(diary[date])))
+      && JSON.stringify(s.food) === JSON.stringify(cloudFood.food);
+  },
   async signIn(email, password) {
     lastError = '';
     try { await signInWithEmailAndPassword(auth, email.trim(), password); }
@@ -462,11 +481,11 @@ window.__overloadSync = {
 onAuthStateChanged(auth, (u) => {
   user = u;
   if (u) link();
-  else { stopListening(); known = null; report(); }
+  else { stopListening(); known = null; cloudFood = undefined; report(); }
   const h = host();
   if (h) { if (h.syncChanged) h.syncChanged(); else h.render(); }   // only the sync parts, not the whole screen
 });
 
-document.addEventListener('overload:save', schedulePush);
+document.addEventListener('overload:save', () => { forgetDaysNow(); schedulePush(); });
 window.addEventListener('online', () => { report(); if (user && !known && !linking) { linkTries = 0; link(); } else schedulePush(); });
 window.addEventListener('offline', report);

@@ -30,12 +30,18 @@
     // Start-up rescue. The first start after an update can still be handled by the previous release's
     // offline copy (sw.js), and on a weak signal it can store this page without this release's files.
     // With no signal the app would then open blank. If app.js could not load, run the previous release's
-    // files that the phone still has (every script and the styles, so they match; each script only sets
-    // things up on window, so running one again is safe). They run from the stored copies themselves, so
-    // nothing goes to the network and nothing is stored again under the old names. The update finishes
+    // files that the phone still has (every script and every stylesheet, so they match; each script only
+    // sets things up on window, so running one again is safe). They run from the stored copies themselves,
+    // so nothing goes to the network and nothing is stored again under the old names. The update finishes
     // the next time there is signal. While the app has not started, say so instead of showing a blank screen.
+    //
+    // Only an older release with the same first number is used (3.0 for a 3.1 page, never 2.8 for a 3.0
+    // page): a release with another first number was written for a different page, and running it here
+    // would be worse than the note. And only stored copies of this app's own files count, found by their
+    // whole address: the diet app in fuel/ has its own files and its own offline copy.
     (function () {
       var failed = [], final = false;
+      var sheets = function () { return Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]')); };
       var say = function (still) {
         var app = document.getElementById('app');
         if (window.__overload || !app || (app.textContent.trim() && !document.getElementById('boot-note'))) return;   // the app drew itself
@@ -47,43 +53,49 @@
           + (logged ? ' Everything you logged is still on this phone.' : '')
           + (still ? '' : '<br><br>Close the app and open it again where there is signal or Wi-Fi.') + '</div>';
         // A stylesheet that is still on its way keeps the browser from drawing anything, this note included.
-        // Swap it for a copy added from here, which does not hold up drawing (it still applies when it arrives).
-        var css = document.querySelector('link[rel="stylesheet"]');
-        if (still && css && !css.sheet && document.readyState !== 'complete' && failed.indexOf(css.href) < 0) {
+        // Swap each one for a copy added from here, which does not hold up drawing (it still applies when it arrives).
+        if (still && document.readyState !== 'complete') sheets().forEach(function (css) {
+          if (css.sheet || failed.indexOf(css.href) >= 0) return;
           var copy = css.cloneNode(); css.parentNode.insertBefore(copy, css); css.parentNode.removeChild(css);
-        }
+        });
       };
       setTimeout(function () { say(true); }, 8000);   // the files may still be on their way: the app replaces this when it starts
       window.addEventListener('error', function (e) { var t = e.target; if (t && t !== window && (t.src || t.href)) failed.push(t.src || t.href); }, true);
       window.addEventListener('load', function () {
         if (window.__overload) return;   // this release started (app.js sets it)
-        var stored = function (url, type) {   // the stored copy as a local file, or null
-          return caches.match(url).then(function (hit) { return hit ? hit.arrayBuffer().then(function (b) { return URL.createObjectURL(new Blob([b], { type: type })); }) : null; });   // the bytes, not the stored blob: Chrome crashes running a stored blob as a script
-        };
-        var scripts = Array.prototype.slice.call(document.querySelectorAll('script[src]'));
+        var scripts = Array.prototype.slice.call(document.querySelectorAll('script[src]')), css = sheets();
         var rel = function (url) { var m = /[?&]v=([^&#]+)/.exec(url); return m ? m[1] : ''; };
         var swap = function (url, v) { return url.replace(/([?&]v=)[^&#]*/, '$1' + v); };
-        var main = scripts.filter(function (s) { return /\/app\.js[?&]/.test(s.src); })[0];
+        var path = function (url) { try { var u = new URL(url, location.href); return u.origin === location.origin ? u.pathname : ''; } catch (e) { return ''; } };
+        var parts = function (v) { var p = String(v).split('.'); return [parseInt(p[0], 10), parseInt(p[1] || '0', 10)]; };
+        var older = function (a, b) { var x = parts(a), y = parts(b); return x[0] === y[0] && x[1] < y[1]; };   // a came before b and has the same first number
+        var mainPath = path('./app.js');   // this app's main script, next to this page
+        var main = scripts.filter(function (s) { return path(s.src) === mainPath; })[0];
         if (!main || !window.caches || failed.indexOf(main.src) < 0) return say();
         var mine = rel(main.src);
         caches.keys().then(function (keys) {
-          return Promise.all(keys.filter(function (k) { return k.indexOf('overload-') === 0; }).map(function (k) { return caches.open(k).then(function (c) { return c.keys(); }); }));
-        }).then(function (lists) {
-          var old = '';
-          lists.forEach(function (reqs) { reqs.forEach(function (r) { var v = /\/app\.js[?&]/.test(r.url) ? rel(r.url) : ''; if (v && v !== mine) old = v; }); });
-          if (!old) return say();
-          var css = document.querySelector('link[rel="stylesheet"]');
-          return Promise.all(scripts.map(function (s) { return stored(swap(s.src, old), 'text/javascript'); }).concat(css ? [stored(swap(css.href, old), 'text/css')] : [])).then(function (have) {
-            var sheet = css ? have.pop() : null;
-            if (sheet) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = sheet; document.head.appendChild(l); }
-            have.forEach(function (u, i) { if (!u) return; var n = document.createElement('script'); if (scripts[i].type) n.type = scripts[i].type; n.async = false; n.src = u; document.body.appendChild(n); });
-            setTimeout(say, 4000);
+          keys = keys.filter(function (k) { return k.indexOf('overload-') === 0; });   // this app's offline copies (the diet app's are fuel-…)
+          var stored = function (url, type) {   // the stored copy as a local file, or null
+            return Promise.all(keys.map(function (k) { return caches.open(k).then(function (c) { return c.match(url); }); })).then(function (hits) {
+              var hit = hits.filter(Boolean)[0];
+              return hit ? hit.arrayBuffer().then(function (b) { return URL.createObjectURL(new Blob([b], { type: type })); }) : null;   // the bytes, not the stored blob: Chrome crashes running a stored blob as a script
+            });
+          };
+          return Promise.all(keys.map(function (k) { return caches.open(k).then(function (c) { return c.keys(); }); })).then(function (lists) {
+            var old = '';   // the newest stored release that is older than this page's
+            lists.forEach(function (reqs) { reqs.forEach(function (r) { var v = path(r.url) === mainPath ? rel(r.url) : ''; if (v && older(v, mine) && (!old || older(old, v))) old = v; }); });
+            if (!old) return say();
+            return Promise.all(scripts.map(function (s) { return stored(swap(s.src, old), 'text/javascript'); }).concat(css.map(function (l) { return stored(swap(l.href, old), 'text/css'); }))).then(function (have) {
+              have.slice(scripts.length).forEach(function (u) { if (!u) return; var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = u; document.head.appendChild(l); });
+              have.slice(0, scripts.length).forEach(function (u, i) { if (!u) return; var n = document.createElement('script'); if (scripts[i].type) n.type = scripts[i].type; n.async = false; n.src = u; document.body.appendChild(n); });
+              setTimeout(say, 4000);
+            });
           });
         }).catch(function () { say(); });
       });
     })();
   </script>
-  <link rel="stylesheet" href="./styles.css?v=2.8">
+  <link rel="stylesheet" href="./styles.css?v=3.0">
 </head>
 <body>
   <header class="topbar">
@@ -112,7 +124,6 @@
 
   <nav class="tabbar">
     <button class="tab" data-screen="today"><span class="tab-icon">▶</span>Today</button>
-    <button class="tab" data-screen="food"><span class="tab-icon">◉</span>Food</button>
     <button class="tab" data-screen="program"><span class="tab-icon">☰</span>Program</button>
     <button class="tab" data-screen="exercises"><span class="tab-icon">◆</span>Exercises</button>
     <button class="tab" data-screen="history"><span class="tab-icon">▤</span>History</button>
@@ -126,11 +137,10 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="./programs.js?v=2.8"></script>
-  <script src="./backup.js?v=2.8"></script>
-  <script src="./app.js?v=2.8"></script>
-  <script src="./food.js?v=2.8"></script>
-  <script src="./connector.js?v=2.8"></script>
-  <script type="module" src="./sync.js?v=2.8"></script>
+  <script src="./programs.js?v=3.0"></script>
+  <script src="./backup.js?v=3.0"></script>
+  <script src="./app.js?v=3.0"></script>
+  <script src="./connector.js?v=3.0"></script>
+  <script type="module" src="./sync.js?v=3.0"></script>
 </body>
 </html>

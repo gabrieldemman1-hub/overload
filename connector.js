@@ -7,6 +7,9 @@
  *   connKey    random key that pairs this app with the connector (Authorization: Bearer)
  *   connUrl    the connector's address; connector.json (written by the deploy workflow) fills it
  *   reminders  { checkin, workout, food: { on, time: 'HH:MM' } }
+ * Since 3.0 the food log is its own app (Fuel), so this app cannot know whether food was logged today. The
+ * food reminder is no longer offered, and it is always sent to the connector as off, with nothing said about
+ * food being done (configNow). The saved reminders.food is left as it is: v2.8 needs it there to draw Settings.
  * WHOOP nights go into state.sleep as { date, total, rem, deep, light, recovery, rhr, hrv, perf, src: 'whoop' }.
  * A night typed in by hand keeps its numbers; WHOOP only adds recovery to it.
  */
@@ -17,7 +20,7 @@
   const { esc, todayKey, toast } = O.lib;
   const S = () => O.state;
   const DEFAULT_REMINDERS = { checkin: { on: true, time: '07:30' }, workout: { on: true, time: '17:00' }, food: { on: false, time: '20:30' } };
-  const LABELS = { checkin: ['Morning check-in', 'Weight and sleep. Skipped once logged'], workout: ['Workout', 'Training days only. Skipped once finished'], food: ['Food log', 'Evening nudge. Skipped if you logged food today'] };
+  const LABELS = { checkin: ['Morning check-in', 'Weight and sleep. Skipped once logged'], workout: ['Workout', 'Training days only. Skipped once finished'] };
   const cs = { status: null, loading: false, err: '', lastStatus: 0, lastSync: 0, syncing: false, pushOn: null, expired: false, code: '', pairMsg: '', lastTouch: 0, cardsHtml: '' };
   const local = { get: (k) => { try { return localStorage.getItem('overload.conn.' + k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem('overload.conn.' + k, v); } catch (e) { /* private mode */ } } };
 
@@ -282,8 +285,8 @@
     const st = S(), today = todayKey();
     const names = st.program.schedule.map((id) => { const d = id && st.program.days.find((x) => x.id === id); return d && d.exercises.length ? d.name : null; });
     const workoutDone = st.workouts.some((w) => w.finishedAt && w.date === today);
-    const foodDone = !!(st.diary && st.diary[today] && st.diary[today].length);
-    return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminders(), training: names, done: { checkin: O.checkinDone && O.checkinDone() ? today : null, workout: workoutDone ? today : null, food: foodDone ? today : null } };
+    const r = reminders();
+    return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: { checkin: r.checkin, workout: r.workout, food: { on: false, time: (r.food && r.food.time) || '20:30' } }, training: names, done: { checkin: O.checkinDone && O.checkinDone() ? today : null, workout: workoutDone ? today : null } };
   }
   let pushTimer = null;
   async function pushConfig(now) {

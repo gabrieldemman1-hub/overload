@@ -4,7 +4,8 @@ A personal hypertrophy tracker for one phone. Log weight, sets and reps; the app
 tells you what to lift next time based on the rep range and how you recovered.
 Modelled on the RP Hypertrophy app's flow, without mesocycles; any workout can
 be logged as a deload.
-The Food tab logs calories, protein, carbs and fat against daily targets.
+Food (calories, protein, carbs and fat against daily targets) is logged in a
+separate app, Fuel: see Two apps below.
 
 No build step. Data lives in the browser on the phone, and optionally mirrors to
 a Firebase account (see Cloud sync below) so it survives clearing the phone.
@@ -102,7 +103,57 @@ go past the top of the weekly sets target in Settings (default 20).
 - **Fix a past workout.** Edit the sets of any finished workout. Trophies are worked out again, and when it was the latest time you did an exercise and the correction changes how it went, next time's weight and goal follow. Deleting the latest workout for an exercise rolls its next-time weight back.
 - **Sound when rest is over.** A short beep, since iPhones ignore web vibration. The phone's mute switch silences it, and no web app can alert you while the phone is locked.
 
+## Two apps
+
+Since 3.0 there are two apps on the same site. Each is added to the Home Screen
+on its own and keeps its own data.
+
+| | Overload (training) | Fuel (food) |
+| --- | --- | --- |
+| Address | the site itself | `fuel/` |
+| Holds | exercises, program, workouts, weigh-ins, sleep, WHOOP and reminders | food targets, saved foods and meals, the food diary |
+
+Overload no longer shows or changes food. The food data it held stays in its
+saved data on the phone (the "old food log") until you remove it yourself, so
+updating loses nothing and v2.8 still finds everything after a roll-back. On
+its first start 3.0 also keeps a copy of all data as it was: "Before the split
+into two apps" under Settings → Backup → Automatic copies.
+
+Moving the food log to Fuel is done from the card "Food has moved to Fuel". It
+is on Today until you hide it or have copied the log, and always in Settings →
+Food.
+
+1. **Get Fuel** opens `fuel/` in Safari; there, Share → Add to Home Screen.
+   Copy link gives the address to paste into Safari if it does not open.
+2. **Copy my food log** puts the log on the clipboard as text; **Save as a
+   file** writes the same as `overload-food-YYYY-MM-DD.json`. Both hold the
+   targets, saved foods and meals, every food day, the record of deleted
+   entries, the units, the theme and the latest weigh-in, and nothing else (no
+   training data, no connector key).
+3. In Fuel: **Paste from Overload**, or Choose a file.
+
+With cloud sync, signing in to Fuel with the same email also brings across the
+food log the account holds.
+
+If food is logged in Overload again after a copy (an older version can still
+start while an update has only half arrived), the card comes back and says so.
+
+**Remove the old food log from Overload** (same card, in Settings) frees its
+space once Fuel shows the log. It is offered only when the log was copied or
+saved as it is now, asks twice, keeps a copy first ("Before removing the old
+food log") and empties the food days only; saved foods and targets stay.
+
+What was copied and when is noted on the phone beside the data
+(`overload.backup` in the browser's storage), never in the data itself.
+
+The clipboard text is `OVERLOAD-FOOD:1:` followed by base64 of the gzipped
+JSON, or `OVERLOAD-FOOD:0:` and base64 of the JSON where the browser cannot
+gzip. The format is in `dev/notes/SPEC.md`, section 5.
+
 ## Food log
+
+Since 3.0 this is the app Fuel (`fuel/`), not a tab of Overload. The rest of
+this section describes the food log as it works there.
 
 The Food tab tracks calories, protein, carbs and fat for each day, in Breakfast,
 Lunch, Dinner and Snacks, against targets you set (Settings → Food targets, or
@@ -178,7 +229,7 @@ day, or a sheet still open from yesterday, names that day in its title.
 | `connector/`           | The connector: a Cloudflare Worker (`worker.js`, `wrangler.toml`) |
 | `programs.js`          | Built-in program library (CBum, FST-7, arm programs) |
 | `styles.css`           | Dark theme with red accent                   |
-| `food.js`              | Food tab: search, amounts, barcode scanning  |
+| `fuel/`                | Fuel, the diet app: its own page, scripts (the food log is `fuel/food.js`), offline cache and automatic copies |
 | `data/foods.json`      | USDA food list, built by `tools/build_foods.py` |
 | `tools/`               | Food list builder, everyday foods (`staples.tsv`), packaged foods (`branded_wishlist.txt` → `branded.tsv`) |
 | `vendor/zxing/`        | Barcode reader (zxing-wasm 3.1.4, MIT), self-hosted |
@@ -255,9 +306,11 @@ signed-in user read and write their own documents.
 A small connector (`connector/worker.js`) runs free on Cloudflare Workers. It
 holds the WHOOP app secret, logs in to WHOOP for you, returns last night's
 sleep and recovery to the app, and sends push reminders (morning check-in,
-workout, food log) at the times set in Settings → Reminders. It skips a
+workout) at the times set in Settings → Reminders. It skips a
 reminder once that thing is done in the app, and skips the workout reminder on
-rest days. The app pairs with it using a random key kept in Settings (synced);
+rest days. There is no food-log reminder since 3.0: Overload cannot know what
+was logged in Fuel, so it always tells the connector that reminder is off.
+The app pairs with it using a random key kept in Settings (synced);
 the key never goes into a web address.
 
 What fills in from WHOOP: time asleep (light + deep + REM), REM, deep,
@@ -312,14 +365,20 @@ secrets it does nothing. The wrangler version it uses is fixed in
 Without cloud sync, data lives only in that browser's storage. Settings →
 Backup → Export JSON opens the share sheet (Save to Files, AirDrop, Mail) with
 a file you can re-import later; Import shows what the file holds next to what
-is on the phone before replacing anything. iOS can clear website data for a
+is on the phone before replacing anything. Import, Restore and Reset replace
+the training data only: an old food log still on the phone is carried over as
+it is (food from the file is used only when the phone has none), and the
+question says so. A file made by or for Fuel is refused ("This is a Fuel file.
+Open it in Fuel."). iOS can clear website data for a
 home-screen app if you delete the app, so export now and then. The Backup card
 says when you last exported, and with cloud sync off Today reminds you after
 14 days without one.
 
 - **Automatic copies.** The app keeps its own copies on the phone (IndexedDB):
   one a day for the last 7 days, plus one taken before each import, reset,
-  restore or first cloud sign-in. Settings → Backup lists them with Restore.
+  restore or first cloud sign-in, one from the first start of 3.0 ("Before the
+  split into two apps") and one before the old food log is removed. Settings →
+  Backup lists them with Restore.
   They live in the same browser storage, so they do not replace an export.
 - **Storage used.** The Backup card shows how much of the app's storage is in
   use; Today warns from 70%. If saving ever fails, messages say "Not saved on

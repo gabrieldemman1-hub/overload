@@ -1,6 +1,7 @@
-/* Overload food log: calories, protein, carbs and fat.
+/* Fuel's food log: calories, protein, carbs and fat. (It was Overload's Food tab until 3.0.)
  *
- * Loaded after app.js and built on the helpers it exposes (window.__overload.lib).
+ * Loaded after fuel.js and built on the helpers it exposes (window.__overload.lib: the names are the
+ * ones Overload's app.js used, so this file runs on Fuel's shell as it ran there).
  * Where foods come from:
  *   - data/foods.json: about 7,700 common foods and about 650 packaged
  *     products (with barcodes) from USDA FoodData Central, built by
@@ -8,7 +9,7 @@
  *   - Open Food Facts: packaged foods, by barcode or by a brand search.
  *   - Foods typed in from a label. A barcode typed with it is remembered.
  *
- * Saved data (normalized in app.js):
+ * Saved data (normalized in fuel.js):
  *   state.food.targets  { kcal, protein, carbs, fat }   empty means no target
  *   state.food.foods    { id: food }   every food logged, created or starred (fav), so recents work offline
  *   state.food.meals    { id: { id, name, items: [item] } }   saved meals; an item is an entry without id, meal, at
@@ -27,7 +28,7 @@
   const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
   const OZ = 28.3495;
   const FLOZ = 29.5735;
-  const DB_URL = './data/foods.json?db=5';  // ?db= changes when the list is rebuilt; keep sw.js in step
+  const DB_URL = '../data/foods.json?db=5';  // one folder up from the page (fuel/). ?db= changes when the list is rebuilt; keep sw.js in step
   const OFF = 'https://world.openfoodfacts.org';
   const OFF_FIELDS = 'code,product_name,product_name_en,generic_name,brands,serving_size,serving_quantity,serving_quantity_unit,nutriments';
 
@@ -859,7 +860,7 @@
   function forgetFood() {
     const f = fu.form && fu.form.id && S().food.foods[fu.form.id]; if (!f) return;
     if (!confirm('Delete "' + f.name + '"? Days already logged keep their numbers.')) return;
-    delete S().food.foods[f.id]; fu.form = null;
+    delete S().food.foods[f.id]; markDeleted('foods', f.id); fu.form = null;   // the record keeps a later import or cloud merge from bringing it back
     O.save(); closeSheet(); O.render(); toast('Food deleted');
   }
 
@@ -876,8 +877,8 @@
         if (want.length) { const det = new window.BarcodeDetector({ formats: want }); scan.engine = { native: true, read: async (src) => (await det.detect(src)).map((r) => r.rawValue) }; return scan.engine; }
       } catch (e) { /* use zxing */ }
     }
-    const zx = await import(new URL('./vendor/zxing/reader/index.js', location.href).href);   // the page's address: a rescued start runs this file from a blob: address
-    await zx.prepareZXingModule({ overrides: { locateFile: (p, prefix) => (p.endsWith('.wasm') ? new URL('./vendor/zxing/' + p, location.href).href : prefix + p) }, fireImmediately: true });
+    const zx = await import(new URL('../vendor/zxing/reader/index.js', location.href).href);   // from the page's address (fuel/), one folder up: a rescued start runs this file from a blob: address
+    await zx.prepareZXingModule({ overrides: { locateFile: (p, prefix) => (p.endsWith('.wasm') ? new URL('../vendor/zxing/' + p, location.href).href : prefix + p) }, fireImmediately: true });
     const opts = { formats: ['EAN13', 'EAN8', 'UPCA', 'UPCE'], tryHarder: true, maxNumberOfSymbols: 1 };
     scan.engine = { native: false, read: async (img) => (await zx.readBarcodes(img, opts)).filter((r) => r.isValid !== false).map((r) => r.text) };
     return scan.engine;
@@ -1006,7 +1007,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Events (app.js forwards anything named food-*)
+  // Events (fuel.js forwards anything named food-*)
   // ---------------------------------------------------------------------------
   function click(a, d, btn) {
     switch (a) {
@@ -1096,7 +1097,7 @@
       case 'food-sm-remove': {
         const m = fu.sm && S().food.meals[fu.sm.id]; if (!m) break;
         m.items.splice(+d.i, 1);
-        if (!m.items.length) { delete S().food.meals[m.id]; O.save(); fu.from === 'add' ? sheetAdd() : closeSheet(); toast('Meal deleted'); break; }
+        if (!m.items.length) { delete S().food.meals[m.id]; markDeleted('meals', m.id); O.save(); fu.from === 'add' ? sheetAdd() : closeSheet(); toast('Meal deleted'); break; }
         O.save(); sheetSavedMeal(m.id); break;
       }
       case 'food-sm-rename': {
@@ -1108,7 +1109,7 @@
       case 'food-sm-delete': {
         const m = fu.sm && S().food.meals[fu.sm.id]; if (!m) break;
         if (!confirm('Delete the saved meal "' + m.name + '"? Days already logged are not changed.')) break;
-        delete S().food.meals[m.id]; O.save();
+        delete S().food.meals[m.id]; markDeleted('meals', m.id); O.save();
         if (fu.from === 'add') sheetAdd(); else closeSheet();
         toast('Meal deleted'); break;
       }

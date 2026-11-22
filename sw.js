@@ -1,24 +1,24 @@
-// Offline cache so the app opens with no signal. Bump CACHE when files change.
-const CACHE = 'overload-v23';
+// Offline cache so the app opens with no signal. Bump CACHE when files change (bump.sh does both apps).
+// This is the training app's worker. The diet app in fuel/ has its own worker and its own cache (fuel-vN);
+// the food list (data/) and the barcode reader (vendor/) are that app's files and are not stored here.
+const CACHE = 'overload-v24';
+// One address per line: bump.sh reads this list to check that every file exists.
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=2.8',
-  './programs.js?v=2.8',
-  './backup.js?v=2.8',
-  './app.js?v=2.8',
-  './sync.js?v=2.8',
-  './food.js?v=2.8',
-  './connector.js?v=2.8',
-  './data/foods.json?db=5',
+  './styles.css?v=3.0',
+  './programs.js?v=3.0',
+  './backup.js?v=3.0',
+  './app.js?v=3.0',
+  './sync.js?v=3.0',
+  './connector.js?v=3.0',
+  // SHARED FILES GO HERE. The redesign adds './shared/ui.css?v=3.0' and './shared/icons.js?v=3.0' on two
+  // lines of their own, once index.html loads them. Not before: one address in this list that the server
+  // cannot deliver makes the whole install fail, and the phone then stays on the version it has.
   './manifest.webmanifest',
   './icon.svg',
   './icon-180.png',
-  './icon-512.png',
-  // Barcode reader (about 1 MB), so scanning works offline right after an update too.
-  './vendor/zxing/reader/index.js',
-  './vendor/zxing/share.js',
-  './vendor/zxing/zxing_reader.wasm'
+  './icon-512.png'
 ];
 
 // Always go to the server for our own files. GitHub Pages sends a 10 minute
@@ -78,6 +78,11 @@ self.addEventListener('fetch', (e) => {
   if (!cacheable) return;
   const isPage = e.request.mode === 'navigate';
   const scope = new URL(self.registration.scope).pathname;
+  // The diet app (fuel/) has its own worker; the food list and the barcode reader are its files. Until that
+  // worker has taken its pages over they are still this worker's to answer: leave them to the browser, as if
+  // there were no worker. Otherwise a slow, missing or offline diet page would get the training page from the
+  // cache, and everything a diet page loads would be stored in the training cache.
+  if (sameOrigin && url.pathname.startsWith(scope) && /^(fuel|data|vendor)(\/|$)/.test(url.pathname.slice(scope.length))) return;
   const appPage = sameOrigin && (url.pathname === scope || url.pathname === scope + 'index.html');
   const cached = () => caches.match(e.request).then((hit) => hit || (isPage ? caches.match('./index.html') : undefined));
   let stored;
@@ -114,11 +119,14 @@ self.addEventListener('push', (e) => {
     body: d.body || '', tag: d.tag || 'overload', icon: './icon-180.png', badge: './icon-180.png', data: { url: d.url || './' }
   }));
 });
+// A window of this app: inside the scope, but not the diet app's (fuel/ lies inside this worker's scope too,
+// and a reminder must not bring that app to the front instead of opening this one).
+const isAppWindow = (url) => url.startsWith(self.registration.scope) && !url.startsWith(self.registration.scope + 'fuel/');
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const target = (e.notification.data && e.notification.data.url) || './';
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    const open = list.find((c) => c.url.startsWith(self.registration.scope));
+    const open = list.find((c) => isAppWindow(c.url));
     return open ? open.focus() : self.clients.openWindow(target);
   }));
 });

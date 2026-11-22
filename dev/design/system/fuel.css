@@ -1,0 +1,235 @@
+/* Fuel (diet): the rules only this app needs. Load after shared/ui.css, with data-app="fuel" on <html>.
+ * Guide: dev/design/SYSTEM.md. This file replaces fuel/fuel.css whole: every rule that file had (the hidden tab bar on
+ * Welcome, .link-text, the Trends chart and table, .choice-card, .install-steps) has its counterpart here.
+ */
+
+/* Tabular figures on the food read-outs (see the note in shared/ui.css, section 1). */
+.f-big, .gauge-num, .gauge-foot, .f-macro .v, .f-rk, .f-meal-head .row, .f-amount .input, .trend-hero {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================ 1. Today: day switcher */
+.f-daynav { display: flex; align-items: center; gap: 4px; margin: -8px 0 8px; }
+.f-daynav .icon-btn:first-child { margin-left: -10px; }
+.f-daynav .icon-btn:last-child { margin-right: -10px; }
+.f-daylabel { flex: 1; min-height: var(--tap); background: none; border: 0; color: var(--ink); font-size: var(--t-title); font-weight: 700; letter-spacing: -0.01em; }
+.f-daylabel:active { color: var(--ink-2); }
+
+/* ============================================================ 2. The summary: gauge, then the three macros */
+/* A dark object in both themes (its tokens are re-declared dark in shared/ui.css), like the rest dock in Overload. */
+.f-sum { background: var(--panel); color: var(--ink); border-color: var(--rule); padding: 16px var(--pad) 4px; }
+/* The gauge: a half dial of ticks. JavaScript sets one number p (0 to 100, eaten / target):
+     .gauge-fill  stroke-dasharray="p 100"      .gauge-mark  stroke-dashoffset="-p"
+   States on .gauge: (none) at or under target, and up to 5% over it (the dial is full, the words say "kcal over");
+   .over = more than 5% over, the app's rule for a macro bar and a Trends bar too (danger colour, never the accent);
+   .none = no target set. The big number is .gauge-num. .f-big stays what it was in v2.8: calories eaten (see .f-kcal). */
+.gauge { position: relative; width: 100%; max-width: 264px; margin: 0 auto; }
+.gauge > svg { display: block; width: 100%; height: auto; overflow: visible; }
+.gauge-track { fill: none; stroke: var(--rule-2); stroke-width: 16; }
+.gauge-fill { fill: none; stroke: var(--accent); stroke-width: 16; }
+.gauge-mark { fill: none; stroke: var(--ink); stroke-width: 24; }
+.gauge.over .gauge-fill { stroke: var(--over); }
+.gauge.over .gauge-mark, .gauge.none .gauge-mark, .gauge.none .gauge-fill { display: none; }
+.gauge-read { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; pointer-events: none; }
+.gauge-read .label { margin-bottom: 4px; }
+.gauge.over .gauge-read .label { color: var(--over-ink); }
+.gauge-read .label .ic { margin-right: 3px; }
+.f-big, .gauge-num { font-size: var(--n-hero); font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--ink); }
+.gauge-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 264px; margin: 0 auto; min-height: var(--tap); font-size: 14px; color: var(--ink-2); }
+/* The target is a button: it opens the targets sheet. 44 px target, the visible chip is drawn inside. */
+.gauge-target {
+  position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 4px; min-height: var(--tap); padding: 0 6px 0 12px; margin-right: -4px;
+  background: none; border: 0; color: var(--ink-2); font-size: 14px; white-space: nowrap;
+}
+.gauge-target::before { content: ""; position: absolute; z-index: -1; inset: 7px 0; border-radius: 15px; border: 1px solid var(--edge); }
+.gauge-target:active::before { background: var(--key-2); }
+.gauge-target .ic { color: var(--ink-3); }
+/* v2.8's read-out, '<div class="f-kcal">…<span class="f-big">1,322</span> / 2,600 kcal … <div class="f-left">1,278 left</div></div>'.
+   With the gauge it stays in the page as '<div class="f-kcal sr">': hidden from view, read by assistive tech and by the tests.
+   Without the class sr (before the gauge markup is in) it is drawn as below and is still readable. */
+.f-kcal { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.f-kcal .f-big { font-size: var(--n-big); letter-spacing: -0.02em; }
+.f-left { font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.f-left.over { color: var(--over-ink); }
+.f-bar { display: block; height: 4px; border-radius: var(--r-1); background: var(--rule-2); overflow: hidden; }
+.f-bar span { display: block; height: 100%; border-radius: var(--r-1); background: var(--accent); }
+.f-bar span.m { background: var(--ink-2); }
+.f-bar span.over { background: var(--over); }
+
+/* Macros: told apart by tone and by mark (protein square, carbs circle, fat diamond), not only by the label.
+   In .f-macros the order gives the mark, so the markup needs no change. Elsewhere: <i class="mk p"></i> / .c / .f */
+.f-macros { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 8px; border-top: 1px solid var(--rule); }
+.f-macro { display: flex; flex-direction: column; padding: 12px 10px 14px; border-left: 1px solid var(--rule); min-width: 0; }
+.f-macro:first-child { border-left: 0; padding-left: 0; }
+.f-macro:last-child { padding-right: 0; }
+.f-macro .k { display: flex; align-items: center; gap: 6px; font-size: var(--t-label); font-weight: 700; letter-spacing: var(--track); text-transform: uppercase; color: var(--ink-3); }
+/* "133 / 190 g": the target wraps under the value as one piece when the cell is too narrow; the bars stay level. */
+.f-macro .v { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.22em; margin: 4px 0 8px; font-size: var(--n-value); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; color: var(--ink); }
+.f-macro .v .muted { white-space: nowrap; font-size: var(--t-small); font-weight: 500; letter-spacing: 0; line-height: 1.3; color: var(--ink-3); }
+.f-macro .f-bar { margin-top: auto; }
+.mk, .f-macro .k::before, .f-preview .stat:nth-child(n+2) .k::before { content: ""; display: inline-block; flex: none; width: 9px; height: 9px; background: var(--m-protein); border-radius: 2px; }
+.mk { margin-right: 6px; vertical-align: 0; }
+.mk.c, .f-macro:nth-child(2) .k::before, .f-preview .stat:nth-child(3) .k::before { background: var(--m-carbs); border-radius: 50%; }
+.mk.f, .f-macro:nth-child(3) .k::before, .f-preview .stat:nth-child(4) .k::before { background: var(--m-fat); border-radius: 1px; transform: rotate(45deg) scale(0.86); }
+.f-macro:nth-child(1) .f-bar span { background: var(--m-protein); }
+.f-macro:nth-child(2) .f-bar span { background: var(--m-carbs); }
+.f-macro:nth-child(3) .f-bar span { background: var(--m-fat); }
+.f-macro .f-bar span.over { background: var(--over); }
+.f-macro.over .v { color: var(--over-ink); }
+
+/* ============================================================ 3. Meals and food rows */
+/* A meal is a section, not a box: name and subtotal on one line, foods as hairline rows. */
+.card.f-meal { background: none; border: 0; border-radius: 0; padding: 0; margin: 20px 0 0; }
+.f-meal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--tap); border-bottom: 1px solid var(--rule-2); }
+.f-meal-head .row { gap: 0; }
+.f-meal-head .row > .muted { color: var(--ink-2); font-size: 14px; font-weight: 600; }
+.f-more { margin-right: -10px; }
+.f-meal > .btn { margin-top: 8px; }
+.f-copyday { margin: 12px 0 0; }
+.f-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 9px 0;
+  background: none; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); text-align: left;
+}
+button.f-row:active, .f-qpick:active { background: var(--key); }
+.f-row .title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 500; font-size: var(--t-body); line-height: 1.3; }
+/* The second line wraps as whole units; it is never cut. Keep a unit together with <span class="nowrap">. */
+.f-row .sub { display: block; color: var(--ink-3); font-size: var(--t-small); line-height: 1.4; margin-top: 2px; overflow-wrap: anywhere; }
+.f-rk { flex: none; min-width: 40px; text-align: right; font-size: var(--t-title); font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+.f-row .title.f-danger { color: var(--bad-ink); font-weight: 600; }
+.f-menu .f-row:last-child, #food-results > .f-row:last-child { border-bottom: 0; }
+.f-static { cursor: default; }
+.f-x { margin-right: -10px; }
+.f-favmark { color: var(--ink-3); margin-right: 2px; }
+.f-favmark .ic { width: 14px; height: 14px; vertical-align: -1px; }
+/* Dragging a food between meals */
+.f-meal .f-row[data-id] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.f-row.f-lifted { opacity: 0.35; }
+.f-ghost { position: fixed; z-index: 60; pointer-events: none; background: var(--key-2); border: 1px solid var(--accent); border-radius: var(--r-3); padding: 10px 12px; box-shadow: var(--shadow-float); transform: scale(1.02); }
+.f-meal.f-drop-target { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 4px; }
+.f-drop-line { height: 3px; border-radius: 2px; background: var(--accent); margin: 2px 0; }
+body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none; user-select: none; }
+
+/* ============================================================ 4. Add sheet */
+/* What this trip has added. Stays in view while the list scrolls; the same height empty and filled. */
+#food-added { position: sticky; top: calc(-1 * var(--sheet-top)); z-index: 2; background: var(--panel); margin: 0; padding: 0 0 12px; }
+.f-added {
+  display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 6px 6px 12px;
+  border: 1px solid var(--accent-line); border-radius: var(--r-3); background: var(--accent-wash);
+  font-size: 14px; line-height: 1.3; overflow-wrap: anywhere;
+}
+.f-added.none { background: none; border-color: var(--rule-2); color: var(--ink-3); }
+.f-added .grow { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; }
+.f-added b { color: var(--accent-ink); }
+.f-added .btn { flex: none; min-height: var(--tap); }
+.f-searchrow { display: flex; gap: 8px; }
+.f-searchrow .input, .f-searchrow .search { flex: 1; min-width: 0; }
+.f-scanbtn { width: var(--ctl); height: var(--ctl); background: var(--key); border-color: var(--edge); color: var(--ink); }
+.f-addbtns .btn { padding-left: 4px; padding-right: 4px; }
+/* Favorites and Recent: name, what one tap logs, the calories as a number column, then the + key.
+   <div class="f-row f-qrow"><button class="f-qpick">…</button><div class="f-rk">190</div><button class="icon-btn f-plus">+</button></div> */
+.f-qrow { padding: 0; gap: 4px; }
+.f-qpick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 9px 0; background: none; border: 0; color: var(--ink); text-align: left; }
+.f-plus { position: relative; isolation: isolate; border: 0; background: none; color: var(--ink); font-size: 22px; font-weight: 600; margin-right: -4px; }
+.f-plus::before { content: ""; position: absolute; z-index: -1; inset: 4px; border-radius: 50%; background: var(--key); border: 1px solid var(--edge); }
+.f-plus:active::before { background: var(--key-2); }
+.f-plus:disabled { opacity: 1; color: var(--on-solid); }           /* just logged */
+.f-plus:disabled::before { background: var(--solid); border-color: var(--solid); }
+.f-star.on { color: var(--ink); }
+
+/* ============================================================ 5. Amount sheet */
+.f-food-name { font-size: var(--t-head); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+.f-amount { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 8px; margin-top: 12px; }
+.f-amount .input { min-height: 64px; font-size: var(--n-big); font-weight: 700; letter-spacing: -0.02em; text-align: center; padding: 0 6px; }
+.f-amount .select { min-height: 64px; font-weight: 600; }
+/* The food's name is this sheet's title; the header above it ("Add food", "Edit") becomes a label. */
+.sheet-title:has(+ .f-food-name) { margin-bottom: 0; }
+.sheet-title:has(+ .f-food-name) h2 { font-size: var(--t-small); font-weight: 600; letter-spacing: 0; color: var(--ink-3); }
+/* What this adds: the calories lead on a line of their own, the three macros follow with their marks.
+   The markup stays four .stat cells. */
+.f-preview .stat-row, .stat-row.f-preview { flex-wrap: wrap; align-items: flex-end; border-top: 0; }
+.f-preview .stat:first-child { flex: 1 0 100%; flex-direction: row; justify-content: flex-start; align-items: baseline; gap: 8px; padding: 4px 0 12px; border-bottom: 1px solid var(--rule); }
+.f-preview .stat:first-child .v { font-size: 48px; letter-spacing: -0.03em; line-height: 1; }
+.f-preview .stat:first-child .k { font-size: var(--t-small); letter-spacing: 0; text-transform: none; font-weight: 600; color: var(--ink-2); padding: 0; }
+.f-preview .stat:nth-child(n+2) { flex: 1 1 30%; }     /* a real basis, so the three wrap under the calories together */
+.f-preview .stat:nth-child(2) { border-left: 0; padding-left: 0; }
+.f-preview .stat .v .u { font-size: var(--t-small); }
+.f-preview .stat:nth-child(n+2) .k { display: flex; align-items: baseline; gap: 4px; letter-spacing: 0.02em; overflow-wrap: normal; padding-right: 2px; }
+.f-mealseg { display: flex; width: 100%; }
+.f-mealseg button { flex: 1 1 0; min-width: 0; padding: 0 2px; }
+
+/* ============================================================ 6. Scanner */
+.f-scanview { position: relative; border-radius: var(--r-4); overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+.f-scanview video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.f-scanview .guide { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 2px solid #fff; border-radius: var(--r-3); box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.4); }
+#scan-status { min-height: 36px; }
+
+/* ============================================================ 7. Targets, cloud */
+.f-target-note p { color: var(--ink-3); font-size: var(--t-small); }
+/* The cloud card as fuel.js writes it (classes beside the ids the shared stylesheet styles). */
+.cloud-msg { color: var(--bad-ink); }
+.cloud-msg:empty { display: none; }
+.pill.cloud-status { color: var(--warn-ink); border-color: transparent; background: var(--warn-wash); }
+.pill.cloud-status.synced { color: var(--ok-ink); background: var(--ok-wash); }
+.pill.cloud-status.error { color: var(--bad-ink); background: var(--bad-wash); }
+
+/* ============================================================ 8. Trends */
+/* '<div class="trend-hero"><div><div class="label">Average a day, 12 full days</div><div><span class="f-big">2,569</span><span class="muted"> kcal</span></div></div>
+     <div class="side"><b>99%</b> of 2,600 target</div></div>' */
+.trend-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+.trend-hero > div:first-child > :first-child { margin-bottom: 4px; }
+.trend-hero .f-big + .muted, .trend-hero .f-big .u { font-size: var(--t-title); font-weight: 600; color: var(--ink-2); margin-left: 4px; letter-spacing: 0; }
+.trend-hero .side { text-align: right; font-size: var(--t-small); color: var(--ink-3); line-height: 1.35; padding-bottom: 4px; }
+.trend-hero .side b { display: block; font-size: var(--n-value); line-height: 1.15; }
+.trend-hero .side.over b { color: var(--over-ink); }
+/* Each day of the chart is a button that opens it: '<g class="trend-day" role="button" tabindex="0" …><rect class="hit" …/><rect class="bar" …/><text class="lbl">S</text></g>'.
+   The column is the full height of the chart and as wide as its day (about 20 px at 390): the one target under 44 px wide,
+   because 14 days do not fit otherwise. The day switcher on Today is the 44 px way to the same place. */
+.trend-chart .trend-day { cursor: pointer; }   /* needed on an iPhone for the tap to reach the page (the markup says it too) */
+.trend-chart .trend-day:focus { outline: none; }
+.trend-chart .trend-day:focus-visible .hit { stroke: var(--accent-ink); stroke-width: 2; }
+.trend-chart .trend-day:active .hit { fill: var(--key); }
+.card > .table { margin: -4px 0; }
+
+/* ============================================================ 9. Welcome and Add to Home Screen */
+/* fuel.js sets body.no-tabs on these two screens: there is nowhere to go yet, so no tab bar. The top bar stays (it says Fuel).
+   '<div class="onboard"><div class="onboard-brand"><span class="app-tile xl">' + icon('mark-fuel') + '</span></div>
+      <div class="screen-title"><h1>Welcome to Fuel</h1></div><p class="lede">…</p> … <div class="foot">…</div></div>' inside main.screen */
+body.no-tabs .tabbar { display: none; }
+body.no-tabs .screen { padding-bottom: calc(var(--safe-bottom) + 24px); }
+.onboard { padding: 12px 8px 0; }
+.onboard-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+/* Here the screen's h1 is the headline, so it shows (everywhere else the top bar carries the title). */
+.onboard .screen-title { display: block; }
+.onboard .screen-title h1 {
+  position: static; width: auto; height: auto; overflow: visible; -webkit-clip-path: none; clip-path: none; white-space: normal;
+  font-size: var(--t-display); letter-spacing: -0.02em; line-height: 1.12; margin-bottom: 10px;
+}
+.onboard .lede, .onboard > p.muted { color: var(--ink-2); font-size: var(--t-body); line-height: 1.5; margin-bottom: 20px; }
+.onboard .foot { margin-top: 20px; text-align: center; }
+.onboard .foot .small { margin-top: 4px; }
+/* One way in: a mark, a title, a line of help. The first (recommended) one carries the accent outline.
+   fuel.js writes these as button.list-item.choice-card inside .list, on Welcome and in the import sheet. */
+.choice-card, .list > .list-item.choice-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; min-height: 72px; padding: 12px 10px 12px 14px; margin-bottom: 8px;
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r-4); color: var(--ink); text-align: left;
+}
+.sheet-panel .choice-card, .sheet-panel .list > .list-item.choice-card { background: none; }
+.choice-card:active, .list > .list-item.choice-card:active { background: var(--key); }
+.choice-card .lead { width: 44px; height: 44px; flex: none; border-radius: 11px; background: var(--key); display: flex; align-items: center; justify-content: center; color: var(--ink); }
+.choice-card .title { display: block; font-weight: 700; font-size: 16px; line-height: 1.25; }
+.choice-card .sub { display: block; color: var(--ink-3); font-size: var(--t-small); margin-top: 2px; line-height: 1.35; }
+.choice-card.first, .list > .list-item.choice-card.first { border: 2px solid var(--accent); padding: 11px 9px 11px 13px; }
+.install-steps { margin: 4px 0 20px; }
+.install-steps > li { font-size: var(--t-body); padding-top: 9px; padding-bottom: 9px; }
+.install-steps > li .ic { width: 18px; height: 18px; vertical-align: -3px; margin-left: 4px; color: var(--ink); }
+.link-text { overflow-wrap: anywhere; -webkit-user-select: all; user-select: all; }   /* the address, so it can be copied by hand */
+
+/* ============================================================ 10. Small phones */
+@media (max-width: 359px) {
+  .f-macro { padding-left: 8px; padding-right: 6px; }
+  .f-macro .v { font-size: 18px; }
+  .f-macro .v .muted { font-size: 12px; }
+  .f-amount .input { font-size: 28px; }
+  .f-preview .stat:first-child .v { font-size: 40px; }
+  .onboard { padding-left: 4px; padding-right: 4px; }
+}

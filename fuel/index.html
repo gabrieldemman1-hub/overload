@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>Fuel</title>
+  <meta name="description" content="Calories and macros: a personal food diary.">
+  <meta name="theme-color" content="#111214">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fuel">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <script>
+    // Apply the saved theme before first paint so there is no flash. Fuel's own key: in an ordinary browser
+    // the training app (one folder up) shares this storage and keeps its theme under overload.theme.
+    (function () {
+      try {
+        var t = localStorage.getItem('fuel.theme') || 'system';
+        var root = document.documentElement;
+        if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t);
+        var mq = window.matchMedia('(prefers-color-scheme: light)');
+        var apply = function () { root.classList.toggle('system-light', t === 'system' && mq.matches); };
+        apply(); mq.addEventListener('change', function () { t = localStorage.getItem('fuel.theme') || 'system'; apply(); });
+      } catch (e) {}
+    })();
+  </script>
+  <!-- The one rule that must work when no stylesheet arrived: the note the start-up rescue below writes. -->
+  <style>#boot-note { padding: 24px 8px; line-height: 1.5; font-family: -apple-system, system-ui, sans-serif; }</style>
+  <script>
+    // Start-up rescue (the same idea as the training app's page, for this app's files). The first start
+    // after an update can still be handled by the previous release's offline copy (sw.js), and on a weak
+    // signal it can store this page without this release's files. With no signal the app would then open
+    // blank. If fuel.js could not load, run the previous release's files that the phone still has (every
+    // script and every stylesheet, so they match; each script only sets things up on window, so running one
+    // again is safe). They run from the stored copies themselves, so nothing goes to the network and nothing
+    // is stored again under the old names. The update finishes the next time there is signal. While the app
+    // has not started, say so instead of showing a blank screen.
+    //
+    // Only an older release with the same first number is used (3.0 for a 3.1 page, never one with another
+    // first number: that was written for a different page). And only stored copies of this app's own files
+    // count: they are found by their whole address, in the offline copies named fuel-… (the training app's
+    // are overload-…, and its main script is app.js, one folder up).
+    (function () {
+      var failed = [], final = false;
+      var sheets = function () { return Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]')); };
+      var say = function (still) {
+        var app = document.getElementById('app');
+        if (window.__overload || !app || (app.textContent.trim() && !document.getElementById('boot-note'))) return;   // the app drew itself
+        if (still && final) return;   // the last word was already said: nothing more is coming
+        if (!still) final = true;
+        var logged = false; try { logged = !!localStorage.getItem('fuel.state.v1'); } catch (e) {}
+        app.innerHTML = '<div id="boot-note" class="empty">'
+          + (still ? 'Fuel is still starting. The signal is weak, so this can take a while.' : 'Fuel did not finish starting.')
+          + (logged ? ' Everything you logged is still on this phone.' : '')
+          + (still ? '' : '<br><br>Close the app and open it again where there is signal or Wi-Fi.') + '</div>';
+        // A stylesheet that is still on its way keeps the browser from drawing anything, this note included.
+        // Swap each one for a copy added from here, which does not hold up drawing (it still applies when it arrives).
+        if (still && document.readyState !== 'complete') sheets().forEach(function (css) {
+          if (css.sheet || failed.indexOf(css.href) >= 0) return;
+          var copy = css.cloneNode(); css.parentNode.insertBefore(copy, css); css.parentNode.removeChild(css);
+        });
+      };
+      setTimeout(function () { say(true); }, 8000);   // the files may still be on their way: the app replaces this when it starts
+      window.addEventListener('error', function (e) { var t = e.target; if (t && t !== window && (t.src || t.href)) failed.push(t.src || t.href); }, true);
+      window.addEventListener('load', function () {
+        if (window.__overload) return;   // this release started (fuel.js sets it)
+        var scripts = Array.prototype.slice.call(document.querySelectorAll('script[src]')), css = sheets();
+        var rel = function (url) { var m = /[?&]v=([^&#]+)/.exec(url); return m ? m[1] : ''; };
+        var swap = function (url, v) { return url.replace(/([?&]v=)[^&#]*/, '$1' + v); };
+        var path = function (url) { try { var u = new URL(url, location.href); return u.origin === location.origin ? u.pathname : ''; } catch (e) { return ''; } };
+        var parts = function (v) { var p = String(v).split('.'); return [parseInt(p[0], 10), parseInt(p[1] || '0', 10)]; };
+        var older = function (a, b) { var x = parts(a), y = parts(b); return x[0] === y[0] && x[1] < y[1]; };   // a came before b and has the same first number
+        var mainPath = path('./fuel.js');   // this app's main script, next to this page
+        var main = scripts.filter(function (s) { return path(s.src) === mainPath; })[0];
+        if (!main || !window.caches || failed.indexOf(main.src) < 0) return say();
+        var mine = rel(main.src);
+        caches.keys().then(function (keys) {
+          keys = keys.filter(function (k) { return k.indexOf('fuel-') === 0; });   // this app's offline copies (the training app's are overload-…)
+          var stored = function (url, type) {   // the stored copy as a local file, or null
+            return Promise.all(keys.map(function (k) { return caches.open(k).then(function (c) { return c.match(url); }); })).then(function (hits) {
+              var hit = hits.filter(Boolean)[0];
+              return hit ? hit.arrayBuffer().then(function (b) { return URL.createObjectURL(new Blob([b], { type: type })); }) : null;   // the bytes, not the stored blob: Chrome crashes running a stored blob as a script
+            });
+          };
+          return Promise.all(keys.map(function (k) { return caches.open(k).then(function (c) { return c.keys(); }); })).then(function (lists) {
+            var old = '';   // the newest stored release that is older than this page's
+            lists.forEach(function (reqs) { reqs.forEach(function (r) { var v = path(r.url) === mainPath ? rel(r.url) : ''; if (v && older(v, mine) && (!old || older(old, v))) old = v; }); });
+            if (!old) return say();
+            return Promise.all(scripts.map(function (s) { return stored(swap(s.src, old), 'text/javascript'); }).concat(css.map(function (l) { return stored(swap(l.href, old), 'text/css'); }))).then(function (have) {
+              have.slice(scripts.length).forEach(function (u) { if (!u) return; var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = u; document.head.appendChild(l); });
+              have.slice(0, scripts.length).forEach(function (u, i) { if (!u) return; var n = document.createElement('script'); if (scripts[i].type) n.type = scripts[i].type; n.async = false; n.src = u; document.body.appendChild(n); });
+              setTimeout(say, 4000);
+            });
+          });
+        }).catch(function () { say(); });
+      });
+    })();
+  </script>
+  <!-- The current stylesheet is shared with the training app for now; fuel.css holds the few things only this app has. -->
+  <link rel="stylesheet" href="../styles.css?v=3.0">
+  <link rel="stylesheet" href="./fuel.css?v=3.0">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="brand-mark"></span>Fuel</div>
+      <div id="topbar-right" class="topbar-right"></div>
+    </div>
+  </header>
+
+  <div id="save-warning" class="save-warning" role="alert" hidden></div>
+  <main id="app" class="screen"></main>
+
+  <nav class="tabbar">
+    <button class="tab" data-screen="food"><span class="tab-icon">◉</span>Today</button>
+    <button class="tab" data-screen="trends"><span class="tab-icon">▤</span>Trends</button>
+    <button class="tab" data-screen="settings"><span class="tab-icon">⚙</span>Settings</button>
+  </nav>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-action="sheet-close"></div>
+    <div class="sheet-panel" id="sheet-panel"></div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- Opened by the buttons that take a file: a Fuel backup, Overload's food file, or a full Overload backup. -->
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
+
+  <!-- Classic scripts, in this order: food.js takes what it needs from fuel.js while it loads.
+       sync.js is a module and optional: the app runs on this phone's data without it. -->
+  <script src="./backup.js?v=3.0"></script>
+  <script src="./fuel.js?v=3.0"></script>
+  <script src="./food.js?v=3.0"></script>
+  <script type="module" src="./sync.js?v=3.0"></script>
+</body>
+</html>
