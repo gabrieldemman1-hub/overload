@@ -6,15 +6,17 @@ const CACHE = 'overload-v24';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=3.0',
   './programs.js?v=3.0',
   './backup.js?v=3.0',
   './app.js?v=3.0',
   './sync.js?v=3.0',
   './connector.js?v=3.0',
-  // SHARED FILES GO HERE. The redesign adds './shared/ui.css?v=3.0' and './shared/icons.js?v=3.0' on two
-  // lines of their own, once index.html loads them. Not before: one address in this list that the server
-  // cannot deliver makes the whole install fail, and the phone then stays on the version it has.
+  // The stylesheets and the icon set, written exactly as index.html writes them. Every address in this list must
+  // be one the server can deliver: a single miss makes the whole install fail, and the phone then stays on
+  // the version it has.
+  './shared/ui.css?v=3.0',
+  './train.css?v=3.0',
+  './shared/icons.js?v=3.0',
   './manifest.webmanifest',
   './icon.svg',
   './icon-180.png',

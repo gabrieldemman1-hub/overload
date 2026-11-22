@@ -20,6 +20,7 @@
  */
 (function () {
   'use strict';
+  const icon = window.icon || (() => '');   // ../shared/icons.js. If it did not arrive the diary still works, without its icons
 
   const O = window.__overload;
   const { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast, markDeleted } = O.lib;
@@ -61,6 +62,8 @@
     return fu.dayFrom !== todayKey() || (away && Date.now() - fu.seen > AWAY_MS) ? todayKey() : fu.day;
   }
   function dayName(day) { const t = todayKey(); return day === t ? '' : day === addDays(t, -1) ? 'Yesterday' : fmtDate(day); }
+  // The same for a sheet's title (" · Wed, Nov 18"): the day stays in one piece when the title takes two lines.
+  function dayTag(day) { const n = dayName(day); return n ? ' · <span class="nowrap">' + esc(n) + '</span>' : ''; }
   function entriesFor(day) { return S().diary[day] || []; }
 
   // ---------------------------------------------------------------------------
@@ -320,6 +323,14 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Marks used by more than one sheet
+  // ---------------------------------------------------------------------------
+  const FAVMARK = '<span class="f-favmark">' + icon('star-filled') + '</span> ';   // before a favourite's name in a list
+  const CHEV = '<span class="chev">' + icon('chevron-right', 'm') + '</span>';      // a row that opens something
+  const BACK = '<button class="btn subtle small" data-action="food-back">' + icon('chevron-left') + 'Back</button>';  // back to the Add list
+  const GRAMS = '<span class="u">g</span>';  // the unit sits small beside the number, so the key under it is one word
+
+  // ---------------------------------------------------------------------------
   // Food screen
   // ---------------------------------------------------------------------------
   function bar(v, target, cls) {
@@ -328,7 +339,7 @@
     return '<div class="f-bar"><span class="' + (over ? 'over' : cls || '') + '" style="width:' + pct.toFixed(1) + '%"></span></div>';
   }
   function macroCell(label, v, target) {
-    return '<div class="f-macro"><div class="k">' + label + '</div><div class="v">' + fmtG(v) + '<span class="muted">' + (target > 0 ? ' / ' + target : '') + ' g</span></div>' + bar(v, target, 'm') + '</div>';
+    return '<div class="f-macro' + (target > 0 && v > target * 1.05 ? ' over' : '') + '"><div class="k">' + label + '</div><div class="v">' + fmtG(v) + '<span class="muted">' + (target > 0 ? ' / ' + target : '') + ' g</span></div>' + bar(v, target, 'm') + '</div>';
   }
   function render() {
     const now = dayNow(true); fu.day = now === todayKey() ? null : now;
@@ -336,19 +347,32 @@
     fu.drawn = day; fu.seen = Date.now();
     const list = entriesFor(day), tot = sum(list), t = st.food.targets;
     const label = day === today ? 'Today' : day === addDays(today, -1) ? 'Yesterday' : fmtDate(day);
-    const nav = '<div class="f-daynav"><button class="icon-btn" data-action="food-day" data-d="-1" aria-label="Previous day">‹</button>'
+    const nav = '<div class="f-daynav"><button class="icon-btn" data-action="food-day" data-d="-1" aria-label="Previous day">' + icon('chevron-left') + '</button>'
       + '<button class="f-daylabel" data-action="food-day" data-d="0">' + esc(label) + '</button>'
-      + '<button class="icon-btn" data-action="food-day" data-d="1" aria-label="Next day" ' + (day >= today ? 'disabled' : '') + '>›</button></div>';
+      + '<button class="icon-btn" data-action="food-day" data-d="1" aria-label="Next day" ' + (day >= today ? 'disabled' : '') + '>' + icon('chevron-right') + '</button></div>';
 
-    let head;
-    if (t.kcal > 0) {
-      const left = t.kcal - tot.kcal;
-      head = '<div class="f-kcal"><div><span class="f-big">' + fmtK(tot.kcal) + '</span><span class="muted"> / ' + fmtK(t.kcal) + ' kcal</span></div>'
-        + '<div class="f-left ' + (left < 0 ? 'over' : '') + '">' + (left >= 0 ? fmtK(left) + ' left' : fmtK(-left) + ' over') + '</div></div>' + bar(tot.kcal, t.kcal);
-    } else {
-      head = '<div class="f-kcal"><div><span class="f-big">' + fmtK(tot.kcal) + '</span><span class="muted"> kcal</span></div>'
-        + '<button class="btn small ghost" data-action="food-targets">Set target</button></div>';
-    }
+    const has = t.kcal > 0, left = t.kcal - tot.kcal, over = has && left < 0;
+    const far = has && tot.kcal > t.kcal * 1.05;                      // the 5% rule of bar(): the one that colours
+    const p = has ? Math.min(100, tot.kcal / t.kcal * 100) : 0;       // eaten / target in percent, 0 to 100
+    const ARC = 'M14 128a118 118 0 0 1 236 0';
+    // The read-out in words, hidden from view: assistive tech and the tests read it. .f-big is the calories eaten.
+    let head = has
+      ? '<div class="f-kcal sr"><div><span class="f-big">' + fmtK(tot.kcal) + '</span><span class="muted"> / ' + fmtK(t.kcal) + ' kcal</span></div>'
+        + '<div class="f-left ' + (left < 0 ? 'over' : '') + '">' + (left >= 0 ? fmtK(left) + ' left' : fmtK(-left) + ' over') + '</div></div>'
+      : '<div class="f-kcal sr"><div><span class="f-big">' + fmtK(tot.kcal) + '</span><span class="muted"> kcal</span></div></div>';
+    // The gauge: a half dial of ticks, filled up to p. A drawing, so it is hidden from assistive tech (the block above says it).
+    // From 1 kcal over, the words say "kcal over"; the danger colour and the warning mark come with far.
+    head += '<div class="gauge' + (!has ? ' none' : far ? ' over' : '') + '">'
+      + '<svg viewBox="0 0 264 132" aria-hidden="true" focusable="false">'
+      + '<defs><mask id="gauge-ticks" maskUnits="userSpaceOnUse" x="0" y="0" width="264" height="140"><path d="' + ARC + '" fill="none" stroke="#fff" stroke-width="24" pathLength="244" stroke-dasharray="1.6 2.4"/></mask></defs>'
+      + '<g mask="url(#gauge-ticks)"><path class="gauge-track" d="' + ARC + '"/><path class="gauge-fill" d="' + ARC + '" pathLength="100" stroke-dasharray="' + p.toFixed(1) + ' 100"/></g>'
+      + '<path class="gauge-mark" d="' + ARC + '" pathLength="100" stroke-dasharray="0.7 100" stroke-dashoffset="' + (-Math.max(0, Math.min(99.3, p - 0.35))).toFixed(1) + '"/></svg>'
+      + '<div class="gauge-read" aria-hidden="true"><div class="label">' + (!has ? 'kcal eaten' : over ? (far ? icon('warning', 's') : '') + 'kcal over' : 'kcal left') + '</div>'
+      + '<div class="gauge-num">' + fmtK(!has ? tot.kcal : Math.abs(left)) + '</div></div></div>'
+      // The target is a button: it opens the targets sheet, with or without a target.
+      + '<div class="gauge-foot">' + (has
+        ? '<span aria-hidden="true"><b>' + fmtK(tot.kcal) + '</b> eaten</span><button class="gauge-target" data-action="food-targets" aria-label="Target ' + fmtK(t.kcal) + ' kcal. Change targets">of <b>' + fmtK(t.kcal) + '</b>' + icon('chevron-right', 's') + '</button>'
+        : '<span>No calorie target</span><button class="gauge-target" data-action="food-targets">Set target' + icon('chevron-right', 's') + '</button>') + '</div>';
     const summary = '<div class="card f-sum">' + head + '<div class="f-macros">' + macroCell('Protein', tot.p, t.protein) + macroCell('Carbs', tot.c, t.carbs) + macroCell('Fat', tot.f, t.fat) + '</div></div>';
 
     const meals = MEALS.map((m, mi) => {
@@ -357,16 +381,16 @@
       const rows = items.map((e) => '<button class="f-row" data-action="food-edit" data-id="' + esc(e.id) + '"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">'
         + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div><div class="f-rk">' + fmtK(e.kcal) + '</div></button>').join('');
       return '<div class="card f-meal" data-meal="' + mi + '"><div class="f-meal-head"><h2>' + m + '</h2><div class="row"><span class="muted small">' + (items.length ? fmtK(kcal) + ' kcal' : '') + '</span>'
-        + '<button class="icon-btn f-more" data-action="food-meal-menu" data-meal="' + mi + '" aria-label="' + m + ' options">⋯</button></div></div>'
-        + rows + '<button class="btn subtle small block mt8" data-action="food-add" data-meal="' + mi + '">+ Add food</button></div>';
+        + '<button class="icon-btn f-more" data-action="food-meal-menu" data-meal="' + mi + '" aria-label="' + m + ' options">' + icon('more') + '</button></div></div>'
+        + rows + '<button class="btn subtle small block mt8" data-action="food-add" data-meal="' + mi + '">' + icon('plus') + 'Add food</button></div>';
     }).join('');
     // An empty day offers the day before in one tap.
     let copy = '';
     if (!list.length) {
       const prev = entriesFor(addDays(day, -1));
-      if (prev.length) copy = '<button class="btn ghost block f-copyday" data-action="food-copy-day">Copy ' + (day === today ? 'yesterday' : esc(fmtDate(addDays(day, -1)))) + ' · ' + countText(prev) + '</button>';
+      if (prev.length) copy = '<button class="btn ghost block f-copyday" data-action="food-copy-day">Copy ' + (day === today ? 'yesterday' : esc(fmtDate(addDays(day, -1)))) + ' · <span class="nowrap">' + countText(prev) + '</span></button>';
     }
-    const tip = list.length ? '<p class="tiny muted center mt8">Hold a food, then drag it to another meal.</p>' : '';
+    const tip = list.length ? '<p class="tiny muted center mt16">Hold a food, then drag it to another meal.</p>' : '';
     return '<div class="screen-title"><h1>Food</h1></div>' + nav + summary + copy + meals + tip;
   }
 
@@ -489,10 +513,10 @@
     if (meal != null) fu.meal = meal;
     fu.from = 'add';
     moveStars();
-    openSheet(sheetHeader('Add to ' + MEALS[fu.meal] + (dayName(sheetDay()) ? ' · ' + esc(dayName(sheetDay())) : ''))
+    openSheet(sheetHeader('Add to ' + MEALS[fu.meal] + dayTag(sheetDay()))
       + '<div id="food-added">' + addedLine() + '</div>'
-      + '<div class="f-searchrow"><input class="input" type="search" data-field="food-search" placeholder="Search foods" autocomplete="off" autocorrect="off" enterkeyhint="search" value="' + esc(fu.search) + '">'
-      + '<button class="icon-btn f-scanbtn" data-action="food-scan" aria-label="Scan a barcode">▥</button></div>'
+      + '<div class="f-searchrow"><div class="search">' + icon('search') + '<input class="input" type="search" data-field="food-search" placeholder="Search foods" autocomplete="off" autocorrect="off" enterkeyhint="search" value="' + esc(fu.search) + '" aria-label="Search foods"></div>'
+      + '<button class="icon-btn f-scanbtn" data-action="food-scan" aria-label="Scan a barcode">' + icon('barcode') + '</button></div>'
       + '<div class="btn-row mt8 f-addbtns"><button class="btn ghost small" data-action="food-scan">Scan barcode</button><button class="btn ghost small" data-action="food-quick">Quick add</button><button class="btn ghost small" data-action="food-new">New food</button></div>'
       + '<div id="food-results" class="mt12"></div>');
     renderResults();
@@ -505,16 +529,18 @@
     const per = sv ? fmtK(sv.kcal) + ' kcal / ' + esc(servingText(f.serving, f.liquid)) : f.n ? fmtK(f.n.kcal) + ' kcal / 100 ' + (f.liquid ? 'ml' : 'g') : '';
     const macro = n ? ' · P ' + fmtG(n.p) + ' C ' + fmtG(n.c) + ' F ' + fmtG(n.f) : '';
     const sub = [f.brand && esc(f.brand), per + macro].filter(Boolean).join(' · ');
-    return '<button class="f-row" data-action="food-pick" data-src="' + src + '" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? '<span class="f-favmark">★</span> ' : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
+    return '<button class="f-row" data-action="food-pick" data-src="' + src + '" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? FAVMARK : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div>' + CHEV + '</button>';
   }
   // Favorites and Recent: the row says what its + logs (the remembered amount), and + logs it in one tap.
   function quickRow(f) {
     const a = defaultAmount(f), n = nutrition(f, a.qty, a.unit);
     if (!n) return resultRow(f, 'mine');
     const amount = amountText(f, a.qty, a.unit), done = fu.trip.some((x) => x.id === f.id);
-    const sub = [f.brand && esc(f.brand), esc(amount) + ' · ' + fmtK(n.kcal) + ' kcal'].filter(Boolean).join(' · ');
-    return '<div class="f-row f-qrow"><button class="f-qpick" data-action="food-pick" data-src="mine" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? '<span class="f-favmark">★</span> ' : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div></button>'
-      + '<button class="icon-btn f-plus" data-action="food-plus" data-id="' + esc(f.id) + '" aria-label="' + esc('Add ' + amount + ' ' + f.name) + '"' + (done ? ' disabled' : '') + '>' + (done ? '✓' : '+') + '</button></div>';
+    const sub = [esc(amount), f.brand && esc(f.brand)].filter(Boolean).join(' · ');
+    // The calories are a column of their own, so a list of foods can be compared at a glance.
+    return '<div class="f-row f-qrow"><button class="f-qpick" data-action="food-pick" data-src="mine" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? FAVMARK : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div></button>'
+      + '<div class="f-rk">' + fmtK(n.kcal) + '</div>'
+      + '<button class="icon-btn f-plus" data-action="food-plus" data-id="' + esc(f.id) + '" aria-label="' + esc('Add ' + amount + ' ' + f.name) + '"' + (done ? ' disabled' : '') + '>' + icon(done ? 'check' : 'plus') + '</button></div>';
   }
   // What this trip to the Add sheet has added (newest first: two lines show), and Done. The line is there
   // from the start (same height), so the list does not move under the finger when the first food goes in.
@@ -532,7 +558,7 @@
   // anywhere else works at once and ends this.
   function guardSpot() { if (fu.tap && Date.now() - fu.tap.t < 1000) fu.guard = { x: fu.tap.x, y: fu.tap.y, until: Date.now() + 1000 }; }
   function mealRow(m) {
-    return '<button class="f-row" data-action="food-sm-open" data-id="' + esc(m.id) + '"><div class="grow"><div class="title">' + esc(m.name) + '</div><div class="sub">' + countText(m.items) + '</div></div><span class="chev">›</span></button>';
+    return '<button class="f-row" data-action="food-sm-open" data-id="' + esc(m.id) + '"><div class="grow"><div class="title">' + esc(m.name) + '</div><div class="sub">' + countText(m.items) + '</div></div>' + CHEV + '</button>';
   }
   function countText(items) { return items.length + (items.length === 1 ? ' food' : ' foods') + ' · ' + fmtK(sum(items).kcal) + ' kcal'; }
   function renderResults() {
@@ -546,7 +572,7 @@
       if (fav.length) sections.push('<div class="group-title">Favorites</div>' + fav.map(quickRow).join(''));
       if (rec.length) sections.push('<div class="group-title">Recent</div>' + rec.map(quickRow).join(''));
       html = sections.length ? sections.join('').replace('group-title', 'group-title first')
-        : '<p class="small muted center mt16">Search the food list, scan a barcode, or type a food in from its label.<br>Foods you log show up here next time. Tap ☆ on a food to keep it at the top.</p>';
+        : '<p class="small muted center mt16">Search the food list, scan a barcode, or type a food in from its label.<br>Foods you log show up here next time. Tap the star on a food to keep it at the top.</p>';
     } else {
       const meals = searchMeals(q), mine = searchMine(q);
       if (meals.length) html += '<div class="group-title first">Saved meals</div>' + meals.map(mealRow).join('');
@@ -569,7 +595,7 @@
       else if (fu.off && fu.offQuery === q) {
         html += fu.off.length ? fu.off.map((f) => resultRow(f, 'off')).join('') : '<p class="small muted">Nothing found. Scanning the barcode works better for packaged foods.</p>';
       } else {
-        if (fu.offError) html += '<p class="small muted">' + esc(fu.offError) + '</p>';
+        if (fu.offError) html += '<p class="small muted mb8">' + esc(fu.offError) + '</p>';
         html += '<button class="btn ghost block" data-action="food-online">Search brands for “' + esc(q) + '”</button>';
       }
     }
@@ -593,21 +619,23 @@
     fu.fx = { food, meal: opts.meal != null ? opts.meal : fu.meal, qty: amt.qty, unit: amt.unit, entryId: opts.entryId || null, day: opts.day || sheetDay(),
       orig: opts.orig ? { qty: amt.qty, unit: amt.unit, e: opts.orig } : null };
     const units = unitOptions(food).map((o) => '<option value="' + o.u + '" ' + (o.u === amt.unit ? 'selected' : '') + '>' + esc(o.label) + '</option>').join('');
-    const back = fu.from === 'add' && !opts.entryId ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '';
+    const back = fu.from === 'add' && !opts.entryId ? BACK : '';
     const fixable = food.src === 'custom' ? 'Edit food' : food.src === 'off' || food.barcode ? 'Numbers wrong? Fix them' : '';
     moveStars();
     const stored = S().food.foods[food.id];
-    const star = food.src === 'entry' ? '' : '<button class="icon-btn f-star' + (stored && stored.fav ? ' on' : '') + '" data-action="food-fav" aria-label="Favorite" aria-pressed="' + !!(stored && stored.fav) + '">' + (stored && stored.fav ? '★' : '☆') + '</button>';
-    openSheet(sheetHeader(opts.entryId ? 'Edit' : 'Add food' + (dayName(fu.fx.day) ? ' · ' + esc(dayName(fu.fx.day)) : ''), back + star)
+    const star = food.src === 'entry' ? '' : '<button class="icon-btn f-star' + (stored && stored.fav ? ' on' : '') + '" data-action="food-fav" aria-label="Favorite" aria-pressed="' + !!(stored && stored.fav) + '">' + icon(stored && stored.fav ? 'star-filled' : 'star') + '</button>';
+    openSheet(sheetHeader(opts.entryId ? 'Edit' : 'Add food' + dayTag(fu.fx.day), back + star)
       + '<div class="f-food-name">' + esc(food.name) + '</div>'
       + '<div class="small muted mb8">' + esc([food.brand, food.src === 'usda' ? 'USDA' : food.src === 'off' ? 'Open Food Facts' : food.src === 'custom' ? 'Your food' : ''].filter(Boolean).join(' · ')) + '</div>'
       + '<div class="f-amount"><input class="input" type="number" inputmode="decimal" step="any" min="0" data-field="food-qty" value="' + trimNum(amt.qty) + '" aria-label="Amount">'
       + '<select class="select" data-field="food-unit" aria-label="Unit">' + units + '</select></div>'
       + '<div id="food-preview" class="f-preview mt12"></div>'
       + '<div class="field mt12"><label>Meal</label><div class="seg f-mealseg">' + MEALS.map((m, i) => '<button class="' + (i === fu.fx.meal ? 'on' : '') + '" data-action="food-meal" data-i="' + i + '">' + m + '</button>').join('') + '</div></div>'
-      + '<button class="btn block mt12" data-action="food-save">' + (opts.entryId ? 'Save' : 'Add to ' + MEALS[fu.fx.meal]) + '</button>'
-      + (opts.entryId ? '<button class="btn danger block mt8" data-action="food-delete">Remove from ' + MEALS[fu.fx.meal] + '</button>' : '')
-      + (fixable ? '<button class="btn subtle block mt8" data-action="food-fix">' + fixable + '</button>' : ''));
+      // The main button stays at the bottom of the sheet while the rest scrolls under it. With Remove or Edit food
+      // under it the footer is too tall to pin on a short phone (it would hide the meal picker): f-foot-tall lets it scroll.
+      + '<div class="sheet-foot' + (opts.entryId || fixable ? ' f-foot-tall' : '') + '"><button class="btn block" data-action="food-save">' + (opts.entryId ? 'Save' : 'Add to ' + MEALS[fu.fx.meal]) + '</button>'
+      + (opts.entryId ? '<button class="btn danger block" data-action="food-delete">Remove from ' + MEALS[fu.fx.meal] + '</button>' : '')
+      + (fixable ? '<button class="btn subtle block" data-action="food-fix">' + fixable + '</button>' : '') + '</div>');
     renderPreview();
   }
   // A logged entry opened with its amount untouched keeps its own numbers: days already logged do not
@@ -617,7 +645,7 @@
     const box = $('#food-preview'); const x = fu.fx; if (!box || !x) return;
     const n = kept(x) || nutrition(x.food, x.qty, x.unit);
     const cell = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
-    box.innerHTML = n ? '<div class="stat-row">' + cell(fmtK(n.kcal), 'kcal') + cell(fmtG(n.p), 'Protein g') + cell(fmtG(n.c), 'Carbs g') + cell(fmtG(n.f), 'Fat g') + '</div>'
+    box.innerHTML = n ? '<div class="stat-row">' + cell(fmtK(n.kcal), 'kcal') + cell(fmtG(n.p) + GRAMS, 'Protein') + cell(fmtG(n.c) + GRAMS, 'Carbs') + cell(fmtG(n.f) + GRAMS, 'Fat') + '</div>'
       : '<p class="small muted center">Enter an amount.</p>';
     const btn = $('[data-action="food-save"]'); if (btn) btn.disabled = !n;
   }
@@ -705,7 +733,7 @@
     f.fav = !f.fav; if (!f.fav) delete f.fav;
     O.save();
     const b = $('[data-action="food-fav"]');
-    if (b) { b.textContent = f.fav ? '★' : '☆'; b.classList.toggle('on', !!f.fav); b.setAttribute('aria-pressed', String(!!f.fav)); }
+    if (b) { b.innerHTML = icon(f.fav ? 'star-filled' : 'star'); b.classList.toggle('on', !!f.fav); b.setAttribute('aria-pressed', String(!!f.fav)); }
     toast(f.fav ? 'Added to favorites' : 'Removed from favorites');
   }
   // Copies are new entries with the same food, amount and numbers.
@@ -748,9 +776,9 @@
     const t = sum(m.items);
     const cell = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
     const rows = m.items.map((e, i) => '<div class="f-row f-static"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">' + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div>'
-      + '<div class="f-rk">' + fmtK(e.kcal) + '</div><button class="icon-btn f-x" data-action="food-sm-remove" data-i="' + i + '" aria-label="Remove ' + esc(e.name) + '">✕</button></div>').join('');
-    openSheet(sheetHeader(esc(m.name), fu.from === 'add' ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '')
-      + '<div class="stat-row f-preview">' + cell(fmtK(t.kcal), 'kcal') + cell(fmtG(t.p), 'Protein g') + cell(fmtG(t.c), 'Carbs g') + cell(fmtG(t.f), 'Fat g') + '</div>'
+      + '<div class="f-rk">' + fmtK(e.kcal) + '</div><button class="icon-btn f-x" data-action="food-sm-remove" data-i="' + i + '" aria-label="Remove ' + esc(e.name) + '">' + icon('close') + '</button></div>').join('');
+    openSheet(sheetHeader(esc(m.name), fu.from === 'add' ? BACK : '')
+      + '<div class="stat-row f-preview">' + cell(fmtK(t.kcal), 'kcal') + cell(fmtG(t.p) + GRAMS, 'Protein') + cell(fmtG(t.c) + GRAMS, 'Carbs') + cell(fmtG(t.f) + GRAMS, 'Fat') + '</div>'
       + '<div class="mt8">' + rows + '</div>'
       + '<div class="field mt12"><label>Meal</label><div class="seg f-mealseg">' + MEALS.map((x, i) => '<button class="' + (i === fu.sm.meal ? 'on' : '') + '" data-action="food-sm-meal" data-i="' + i + '">' + x + '</button>').join('') + '</div></div>'
       + '<button class="btn block mt12" data-action="food-sm-log">Add ' + countText(m.items).split(' · ')[0] + ' to ' + MEALS[fu.sm.meal] + '</button>'
@@ -770,7 +798,7 @@
   function sheetQuick(entry) {
     const v = (k) => (entry && entry[k] ? esc(entry[k]) : '');
     fu.fx = entry ? { entryId: entry.id, meal: entry.meal, day: sheetDay() } : { meal: fu.meal, day: sheetDay() };
-    openSheet(sheetHeader(entry ? 'Edit quick add' : 'Quick add' + (dayName(fu.fx.day) ? ' · ' + esc(dayName(fu.fx.day)) : ''))
+    openSheet(sheetHeader(entry ? 'Edit quick add' : 'Quick add' + dayTag(fu.fx.day))
       + '<form id="food-quick-form"><div class="field"><label>Name (optional)</label><input class="input" name="name" value="' + (entry && entry.name !== 'Quick add' ? esc(entry.name) : '') + '" placeholder="Quick add"></div>'
       + '<div class="field"><label>Calories</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" placeholder="from protein, carbs, fat" value="' + (entry && entry.kcal != null ? esc(entry.kcal) : '') + '"></div>'
       + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v('p') + '"></div>'
@@ -809,9 +837,9 @@
     const r2 = (x) => Math.round(x * 100) / 100;  // 0.1 would shift the per-100 g numbers on a small serving
     fu.form = { id: food && food.src === 'custom' ? food.id : null, orig: food && food.id, replace: opts.replace || null, code: canonCode(opts.barcode || f.barcode), day: opts.day, meal: opts.meal != null ? opts.meal : fu.meal, entryId: opts.entryId || null, qty: opts.qty, unit: opts.unit, liquid: !!(food && food.liquid) };
     openSheet(sheetHeader(food && food.src === 'custom' ? 'Edit food' : 'New food')
-      + (opts.msg ? '<div class="banner">' + esc(opts.msg) + '</div>' : '')
+      + (opts.msg ? '<div class="banner warn">' + icon('warning') + '<span>' + esc(opts.msg) + '</span></div>' : '')
       + '<form id="food-form"><div class="field"><label>Name</label><input class="input" name="name" required value="' + v(f.name) + '" placeholder="e.g. Protein bar, chocolate"></div>'
-      + '<div class="field-row"><div class="field"><label>Brand (optional)</label><input class="input" name="brand" value="' + v(f.brand) + '"></div>'
+      + '<div class="field-row f-brandrow"><div class="field"><label>Brand (optional)</label><input class="input" name="brand" value="' + v(f.brand) + '"></div>'
       + '<div class="field"><label>Barcode (optional)</label><input class="input" name="barcode" inputmode="numeric" value="' + v(opts.barcode || f.barcode) + '"></div></div>'
       + '<div class="group-title first">Nutrition label</div>'
       + '<div class="field-row"><div class="field"><label>Serving size</label><input class="input" name="slabel" value="' + v(sv ? sv.label : '1 serving') + '" placeholder="1 bar"></div>'
@@ -889,10 +917,10 @@
   function scanStatus(t) { const el = $('#scan-status'); if (el) el.textContent = t; }
 
   function sheetScan() {
-    openSheet(sheetHeader('Scan barcode', fu.from === 'add' ? '<button class="btn subtle small" data-action="food-back">‹ Back</button>' : '')
+    openSheet(sheetHeader('Scan barcode', fu.from === 'add' ? BACK : '')
       + '<div class="f-scanview"><video id="scan-video" playsinline muted></video><div class="guide"></div></div>'
       + '<p id="scan-status" class="small muted center mt8">Starting camera…</p>'
-      + '<div class="btn-row mt8"><label class="btn ghost small" for="scan-photo">Scan a photo</label><button class="btn ghost small" data-action="food-type-code">Type the number</button></div>'
+      + '<div class="btn-row mt8"><label class="btn ghost small" for="scan-photo">' + icon('camera') + 'Scan a photo</label><button class="btn ghost small" data-action="food-type-code">Type the number</button></div>'
       + '<input type="file" id="scan-photo" data-field="food-photo" accept="image/*" capture="environment" hidden>');
     startCamera();
   }
@@ -983,7 +1011,7 @@
   // ---------------------------------------------------------------------------
   function targetRows() {
     const t = S().food.targets;
-    const row = (k, label, sub) => '<div class="toggle-row"><div><div>' + label + '</div><div class="small muted">' + sub + '</div></div><input class="input" style="width:100px;text-align:center" type="number" inputmode="numeric" min="0" placeholder="–" value="' + (t[k] > 0 ? t[k] : '') + '" data-field="food-target" data-k="' + k + '"></div>';
+    const row = (k, label, sub) => '<div class="toggle-row"><div><div>' + label + '</div><div class="small muted">' + sub + '</div></div><input class="input num" type="number" inputmode="numeric" min="0" placeholder="–" value="' + (t[k] > 0 ? t[k] : '') + '" data-field="food-target" data-k="' + k + '"></div>';
     return row('kcal', 'Calories', 'kcal a day') + row('protein', 'Protein', 'grams a day') + row('carbs', 'Carbs', 'grams a day') + row('fat', 'Fat', 'grams a day') + '<div class="f-target-note">' + targetNote() + '</div>';
   }
   // What the macro targets come to in calories, against the calorie target; protein from the latest weigh-in.
@@ -1031,7 +1059,7 @@
         const a = defaultAmount(f);
         fu.fx = { food: f, meal: fu.meal, qty: a.qty, unit: a.unit, entryId: null, day: sheetDay(), orig: null };
         saveEntry(true);
-        if (btn) { btn.disabled = true; btn.textContent = '✓'; }
+        if (btn) { btn.disabled = true; btn.innerHTML = icon('check'); }
         break;
       }
       case 'food-online': searchOnline(); break;
@@ -1150,11 +1178,11 @@
 
   // The open Add sheet names its day; after midnight or a night away that name changes.
   function retitle() {
-    const h2 = $('#sheet .sheet-title h2'), x = fu.fx, dn = (d) => (dayName(d) ? ' · ' + dayName(d) : '');
+    const h2 = $('#sheet .sheet-title h2'), x = fu.fx;
     if (!h2 || fu.from !== 'add') return;
-    const t = $('#food-results') ? 'Add to ' + MEALS[fu.meal] + dn(sheetDay()) : x && !x.entryId && ($('#food-preview') || $('#food-quick-form')) ? (x.food ? 'Add food' : 'Quick add') + dn(x.day) : null;
-    if (t == null || h2.textContent === t) return;
-    h2.textContent = t;
+    const t = $('#food-results') ? ['Add to ' + MEALS[fu.meal], sheetDay()] : x && !x.entryId && ($('#food-preview') || $('#food-quick-form')) ? [x.food ? 'Add food' : 'Quick add', x.day] : null;
+    if (t == null || h2.textContent === t[0] + (dayName(t[1]) ? ' · ' + dayName(t[1]) : '')) return;
+    h2.innerHTML = t[0] + dayTag(t[1]);
     const a = $('#food-added'); if (a) a.innerHTML = addedLine();
   }
   // Back on a new day after more than 30 minutes away, an Add sheet that was for today adds to the new day.

@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-app="fuel">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
   <title>Fuel</title>
   <meta name="description" content="Calories and macros: a personal food diary.">
-  <meta name="theme-color" content="#111214">
+  <meta name="theme-color" content="#0a0b0c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -99,14 +99,19 @@
       });
     })();
   </script>
-  <!-- The current stylesheet is shared with the training app for now; fuel.css holds the few things only this app has. -->
-  <link rel="stylesheet" href="../styles.css?v=3.0">
+  <!-- shared/ui.css is the design both apps share (one folder up); fuel.css holds what only this app has.
+       data-app="fuel" on <html> is what gives the shared stylesheet this app's accent. -->
+  <link rel="stylesheet" href="../shared/ui.css?v=3.0">
   <link rel="stylesheet" href="./fuel.css?v=3.0">
 </head>
 <body>
+  <!-- The mark and the tab icons are the drawings of ../shared/icons.js (mark-fuel, gauge, bars, settings), written
+       out here so the frame is whole before any script runs. fuel.js sets the title: the screen's name.
+       The meter is part of the top bar both apps share; only the training app ever shows it. -->
   <header class="topbar">
+    <div id="topbar-meter" class="topbar-meter" hidden><span></span></div>
     <div class="topbar-inner">
-      <div class="brand"><span class="brand-mark"></span>Fuel</div>
+      <div class="brand"><span class="brand-mark"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M7.17 12a7.03 7.03 0 1 0 14.06 0a7.03 7.03 0 1 0 -14.06 0ZM9.84 16.66C8.95 11.2 12.45 7.34 18.59 7.34C18.77 13.34 15.09 17.3 9.84 16.66Z"/><path d="M11.67 14.84L15.26 10.99" stroke-width=".75"/><path d="M3.19 5.53v3.52a1.17 1.17 0 0 0 2.34 0V5.53M4.36 5.53V18.47" stroke-width="1.17"/></svg></span><span id="topbar-title" class="brand-title">Fuel</span></div>
       <div id="topbar-right" class="topbar-right"></div>
     </div>
   </header>
@@ -115,9 +120,9 @@
   <main id="app" class="screen"></main>
 
   <nav class="tabbar">
-    <button class="tab" data-screen="food"><span class="tab-icon">◉</span>Today</button>
-    <button class="tab" data-screen="trends"><span class="tab-icon">▤</span>Trends</button>
-    <button class="tab" data-screen="settings"><span class="tab-icon">⚙</span>Settings</button>
+    <button class="tab" data-screen="food"><span class="tab-icon"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3.5 17a8.5 8.5 0 0 1 17 0"/><path d="M12 17l4-5.5"/><path d="M12 17h.01" stroke-width="2.8"/></svg></span>Today</button>
+    <button class="tab" data-screen="trends"><span class="tab-icon"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4.5" y="12" width="3.5" height="8" rx=".9"/><rect x="10.25" y="4" width="3.5" height="16" rx=".9"/><rect x="16" y="8.5" width="3.5" height="11.5" rx=".9"/></svg></span>Trends</button>
+    <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h8.5M17.5 8H20M4 16h2.5M11.5 16H20"/><circle cx="15" cy="8" r="2.5"/><circle cx="9" cy="16" r="2.5"/></svg></span>Settings</button>
   </nav>
 
   <div id="sheet" class="sheet" hidden>
@@ -130,8 +135,10 @@
   <!-- Opened by the buttons that take a file: a Fuel backup, Overload's food file, or a full Overload backup. -->
   <input type="file" id="import-file" accept="application/json,.json" hidden>
 
-  <!-- Classic scripts, in this order: food.js takes what it needs from fuel.js while it loads.
+  <!-- Classic scripts, in this order: icons.js first (the scripts after it draw their icons with its icon();
+       if it did not arrive they still run, without icons), and food.js takes what it needs from fuel.js while it loads.
        sync.js is a module and optional: the app runs on this phone's data without it. -->
+  <script src="../shared/icons.js?v=3.0"></script>
   <script src="./backup.js?v=3.0"></script>
   <script src="./fuel.js?v=3.0"></script>
   <script src="./food.js?v=3.0"></script>

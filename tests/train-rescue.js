@@ -67,7 +67,7 @@ async function store(page, base, entries) {
 }
 // A whole release in a cache: every file of the page under ?v=<v>; `appBody` replaces app.js.
 const release = (base, cache, v, appBody) => FILES.map((f) => (f === 'app.js' && appBody != null ? { cache, url: base + '/' + f + '?v=' + v, body: appBody } : { cache, url: base + '/' + f + '?v=' + v, from: base + '/' + f }));
-const versionShown = async (page) => { await lib.openTab(page, 'settings'); return T.text(page, '#app p.tiny.center'); };
+const versionShown = async (page) => { await lib.openTab(page, 'settings'); return T.text(page, '#app p.version'); };
 // Waits for the rescue to give up (its last word) and returns what the page says.
 async function gaveUp(page, base) {
   await page.goto(base + '/index.html', { waitUntil: 'load' });
@@ -107,7 +107,7 @@ async function rescues(browser, server) {
       await store(page, base, release(base, 'overload-v24', '3.0').concat(release(base, 'overload-v25', '3.1', APP.replace("const VERSION = '3.0'", "const VERSION = '3.1'"))));
       await page.goto(base + '/index.html', { waitUntil: 'load' });
       await page.waitForFunction(() => !!window.__overload, null, { timeout: 15000 });
-      need((await versionShown(page)) === 'Overload · v3.1', 'the app that started reads ' + (await T.text(page, '#app p.tiny.center')));
+      need((await versionShown(page)) === 'Overload · v3.1', 'the app that started reads ' + (await T.text(page, '#app p.version')));
       return 'the 3.2 page started the stored 3.1';
     } finally { await p.close(); }
   });
@@ -142,27 +142,30 @@ async function rescues(browser, server) {
 
 // Stylesheets that are slow to arrive hold back the scripts at the end of the page, so nothing starts and
 // nothing is drawn. After 8 s the page swaps each waiting stylesheet for a copy that does not hold anything
-// back (and says it is still starting, until the app draws itself). With two stylesheets both must be swapped.
+// back (and says it is still starting, until the app draws itself). Every one must be swapped: the page's own
+// (shared/ui.css and train.css) and the one this test adds.
 async function slowStart(browser, server) {
   const name = 'slow start';
   const p = await lib.newPhone(browser, { timezoneId: fx.meta.tz, now: fx.meta.now });
   await lib.seedV28(p.context, fx);
   let waiting = 0, release = null;
   const held = new Promise((r) => { release = r; });
-  await p.context.route('**/index.html', (r) => r.fulfill({ contentType: 'text/html', body: pageOf('3.0') }));   // this release, plus a second stylesheet
-  await p.context.route('**/styles.css*', async (r) => { waiting++; await held; r.continue(); });
-  await p.context.route('**/extra.css*', async (r) => { waiting++; await held; r.fulfill({ contentType: 'text/css', body: EXTRA_CSS }); });
+  await p.context.route('**/index.html', (r) => r.fulfill({ contentType: 'text/html', body: pageOf('3.0') }));   // this release, plus one more stylesheet
+  const CSS = FILES.filter((f) => /\.css$/.test(f));   // the page's own stylesheets and the extra one
+  await p.context.route('**/*.css*', async (r) => { waiting++; await held; r.continue(); });
+  await p.context.route('**/extra.css*', async (r) => { waiting++; await held; r.fulfill({ contentType: 'text/css', body: EXTRA_CSS }); });   // registered last: it answers for extra.css
   const page = await p.context.newPage();
   const sheets = () => page.evaluate(() => [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => !!l.sheet));
-  await run.step(name, 'two stylesheets still on their way: after 8 s the app starts all the same, and they apply when they arrive', async () => {
+  await run.step(name, 'every stylesheet still on its way: after 8 s the app starts all the same, and they apply when they arrive', async () => {
+    need(CSS.length >= 2, 'the test page has ' + CSS.length + ' stylesheets, expected two or more');
     await page.goto(server.url + '/index.html', { waitUntil: 'commit' });
-    for (let i = 0; i < 50 && waiting < 2; i++) await lib.sleep(100);
+    for (let i = 0; i < 50 && waiting < CSS.length; i++) await lib.sleep(100);
     await lib.sleep(700);
-    need(waiting === 2, waiting + ' stylesheets are being waited for, expected 2');
+    need(waiting === CSS.length, waiting + ' stylesheets are being waited for, expected ' + CSS.length);
     need(await page.evaluate(() => !window.__overload && document.readyState === 'loading'), 'the page did not wait for its stylesheets (the test proves nothing)');
     await p.context.clock.fastForward(8100);
     await page.waitForFunction(() => !!window.__overload, null, { timeout: 8000, polling: 100 });
-    same(await sheets(), [false, false], 'the stylesheets while they are still on their way');
+    same(await sheets(), CSS.map(() => false), 'the stylesheets while they are still on their way');
     need(await page.evaluate(() => !document.getElementById('boot-note') && window.__overload.state.workouts.length > 0), 'the app did not draw the saved data');
     release();
     await page.waitForFunction(() => [...document.querySelectorAll('link[rel="stylesheet"]')].every((l) => !!l.sheet), null, { timeout: 8000, polling: 100 });

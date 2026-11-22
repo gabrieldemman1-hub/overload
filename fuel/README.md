@@ -12,21 +12,30 @@ under one number (`bump.sh` in the repo root sets it in both), but they are sepa
 
 | File | What |
 | --- | --- |
-| `index.html` | The page: top bar, tab bar (Today, Trends, Settings), the sheet, the toast. Applies the saved theme before first paint, and holds the start-up rescue (runs the previous release's stored files when this release's did not arrive). |
-| `fuel.js` | The shell. Loads and saves the data, draws the frame, Trends and Settings, keeps the backups, brings the food log across from Overload, registers the offline worker. Offers `window.__overload` to `food.js` and `sync.js`. |
-| `food.js` | The diary itself (Today), moved here from the repo root. It runs on `window.__overload` exactly as it did in Overload. |
+| `index.html` | The page: top bar (Fuel's mark and the name of the screen), tab bar (Today, Trends, Settings), the sheet, the toast. `data-app="fuel"` on `<html>` gives the shared stylesheet Fuel's green. Applies the saved theme before first paint, and holds the start-up rescue (runs the previous release's stored files when this release's did not arrive). |
+| `fuel.js` | The shell. Loads and saves the data, draws the frame, Welcome, Add to Home Screen, Trends and Settings, keeps the backups, brings the food log across from Overload, registers the offline worker. Offers `window.__overload` to `food.js` and `sync.js`. |
+| `food.js` | The diary itself (Today and its sheets), moved here from the repo root. It runs on `window.__overload` exactly as it did in Overload. |
 | `backup.js` | Automatic copies in IndexedDB (`fuel-copies`). Fuel's own copy of the training app's file. |
-| `fuel.css` | The few styles only Fuel has. Everything else comes from the stylesheet it shares with the training app. |
-| `sync.js` | Cloud sync (optional). The app starts and works without it. |
-| `sw.js` | The offline worker (cache `fuel-vN`, scope `/overload/fuel/`). |
-| `manifest.webmanifest`, `icon*.png`, `icon.svg` | What "Add to Home Screen" uses. `start_url` and `scope` must not change once the app is on a phone. |
+| `fuel.css` | The rules only Fuel needs: the calorie gauge and the macros, meals and food rows, the Add and amount sheets, the scanner, Trends, Welcome and Add to Home Screen. Loaded after `../shared/ui.css`. |
+| `sync.js` | Cloud sync (optional). The app starts and works without it. Where its data is in the account: see below. |
+| `sw.js` | The offline worker (cache `fuel-vN`, scope `/overload/fuel/`). Its install list names every versioned file the page loads, written as the page writes it (`sh bump.sh --check` in the repo root compares them). |
+| `manifest.webmanifest`, `icon*.png`, `icon.svg` | What "Add to Home Screen" uses: a fork beside a plate with a leaf, on Fuel's green. `start_url` and `scope` must not change once the app is on a phone. |
 
-Shared with the training app and left where they are: `../data/foods.json` (the food list) and
-`../vendor/zxing/` (the barcode reader). `food.js` asks for them one folder up from the page.
+Shared with the training app, one folder up, and left where they are:
 
-The scripts are classic scripts in this order: `backup.js`, `fuel.js`, `food.js`. `food.js` takes
-`window.__overload` and its twelve `lib` helpers while it loads, so `fuel.js` must have run first.
-`sync.js` is a module and comes last.
+| File | What |
+| --- | --- |
+| `../shared/ui.css` | The design both apps share: colours, type, and every shared component (buttons, cards, rows, sheets, the top bar and the tab bar). Each app sets its accent with `data-app`. |
+| `../shared/icons.js` | The icon set: `icon('name')` gives an inline SVG. Fuel's mark in the top bar and the three tab icons are the same drawings, written out in `index.html`. |
+| `../data/foods.json` | The food list. `food.js` asks for it one folder up from the page. |
+| `../vendor/zxing/` | The barcode reader, loaded on the first scan. |
+
+The look is described in `../dev/design/SYSTEM.md`; its reference screens are in `../dev/design/system/`.
+
+The scripts are classic scripts in this order: `../shared/icons.js`, `backup.js`, `fuel.js`, `food.js`.
+`fuel.js` and `food.js` draw their icons with `icon()` and still run if `icons.js` did not arrive (without
+icons). `food.js` takes `window.__overload` and its twelve `lib` helpers while it loads, so `fuel.js` must
+have run first. `sync.js` is a module and comes last.
 
 ## How the data is kept
 
@@ -63,6 +72,36 @@ Everything is in `localStorage` on the device, under names of Fuel's own:
 - Automatic copies: one a day for the last 7 days (taken at start, brought up to date when the app goes to
   the background), and one before each import, reset, restore and cloud sign-in. Settings lists them.
 - Export JSON writes the state itself as `fuel-backup-YYYY-MM-DD.json`.
+
+## Cloud sync: where the data is in the account
+
+Cloud sync is optional. It uses the same Firebase project and the same email and password as Overload, so
+one account holds both apps' data, in documents of their own:
+
+| In the account | Holds | Written by |
+| --- | --- | --- |
+| `users/{uid}/meta/fuel` | `{ core, updatedAt, v: 1 }`. `core` is one JSON text: units and theme, the food targets, saved foods, saved meals, the deletion records and the body weight. | Fuel |
+| `users/{uid}/fuelDays/{YYYY-MM-DD}` | `{ data, updatedAt, v: 1 }`: one document for each day of the food log. | Fuel |
+| `users/{uid}/meta/state`, `users/{uid}/workouts/{id}` | Overload's training data. | Overload |
+| `users/{uid}/foodDays/{YYYY-MM-DD}` | The food log as Overload kept it up to 2.8. Overload 3.0 leaves it as it is. | Overload up to 2.8 |
+
+- Fuel writes and listens only under `meta/fuel` and `fuelDays`. It never writes, deletes or listens to
+  Overload's documents, so nothing either app does can change what the other finds.
+- The first sign-in to an account that has no `meta/fuel` yet reads `meta/state` and `foodDays` once, to bring
+  the food log across: days, targets, saved foods and meals, the deletion records of entries, units, theme
+  and the latest weigh-in. It is added the way an import adds: what the phone holds wins by id, and what was
+  deleted on the phone stays deleted. Nothing is sent before those reads have worked. After that Overload's
+  copy is never read again: food logged later in an old Overload comes with Copy my food log.
+- On the phone, `fuel.sync.v1` is sync's note of what the account holds of this phone's data (`{ uid, core,
+  days }`, as fingerprints). A day leaves a phone only through deletion records, never because its document
+  is missing in the account. `moved` is not part of `core`: it stays on each phone.
+- The Firebase app has a name of its own (`fuel`), so where both apps share one browser storage they do not
+  share a sign-in or an offline cache.
+- `../firestore.rules` needs nothing for this: its one rule covers everything under `users/{uid}`.
+- The three Firebase files are not in the worker's install list (a slow or blocked download must never keep
+  the app from installing). The worker stores them once it is active, and whenever a page loads them.
+- Reset and Restore replace the food log in the account too when signed in. With a second phone signed in
+  that still holds the old log, its days and saved foods come back from there.
 
 ## Where it runs on an iPhone
 
@@ -111,6 +150,8 @@ node tests/fuel-backup.js    # export and import, automatic copies, restore, unr
 node tests/fuel-host.js      # what the shell gives cloud sync, with a stand-in for sync.js
 node tests/fuel-update.js    # how the page takes a new offline worker, with stand-in workers
 node tests/fuel-rescue.js    # the start-up rescue in index.html, with stored copies put there by hand
+node tests/fuel-sync.js      # cloud sync against a stand-in for Firebase (tests/fake-firebase), next to Overload
+node tests/fuel-sw.js        # the offline worker with real service workers, alone and beside Overload's
 ```
 
 `tests/fuel-common.js` is their shared helper. It builds what Overload hands over from the v2.8 fixtures and

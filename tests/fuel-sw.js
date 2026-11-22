@@ -402,7 +402,8 @@ async function openPage(phone, url, ready) {
         const strays = cs[root.cache].filter((u) => NOT_TRAINING.test(u));
         need(strays.length === 0, 'the training cache holds: ' + strays.join(', '));
         same((await cachesOf(fuel))[now.cache], had, 'fuel-v1 after the training update');
-        need(notFuels(had).length === 0 && !had.some((u) => root.assets.filter((a) => /\.js\?v=/.test(a)).map(rootAbs).includes(u)), 'fuel-v1 holds files of the training app');
+        // (The icon set in shared/ is listed by both workers: the one script the two apps have in common.)
+        need(notFuels(had).length === 0 && !had.some((u) => root.assets.filter((a) => /\.js\?v=/.test(a) && !/(^|\/)shared\//.test(a)).map(rootAbs).includes(u)), 'fuel-v1 holds files of the training app');
         same((await regs(fuel)).map((r) => r.scope + ' ' + r.active), [BASE + ' ' + ROOT_SW, '/overload/fuel/ ' + FUEL_SW], 'the registrations');
         return root.cache + ': ' + cs[root.cache].length + ' entries, none under fuel/, data/ or vendor/; ' + now.cache + ': ' + had.length + ', all Fuel\'s';
       });

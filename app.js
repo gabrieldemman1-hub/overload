@@ -7,6 +7,7 @@
  */
 (function () {
   'use strict';
+  const icon = window.icon || (() => '');   // shared/icons.js. If it did not arrive the app still works: buttons keep their labels
 
   // ---------------------------------------------------------------------------
   // Constants
@@ -353,8 +354,8 @@
     el.hidden = !ui.saveFailed;
     document.body.classList.toggle('has-save-warning', !!ui.saveFailed);
     el.innerHTML = ui.saveFailed ? '<div class="banner danger"><b>The app\'s storage is full.</b> Your latest changes are not saved on this phone and are lost if the app closes. '
-      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">Export backup</button></div></div>' : '';
-    // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in styles.css).
+      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>' : '';
+    // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in shared/ui.css).
     document.documentElement.style.setProperty('--save-warning-h', ui.saveFailed ? el.offsetHeight + 'px' : '0px');
   }
   // ---- Automatic copies, storage use, last export (backup.js keeps the copies in IndexedDB) ----
@@ -418,10 +419,10 @@
   function noticesHtml() {
     if (ui.unreadable || activeWorkout()) return '';
     const pct = Math.round(storageUsed() / STORE_LIMIT * 100);
-    if (pct >= 70) return '<div class="notice"><span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
+    if (pct >= 70) return '<div class="notice">' + icon('warning') + '<span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
     if (exportDue()) {
       const t = backupInfo().lastExport;
-      return '<div class="notice"><span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">✕</button></div>';
+      return '<div class="notice">' + icon('warning') + '<span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">' + icon('close', 'm') + '</button></div>';
     }
     return '';
   }
@@ -450,12 +451,12 @@
   function renderBackupCard() {
     const used = storageUsed(), pct = Math.round(used / STORE_LIMIT * 100), cls = pct >= 70 ? 'high' : 'ok';
     return '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
-      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
+      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">' + icon('export') + 'Export JSON</button><button class="btn ghost" data-action="import">' + icon('import') + 'Import JSON</button></div>'
       + '<p class="small muted mt8" id="last-export">' + lastExportText() + '</p>'
       + '<input type="file" accept="application/json,.json" id="import-file" hidden>'
       + '<div class="toggle-row"><div><div>Storage used</div><div class="small muted">' + used.toLocaleString() + ' of about ' + STORE_LIMIT.toLocaleString() + ' characters the app can safely use. Today warns at 70%.</div>'
       + '<span class="vol-bar store-bar"><span class="vol-fill ' + cls + '" style="width:' + Math.min(100, pct) + '%"></span></span></div><span class="vol-n ' + cls + '">' + pct + '%</span></div>'
-      + '<div class="mt12">Automatic copies</div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days, and one taken before each import, reset, restore or cloud sign-in.</p>'
+      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days, and one taken before each import, reset, restore or cloud sign-in.</p>'
       + '<div id="safety-copies">' + (ui.copiesHtml || '<p class="small muted">Looking for copies…</p>') + '</div></div>';
   }
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
@@ -527,7 +528,7 @@
     const light = t === 'light' || (t === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
     root.classList.toggle('system-light', t === 'system' && light);
     try { localStorage.setItem('overload.theme', t); } catch (e) { /* ignore */ }
-    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f3f3f5' : '#111214';
+    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f6f6f3' : '#0a0b0c';   // --bg of each theme (shared/ui.css)
   }
   // Replace the whole state (used by cloud sync when remote data arrives).
   function setState(next) {
@@ -805,7 +806,7 @@
       console.error(e);
       $('#app').innerHTML = '<div class="card mt16"><p><b>This screen could not be shown.</b> Your saved data has not changed. Export a backup to keep it safe, then try another tab.</p>'
         + '<p class="small muted mt8">' + esc((e && e.message) || e) + '</p>'
-        + '<div class="btn-row mt12"><button class="btn" data-action="export">Export backup</button></div></div>';
+        + '<div class="btn-row mt12"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>';
     }
   }
   function renderScreen() {
@@ -823,23 +824,41 @@
     }
   }
 
+  // The top bar names the screen. On Today during a workout it carries the workout instead: its name, exercises
+  // done, the time so far and, on its bottom edge, one block per set (the stylesheet draws the bar's workout layout
+  // whenever the meter is showing). The screen's own h1 stays in the page, hidden from view.
+  const TITLES = { today: 'Today', program: 'Program', exercises: 'Exercises', history: 'History', settings: 'Settings' };
   function renderTopbar() {
-    const upd = ui.updateReady ? '<button class="pill accent" data-action="reload">Update ready</button>' : '';
-    const sync = ui.sync.status === 'off' ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
-    $('#topbar-right').innerHTML = upd + sync;
+    const w = !ui.unreadable && ui.screen === 'today' ? activeWorkout() : null;
+    const title = $('#topbar-title'); if (title) title.textContent = ui.unreadable ? 'Your data' : w ? w.dayName : TITLES[ui.screen] || 'Overload';
+    const meta = w ? '<span class="tb-meta"><b>' + w.entries.filter((e) => e.done).length + '/' + w.entries.length + '</b><span class="tb-time"><span class="sep">·</span><span id="tb-elapsed">' + durationText(w) + '</span></span></span>' : '';
+    // Update ready: the words show on every screen; during a workout the stylesheet leaves only the icon.
+    const upd = ui.updateReady ? '<button class="pill accent" data-action="reload" aria-label="Update ready">' + icon('refresh', 'm') + '<span>Update ready</span></button>' : '';
+    const sync = ui.sync.status === 'off' ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" aria-label="Cloud sync: ' + ui.sync.status + '" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
+    $('#topbar-right').innerHTML = meta + upd + sync;
+    const meter = $('#topbar-meter'); if (!meter) return;
+    meter.hidden = !w; if (!w) return;
+    // Sets ticked of sets planned, over every exercise of the workout.
+    const sets = w.entries.reduce((n, en) => n + en.sets.length, 0), ticked = w.entries.reduce((n, en) => n + en.sets.filter((x) => x.done).length, 0);
+    meter.style.setProperty('--n', Math.max(1, sets));
+    if (meter.firstElementChild) meter.firstElementChild.style.width = (ticked / Math.max(1, sets) * 100).toFixed(1) + '%';
+    Object.entries({ role: 'progressbar', 'aria-label': 'Sets done', 'aria-valuemin': 0, 'aria-valuemax': sets, 'aria-valuenow': ticked }).forEach(([k, v]) => meter.setAttribute(k, v));
   }
-  function syncIcon(st) { return { synced: '☁ ✓', syncing: '☁ …', offline: '☁ ⏸', error: '☁ !' }[st] || '☁'; }
+  function syncIcon(st) { return icon({ synced: 'cloud-check', syncing: 'sync', offline: 'cloud-off', error: 'warning' }[st] || 'cloud', 'm'); }
 
   // ---- Today ---------------------------------------------------------------
   function renderToday() {
     const w = activeWorkout();
     if (w) return renderActiveWorkout(w);
 
-    const ti = weekdayIndex();
+    const ti = weekdayIndex(), monday = weekStart(todayKey());
+    const trained = new Set(state.workouts.filter((x) => x.finishedAt).map((x) => x.date));
+    // This week, each day with its date: trained days are solid, days still to come that have a workout are outlined.
     const strip = WEEKDAYS.map((d, i) => {
-      const dayId = state.program.schedule[i];
-      const cls = ['day-chip', i === ti ? 'today' : '', i === ui.selectedDay ? 'selected' : '', dayId ? '' : 'rest'].join(' ');
-      return '<button class="' + cls + '" data-action="select-day" data-i="' + i + '" aria-label="' + WEEKDAYS_LONG[i] + '">' + d[0] + '<span class="dot"></span></button>';
+      const dayId = state.program.schedule[i], key = addDays(monday, i), dayNum = +key.slice(8), done = trained.has(key);
+      const cls = ['day-chip', i === ti ? 'today' : '', i === ui.selectedDay ? 'selected' : '', dayId ? '' : 'rest', done ? 'done' : '', i < ti ? 'past' : ''].filter(Boolean).join(' ');
+      return '<button class="' + cls + '" data-action="select-day" data-i="' + i + '" aria-label="' + WEEKDAYS_LONG[i] + ' ' + dayNum + (done ? ', trained' : dayId ? '' : ', rest day') + '">'
+        + '<span class="wd">' + d[0] + '</span><span class="d">' + dayNum + '</span></button>';
     }).join('');
     const stripHtml = '<div class="day-strip">' + strip + '</div>';
 
@@ -847,32 +866,34 @@
     const day = dayId ? dayById(dayId) : null;
     const others = state.program.days.filter((d) => !day || d.id !== day.id);
     const otherList = others.length ? '<div class="list">' + others.map((d) => '<div class="list-item"><div class="grow"><div class="title">' + esc(d.name) + '</div><div class="sub">' + plural(d.exercises.length, 'exercise') + (state.program.schedule.includes(d.id) ? '' : ' · not on the schedule') + '</div></div><button class="btn small ghost" data-action="start-workout" data-day="' + d.id + '" ' + (d.exercises.length ? '' : 'disabled') + '>Start</button></div>').join('') + '</div>' : '';
-    // On a rest day the list is the main content; on a training day it hides behind a button.
-    const otherHtml = !others.length ? '' : (!day || ui.showOthers)
-      ? '<div class="group-title">Start a different day</div>' + otherList
-      : '<button class="btn subtle block mt8" data-action="toggle-others">Start a different day…</button>';
+    // On a rest day the list is the main content; on a training day it hides behind a button in the day's card.
+    const otherHtml = others.length && (!day || ui.showOthers) ? '<div class="group-title" id="other-days">Start a different day</div>' + otherList : '';
     let body;
     if (!day) {
-      body = '<div class="card"><div class="empty">Rest day.<br><span class="small">Nothing scheduled. Start any day below if you feel like lifting.</span></div></div>' + otherHtml;
+      body = '<div class="card"><div class="empty">' + icon('moon') + '<b>Rest day</b>Nothing scheduled. Start any day below if you feel like lifting.</div></div>' + otherHtml;
     } else {
       const items = day.exercises.map((exId) => {
         const ex = exById(exId); if (!ex) return '';
         const p = prescFor(exId);
-        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + prescText(ex, p) + '</div></div><span class="chev">›</span></button>';
+        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + prescText(ex, p) + '</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>';
       }).join('');
-      // Start sits right under the day name so it is on the first screen, above the exercise list.
-      body = '<div class="card flat"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div>'
-        + '<button class="btn small subtle deload-start" data-action="start-deload" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start as deload</button></div>'
-        + '<button class="btn block" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start workout</button>'
+      // Start sits right under the day name so it is on the first screen, above the exercise list; the two other
+      // ways to start are a row of keys under it. The card keeps the class "flat": the tests find it by that.
+      // Once the list of other days is open its button stays where it is, switched off: were it to go, Start as
+      // deload would stretch into its place, under a finger that may tap twice.
+      body = '<div class="card flat today-card"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div></div>'
+        + '<button class="btn block big" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>' + icon('play') + 'Start workout</button>'
+        + '<div class="btn-row mt8"><button class="btn small ghost deload-start" data-action="start-deload" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start as deload</button>'
+        + (others.length ? '<button class="btn small ghost" data-action="toggle-others"' + (ui.showOthers ? ' disabled' : '') + '>Start a different day</button>' : '') + '</div>'
         + '<div class="list mt12">' + (items || '<div class="empty">No exercises yet. Add some in Program.</div>') + '</div></div>' + otherHtml;
     }
     const last = state.workouts.filter((x) => x.finishedAt).slice(-1)[0];
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
     const st = streakInfo();
-    const streakLine = st.streak > 1 ? '<div class="banner">🔥 ' + st.streak + '-day streak. Keep it going.</div>' : '';
+    const streakLine = st.streak > 1 ? '<div class="banner">' + icon('flame', '', '🔥 ') + '<span>' + st.streak + '-day streak. Keep it going.</span></div>' : '';
     const night = state.sleep.find((x) => x.date === todayKey());
     const redLine = day && night && night.recovery != null && night.recovery < 34 && ui.selectedDay === weekdayIndex()
-      ? '<div class="banner">🔴 Recovery ' + night.recovery + '% (red). Train, but hold the weights and skip extra sets today.</div>' : '';
+      ? '<div class="banner warn">' + icon('warning') + '<span>Recovery ' + night.recovery + '% (red). Train, but hold the weights and skip extra sets today.</span></div>' : '';
     const checkin = renderCheckinCard();
     return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + streakLine + redLine + (checkinDone() ? '' : checkin) + stripHtml + body + (checkinDone() ? checkin : '') + lastLine;
   }
@@ -892,7 +913,7 @@
     return !ui.checkinEdit && !weighDue() && (!state.settings.sleepOn || state.sleep.some((x) => x.date === today));
   }
   // WHOOP recovery bands: green 67–100, yellow 34–66, red 0–33.
-  const recBand = (r) => (r >= 67 ? ['green', 'green'] : r >= 34 ? ['amber', 'yellow'] : ['accent', 'red']);
+  const recBand = (r) => (r >= 67 ? ['green', 'green'] : r >= 34 ? ['amber', 'yellow'] : ['red', 'red']);
   const recPill = (r) => (r == null ? '' : '<span class="pill ' + recBand(r)[0] + '">Recovery ' + r + '%</span>');
   function sleepAvg(days, endKey, fromKey) {
     const to = endKey || todayKey(), from = fromKey || addDays(to, -(days - 1));
@@ -916,18 +937,19 @@
       if (bwToday) parts.push(fmtW(bwToday.weight) + ' ' + u);
       else if (lastBw && s.weighEvery) parts.push('Next weigh-in ' + fmtDate(addDays(lastBw.date, s.weighEvery)));
       const avg = sleepAvg(7);
-      return '<div class="card"><div class="row between"><b>Morning check-in ✓</b><div class="row" style="gap:6px">' + (slToday ? recPill(slToday.recovery) : '') + '<button class="btn small ghost" data-action="checkin-edit">Edit</button></div></div>'
+      // Title, pill, Edit in this order (the card's text is read as one line); the stylesheet puts the pill on the second line.
+      return '<div class="card checkin-done"><div class="row between"><b>Morning check-in ' + icon('check', 's', '✓') + '</b><div class="row tight">' + (slToday ? recPill(slToday.recovery) : '') + '<button class="btn small ghost" data-action="checkin-edit">Edit</button></div></div>'
         + '<div class="small mt8">' + esc(parts.concat(slToday ? [sleepLine(slToday) + (slToday.src === 'whoop' ? ' (WHOOP)' : '')] : []).join(' · ')) + '</div>'
         + (avg && avg.n > 1 ? '<div class="tiny muted mt8">7-night average ' + fmtHM(avg.total) + (avg.rem != null ? ' · REM ' + fmtHM(avg.rem) : '') + (avg.deep != null ? ' · deep ' + fmtHM(avg.deep) : '') + '</div>' : '') + '</div>';
     }
     const due = weighDue();
     const showWeight = s.weighEvery && (due || bwToday || ui.checkinEdit);
-    const hm = (label, k, min, hint) => '<div class="toggle-row"><div><div>' + label + '</div>' + (hint ? '<div class="tiny muted">' + hint + '</div>' : '') + '</div><div class="row" style="gap:6px">'
-      + '<input class="input" style="width:62px;text-align:center" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '"><span class="muted">h</span>'
-      + '<input class="input" style="width:62px;text-align:center" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '"><span class="muted">m</span></div></div>';
+    const hm = (label, k, min, hint) => '<div class="toggle-row"><div><div>' + label + '</div>' + (hint ? '<div class="tiny muted">' + hint + '</div>' : '') + '</div><div class="row tight">'
+      + '<input class="input num n2" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '"><span class="muted">h</span>'
+      + '<input class="input num n2" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '"><span class="muted">m</span></div></div>';
     return '<div class="card" id="checkin-card"><div class="row between"><b>Morning check-in</b>' + (due ? '<span class="pill amber">Weigh-in due</span>' : '') + '</div>'
       + '<form id="bw-form" class="mt8">'
-      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row" style="gap:6px"><input class="input" style="width:100px;text-align:center" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '"><span class="muted">' + u + '</span></div></div>' : '')
+      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row tight"><input class="input num" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '"><span class="muted">' + u + '</span></div></div>' : '')
       + (!s.sleepOn ? '' : slToday && slToday.src === 'whoop' && !ui.checkinEdit
         ? '<div class="toggle-row"><div><div>Sleep <span class="tiny muted">from WHOOP</span></div><div class="small">' + esc(sleepLine(slToday)) + '</div></div>' + recPill(slToday.recovery) + '</div>'
         : hm('Time asleep', 'total', slToday ? slToday.total : null, 'From your watch or sleep app') + hm('REM', 'rem', slToday ? slToday.rem : null) + hm('Deep', 'deep', slToday ? slToday.deep : null))
@@ -1002,19 +1024,24 @@
     } else if (askable.length) {
       sorenessHtml = '<div class="card" id="soreness-card"><h3 class="mb8">Check-in</h3>' + askable.map((m) => {
         const v = w.soreness[m];
-        return '<div class="prompt"><div class="prompt-q">How sore did your <span style="color:var(--accent-2)">' + esc(m.toLowerCase()) + '</span> get after last time?</div>'
-          + '<div class="choice-grid">' + SORENESS.map((lbl, i) => '<button class="choice ' + (v === i ? 'on' : '') + '" data-action="set-soreness" data-m="' + esc(m) + '" data-v="' + i + '">' + lbl + '</button>').join('') + '</div></div>';
+        return '<div class="prompt"><div class="prompt-q">How sore did your <b>' + esc(m.toLowerCase()) + '</b> get after last time?</div>'
+          + '<div class="choice-grid">' + SORENESS.map((lbl, i) => '<button class="choice ' + (v === i ? 'on' : '') + '" data-action="set-soreness" data-m="' + esc(m) + '" data-v="' + i + '" aria-pressed="' + (v === i) + '">' + lbl + '</button>').join('') + '</div></div>';
       }).join('') + (editing ? '<button class="btn ghost block" data-action="soreness-done">Done</button>' : '') + '</div>';
     }
 
     const cards = w.entries.map((en, idx) => renderEntryCard(w, en, idx)).join('');
     const doneCount = w.entries.filter((e) => e.done).length;
-    return '<div class="screen-title"><div><h1>' + esc(w.dayName) + '</h1><span class="sub">' + fmtDate(w.date) + ' · ' + doneCount + '/' + w.entries.length + ' done · <span id="elapsed">' + durationText(w) + '</span></span></div>'
-      + '<button class="btn small ghost" data-action="add-entry">+ Exercise</button></div>'
+    // Finish is the main action only once every set is ticked (an exercise marked done counts whatever it has).
+    const allTicked = w.entries.every((en) => en.done || (en.sets.length && en.sets.every((s) => s.done)));
+    // The top bar shows the name, the count and the time (renderTopbar). The sub line keeps its whole text for
+    // screen readers and the tests; the part the bar shows is hidden from view here.
+    return '<div class="screen-title"><div><h1>' + esc(w.dayName) + '</h1><span class="sub">' + fmtDate(w.date) + '<span class="sr"> · ' + doneCount + '/' + w.entries.length + ' done · <span id="elapsed">' + durationText(w) + '</span></span></span></div>'
+      + '<button class="btn small ghost" data-action="add-entry">' + icon('plus') + 'Exercise</button></div>'
       + '<div class="deload-bar"><button class="deload-toggle' + (w.deload ? ' on' : '') + '" data-action="toggle-deload" aria-pressed="' + !!w.deload + '"><span class="sw"></span>Deload session</button>'
       + (w.deload ? '<div class="small deload-hint">Deload: keep your weights (or a little lighter), do about half the sets, stop 3 or more reps short.</div>' : '') + '</div>'
       + sorenessHtml + cards + renderCardioCard(w)
-      + '<div class="btn-row mt12"><button class="btn subtle" data-action="discard-workout">Discard</button><button class="btn success" data-action="finish-workout">Finish workout</button></div>';
+      + '<div class="btn-row mt12"><button class="btn danger" data-action="discard-workout">Discard</button>'
+      + '<button class="btn' + (allTicked ? '' : ' ghost') + '" data-action="finish-workout">' + icon('flag') + 'Finish workout</button></div>';
   }
 
   // ---- Cardio after lifting -----------------------------------------------
@@ -1050,15 +1077,16 @@
     const last = lastCardio();
     const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : esc(val)) + '" data-field="cardio" data-k="' + k + '"' + (c.done ? ' disabled' : '') + '></div>';
     // Done keeps the same layout, so nothing slides under the finger that tapped Done: Undo takes the timer
-    // button's place and a disabled "Logged" sits where Done was.
+    // button's place and a disabled "Logged" sits where Done was. Done is a key (something to do); Logged is
+    // solid (recorded).
     return '<div class="card' + (c.done ? ' flat' : '') + '" id="cardio-card"><div class="row between"><h3>' + esc(c.name) + '</h3>' + (c.done ? '<span class="pill green">Done</span>' : '<span class="pill">Cardio</span>') + '</div>'
       + '<div class="field-row mt8">' + field('Minutes', 'min', c.min, '1') + field('Incline %', 'incline', c.incline, '0.5') + field('Speed ' + esc(c.speedUnit || speedUnit()), 'speed', c.speed, '0.1') + '</div>'
       // Last time before Done, today's summary after. Both sit in one spot and it keeps the taller one's height, so Done never changes it.
       + '<div class="tiny muted mb8 cardio-line"><span' + (c.done ? ' class="off"' : '') + '>' + esc(last ? 'Last time: ' + cardioText(last) : 'First time logging cardio') + '</span>'
       + '<span id="cardio-today"' + (c.done ? '' : ' class="off"') + '>Today: ' + esc(cardioText(c)) + '</span></div>'
       + (c.done
-        ? '<div class="btn-row"><button class="btn subtle" data-action="cardio-undo">Undo</button><button class="btn success" disabled>Logged ✓</button></div>'
-        : '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn success" data-action="cardio-done">Done ✓</button></div>')
+        ? '<div class="btn-row"><button class="btn subtle" data-action="cardio-undo">Undo</button><button class="btn success" disabled>' + icon('check') + 'Logged</button></div>'
+        : '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn ghost" data-action="cardio-done">' + icon('check') + 'Done</button></div>')
       + '</div>';
   }
 
@@ -1071,13 +1099,22 @@
       // A finished exercise folds to one row: name, sets done, PR mark, next time's weight. Tap to open the full card.
       const n = en.sets.filter((s) => s.done && s.reps > 0).length;
       const nx = en.next || p;
-      return '<div class="card ex-card done compact" data-card="' + idx + '"><button class="ex-fold" data-action="open-entry" data-e="' + idx + '"><span class="ex-fold-tick">✓</span>'
+      return '<div class="card ex-card done compact" data-card="' + idx + '"><button class="ex-fold" data-action="open-entry" data-e="' + idx + '"><span class="ex-fold-tick">' + icon('check') + '</span>'
         + '<span class="grow"><span class="ex-fold-name">' + esc(ex.name) + '</span><span class="ex-fold-sub">' + plural(n, 'set') + ' · next ' + (nx.weight > 0 ? esc(fmtW(nx.weight)) + ' ' + state.settings.units : 'goal ' + esc(nx.targetReps) + ' reps') + '</span></span>'
-        + (en.prs && en.prs.length ? '<span class="pill pr">🏆 PR</span>' : '') + '<span class="chev">›</span></button></div>';
+        + (en.prs && en.prs.length ? '<span class="pill pr">' + icon('trophy') + 'PR</span>' : '') + '<span class="chev">' + icon('chevron-right', 'm') + '</span></button></div>';
     }
+    // The big line of the card and of the next-time box: "150 lb × 12", or "9 reps" when there is no weight
+    // (and only the weight when an old entry carries no goal).
+    const targetLine = (weight, reps) => (weight > 0 || reps > 0 ? '<div class="ex-target">'
+      + (weight > 0 ? '<span class="num">' + fmtW(weight) + '</span><span class="u">' + state.settings.units + '</span>' + (reps > 0 ? '<span class="x">×</span>' : '') : '')
+      + (reps > 0 ? '<span class="num">' + esc(reps) + '</span>' + (weight > 0 ? '' : '<span class="u">reps</span>') : '') + '</div>' : '');
+    const each = ex.equipment === 'Dumbbell' ? ' · each hand' : '';
+    // The head shows what this session was planned at. Once the exercise is finished the prescription has moved on
+    // to next time (shown in the box below), so a finished card takes the plan it was done under.
+    const plan = (en.done && en.prevPresc) || p;
     const last = lastEntryFor(en.exId);
     const lastText = last ? 'Last time' + (last.workout.deload ? ' (deload)' : '') + ': ' + last.entry.sets.filter((s) => s.done).map((s) => fmtW(s.weight) + '×' + s.reps).join(', ') : 'First time logging this';
-    const reason = (!en.done && p.reasons && p.reasons.length) ? '<div class="ex-reason ' + (/\+/.test(p.reasons[0]) ? 'green' : '') + '">' + esc(p.reasons[0]) + '</div>' : '';
+    const reason = (!en.done && p.reasons && p.reasons.length) ? '<div class="ex-reason ' + (/joint pain/i.test(p.reasons[0]) ? 'warn' : /\+/.test(p.reasons[0]) ? 'green' : '') + '">' + esc(p.reasons[0]) + '</div>' : '';
 
     const rir = !!state.settings.trackRir;
     // Reps in reserve: once a set is ticked, four buttons under it (3+ 2 1 0). One tap picks, tapping the picked one clears it.
@@ -1090,19 +1127,22 @@
         + [3, 2, 1, 0].map((v) => { const on = rirIs(s.rir, v); return '<button class="rir-btn' + (on ? ' on' : '') + '" aria-pressed="' + on + '" aria-label="Set ' + (i + 1) + ': ' + rirText(v) + ' reps left" data-action="pick-rir" data-e="' + idx + '" data-s="' + i + '" data-v="' + v + '">' + rirText(v) + '</button>'; }).join('')
         + '</div></td></tr>';
     };
-    const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : '') + '">'
+    // One row in the whole workout is "next": the first unticked set of the first exercise still open (where
+    // scrollToNext goes). GOAL is written under its reps box only when there is a goal to show in it.
+    const nextSet = idx === w.entries.findIndex((e) => !e.done && exById(e.exId)) ? en.sets.findIndex((x) => !x.done) : -1;
+    const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : i === nextSet ? 'next' : '') + '">'
       + '<td class="n">' + (i + 1) + '</td>'
-      + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="' + (en.targetReps || 'reps') + '" data-field="reps" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>✓</button></td>'
+      + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" aria-label="Set ' + (i + 1) + ' weight" ' + (en.done ? 'disabled' : '') + '></td>'
+      + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="' + (en.targetReps || 'reps') + '" data-field="reps" data-e="' + idx + '" data-s="' + i + '" aria-label="Set ' + (i + 1) + ' reps" ' + (en.done ? 'disabled' : '') + '>' + (en.targetReps > 0 ? '<span class="set-hint">Goal</span>' : '') + '</td>'
+      + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" aria-label="Set ' + (i + 1) + ' done" aria-pressed="' + !!s.done + '" ' + (en.done ? 'disabled' : '') + '>' + icon('check') + '</button></td>'
       + '</tr>' + (rir && !en.done ? rirRow(s, i) : '')).join('');
 
     let warmHtml = '';
     if (en.warmups && en.warmups.length && !en.done) {
-      warmHtml = '<div class="warmups"><div class="row between"><span class="tiny muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em">Warm-up</span><button class="btn small subtle" data-action="clear-warmup" data-e="' + idx + '">✕</button></div>'
-        + en.warmups.map((wu, i) => '<div class="warmup-row ' + (wu.done ? 'done' : '') + '"><span class="n">W' + (i + 1) + '</span><span class="grow"><b>' + fmtW(wu.weight) + '</b> ' + state.settings.units + ' × <b>' + wu.reps + '</b></span><button class="check small ' + (wu.done ? 'on' : '') + '" data-action="toggle-warmup" data-e="' + idx + '" data-s="' + i + '">✓</button></div>').join('') + '</div>';
+      warmHtml = '<div class="warmups"><div class="row between"><span class="label">Warm-up</span><button class="btn small subtle" data-action="clear-warmup" data-e="' + idx + '" aria-label="Clear warm-ups">' + icon('close', 'm') + '</button></div>'
+        + en.warmups.map((wu, i) => '<div class="warmup-row ' + (wu.done ? 'done' : '') + '"><span class="n">W' + (i + 1) + '</span><span class="grow"><b>' + fmtW(wu.weight) + '</b> ' + state.settings.units + ' × <b>' + wu.reps + '</b></span><button class="check small ' + (wu.done ? 'on' : '') + '" data-action="toggle-warmup" data-e="' + idx + '" data-s="' + i + '" aria-label="Warm-up ' + (i + 1) + ' done" aria-pressed="' + !!wu.done + '">' + icon('check') + '</button></div>').join('') + '</div>';
     }
-    const prPill = en.prs && en.prs.length ? '<span class="pill pr">🏆 PR</span>' : '';
+    const prPill = en.prs && en.prs.length ? '<span class="pill pr">' + icon('trophy') + 'PR</span>' : '';
     const swapNote = en.swappedFrom ? (function () { const o = exById(en.swappedFrom); return o ? '<div class="ex-last">Swapped in for ' + esc(o.name) + ' today</div>' : ''; })() : '';
 
     const allDone = en.sets.length > 0 && en.sets.every((s) => s.done);
@@ -1116,7 +1156,9 @@
     }
     let nextBox = '';
     if (en.done && en.next) {
-      nextBox = '<div class="next-box"><div class="headline">Next time: ' + en.next.sets + ' × ' + r.min + '–' + r.max + ' @ ' + fmtW(en.next.weight) + ' ' + state.settings.units + ', goal ' + en.next.targetReps + '</div>'
+      // The number leads, as in the card's head: the target line, the facts, then why.
+      nextBox = '<div class="next-box"><div class="label">Next time</div>' + targetLine(en.next.weight, en.next.targetReps)
+        + '<div class="ex-presc">' + plural(en.next.sets, 'set') + ' · ' + r.min + '–' + r.max + ' reps' + each + '</div>'
         + '<ul>' + en.next.reasons.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
     } else if (en.done && w.deload) {
       nextBox = '<div class="next-box"><div class="headline">Deload: plan kept</div><ul><li>' + esc('Next time stays ' + p.sets + ' × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ ' + fmtW(p.weight) + ' ' + state.settings.units : '') + ', goal ' + p.targetReps) + '</li></ul></div>';
@@ -1125,17 +1167,18 @@
     const body = en.done
       ? '<div class="ex-body">' + nextBox + '<div class="card-actions"><button class="btn small subtle" data-action="reopen-entry" data-e="' + idx + '">Edit</button><button class="btn small subtle" data-action="close-entry" data-e="' + idx + '">Hide</button></div></div>'
       : '<div class="ex-body">' + warmHtml + '<table class="set-table"><thead><tr><th class="n">Set</th><th>' + state.settings.units + (ex.equipment === 'Dumbbell' ? ' (each)' : '') + '</th><th>Reps</th>' + '<th></th></tr></thead><tbody>' + rows + '</tbody></table>'
-        + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">+ Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>− Set</button><button class="btn small subtle" data-action="gen-warmup" data-e="' + idx + '" ' + (en.warmups && en.warmups.length ? 'disabled' : '') + '>Warm-up</button></div>'
-        + '<div class="set-tools secondary"><button class="btn small subtle" data-action="swap-entry" data-e="' + idx + '">Swap exercise</button><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
+        + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">' + icon('plus') + 'Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>' + icon('minus') + 'Set</button><button class="btn small subtle" data-action="gen-warmup" data-e="' + idx + '" ' + (en.warmups && en.warmups.length ? 'disabled' : '') + '>Warm-up</button></div>'
+        + '<div class="set-tools secondary"><button class="btn small subtle" data-action="swap-entry" data-e="' + idx + '">' + icon('swap') + 'Swap exercise</button><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
         + feedback
         + '<button class="btn block mt12 ' + (allDone ? '' : 'ghost') + '" data-action="finish-entry" data-e="' + idx + '" ' + (en.sets.some((s) => s.done || s.reps > 0) ? '' : 'disabled') + '>Finish exercise</button></div>';
 
     return '<div class="card ex-card ' + (en.done ? 'done' : '') + '" data-card="' + idx + '"><div class="ex-head">'
-      + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="row" style="gap:6px">' + prPill + '<span class="pill">' + esc(ex.muscle) + '</span></span></div>'
-      + '<div class="ex-presc">' + p.sets + ' sets × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ <strong>' + fmtW(p.weight) + ' ' + state.settings.units + '</strong>' : '') + ' · goal <strong>' + en.targetReps + ' reps</strong></div>'
+      + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="row tight">' + prPill + '<span class="pill">' + esc(ex.muscle) + '</span></span></div>'
+      + targetLine(plan.weight, en.targetReps)
+      + '<div class="ex-presc">' + plural(plan.sets, 'set') + ' · ' + r.min + '–' + r.max + ' reps' + each + '</div>'
       + '<div class="ex-last">' + esc(lastText) + '</div>' + swapNote
-      + (ex.notes ? '<div class="ex-note">' + esc(ex.notes) + '</div>' : '')
-      + (en.done && en.prs && en.prs.length ? '<div class="ex-reason green">🏆 ' + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
+      + (ex.notes ? '<div class="ex-note">' + icon('note', 's') + '<span>' + esc(ex.notes) + '</span></div>' : '')
+      + (en.done && en.prs && en.prs.length ? '<div class="ex-reason pr">' + icon('trophy', 's', '🏆 ') + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
       + reason + '</div>' + body + '</div>';
   }
 
@@ -1144,8 +1187,8 @@
   function rirIs(stored, v) { return stored != null && (stored === v || (v === 3 && stored >= 3)); }
 
   function choiceRow(label, opts, val, idx, field) {
-    return '<div class="tiny muted mt8 mb8" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em">' + label + '</div><div class="choice-grid">'
-      + opts.map((o, i) => '<button class="choice ' + (val === i ? 'on' : '') + '" data-action="set-fb" data-e="' + idx + '" data-f="' + field + '" data-v="' + i + '">' + o + '</button>').join('') + '</div>';
+    return '<div class="label">' + label + '</div><div class="choice-grid">'
+      + opts.map((o, i) => '<button class="choice ' + (val === i ? 'on' : '') + '" data-action="set-fb" data-e="' + idx + '" data-f="' + field + '" data-v="' + i + '" aria-pressed="' + (val === i) + '">' + o + '</button>').join('') + '</div>';
   }
 
   // ---- Program -------------------------------------------------------------
@@ -1158,13 +1201,13 @@
         + '<div class="small muted">' + (names.join(', ') || 'No exercises') + '</div></div>';
     }).join('');
 
-    const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" style="width:auto;min-width:170px" data-field="schedule" data-i="' + i + '">'
+    const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" data-field="schedule" data-i="' + i + '">'
       + '<option value="">Rest</option>' + state.program.days.map((x) => '<option value="' + x.id + '" ' + (state.program.schedule[i] === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></div>').join('');
 
     const templates = state.templates.map((t) => '<div class="list-item"><div class="grow"><div class="title">' + esc(t.name).replace(/\//g, '/<wbr>') + '</div><div class="sub">' + plural(t.days.length, 'day') + ' · saved ' + fmtDate(t.savedAt) + '</div></div>'
-      + '<button class="btn small ghost" data-action="use-template" data-t="' + t.id + '">Use</button><button class="icon-btn danger" data-action="delete-template" data-t="' + t.id + '">✕</button></div>').join('');
+      + '<button class="btn small ghost" data-action="use-template" data-t="' + t.id + '">Use</button><button class="icon-btn danger" data-action="delete-template" data-t="' + t.id + '" aria-label="Delete template">' + icon('trash') + '</button></div>').join('');
 
-    return '<div class="screen-title"><h1>Program</h1><button class="btn small" data-action="add-day">+ Day</button></div>'
+    return '<div class="screen-title"><h1>Program</h1><span class="sub">' + plural(state.program.days.length, 'day') + ' · ' + state.program.schedule.filter(Boolean).length + ' a week</span><button class="btn small" data-action="add-day">' + icon('plus') + 'Day</button></div>'
       + days + '<div class="group-title">Weekly schedule</div><div class="card">' + schedule + '</div>'
       + renderLibrary()
       + '<div class="group-title">Templates</div><div class="card"><p class="small muted mb8">Save this split so you can switch to another one later without rebuilding it. Weights and set counts live on the exercises, so they carry over.</p>'
@@ -1176,12 +1219,12 @@
   function renderLibrary() {
     const list = programs(); if (!list.length) return '';
     return '<div class="group-title">Program library</div><div class="list">' + list.map((p) => '<button class="list-item" data-action="program-view" data-p="' + p.id + '"><div class="grow"><div class="title">' + esc(p.name) + '</div><div class="sub">'
-      + esc(p.by) + ' · ' + plural(p.schedule.filter((x) => x != null).length, 'day') + ' a week</div></div><span class="chev">›</span></button>').join('') + '</div>';
+      + esc(p.by) + ' · ' + plural(p.schedule.filter((x) => x != null).length, 'day') + ' a week</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>').join('') + '</div>';
   }
   function exByName(name) { const n = name.toLowerCase(); return state.exercises.find((e) => e.name.toLowerCase() === n); }
   function sheetProgram(id) {
     const p = programs().find((x) => x.id === id); if (!p) return;
-    const week = WEEKDAYS.map((d, i) => '<span class="pill' + (p.schedule[i] == null ? '' : ' accent') + '">' + d + ' ' + (p.schedule[i] == null ? 'Rest' : esc(p.days[p.schedule[i]].short || p.days[p.schedule[i]].name)) + '</span>').join(' ');
+    const week = WEEKDAYS.map((d, i) => '<span class="pill' + (p.schedule[i] == null ? '' : ' solid') + '">' + d + ' ' + (p.schedule[i] == null ? 'Rest' : esc(p.days[p.schedule[i]].short || p.days[p.schedule[i]].name)) + '</span>').join(' ');
     const days = p.days.map((d) => '<div class="card flat"><b>' + esc(d.name) + '</b>' + d.ex.map(([name, sets, reps, note]) => {
       const fst = /\(FST-7\)$/.test(name);
       return '<div class="hist-set"><span>' + esc(name) + (exByName(name) ? '' : ' <span class="pill">new</span>') + '</span><span class="nowrap">' + (fst ? '<span class="pill amber">FST-7</span> ' : '') + sets + ' × ' + esc(reps) + '</span></div>'
@@ -1189,7 +1232,7 @@
     }).join('') + '</div>').join('');
     openSheet(sheetHeader(esc(p.name))
       + '<p class="small muted mb8">' + esc(p.by) + '. ' + esc(p.about) + '</p>'
-      + '<div class="row mb8" style="flex-wrap:wrap;gap:6px">' + week + '</div>'
+      + '<div class="row wrap mb8">' + week + '</div>'
       + (p.how ? '<div class="card flat small">' + esc(p.how) + '</div>' : '')
       + days
       + '<p class="tiny muted mt8">Sets × reps as the program writes them. Using it gives every exercise these sets and rep ranges; exercises marked <b>new</b> are added to your list. Your weights stay. If some exercises already have your own logged sets, you are asked first whether to switch those too.'
@@ -1303,11 +1346,12 @@
       return '<div class="group-title">' + m + '</div><div class="list">' + items.map((ex) => {
         const p = state.presc[ex.id];
         const sub = p && p.weight > 0 ? p.sets + ' × goal ' + p.targetReps + ' @ ' + fmtW(p.weight) + ' ' + state.settings.units : esc(ex.equipment) + (ex.custom ? ' · custom' : '');
-        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
+        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>';
       }).join('') + '</div>';
     }).join('');
-    return '<div class="screen-title"><h1>Exercises</h1><button class="btn small" data-action="new-ex">+ New</button></div>'
-      + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.search) + '" data-field="search">'
+    const muscles = new Set(state.exercises.map((e) => e.muscle)).size;
+    return '<div class="screen-title"><h1>Exercises</h1><span class="sub">' + plural(state.exercises.length, 'exercise') + ' · ' + plural(muscles, 'muscle') + '</span><button class="btn small" data-action="new-ex">' + icon('plus') + 'New</button></div>'
+      + '<div class="search">' + icon('search') + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.search) + '" data-field="search" aria-label="Search exercises"></div>'
       + (groups || '<div class="empty">No matches</div>');
   }
 
@@ -1317,7 +1361,7 @@
     const monthKey = todayKey().slice(0, 7);
     const thisMonth = done.filter((w) => w.date.slice(0, 7) === monthKey).length;
     const st = streakInfo();
-    const stats = '<div class="stat-row mb8"><div class="stat"><div class="v">' + (st.streak ? '🔥 ' + st.streak : '0') + '</div><div class="k">Day streak</div></div><div class="stat"><div class="v">' + thisMonth + '</div><div class="k">This month</div></div><div class="stat"><div class="v">' + done.length + '</div><div class="k">Workouts</div></div></div>';
+    const stats = '<div class="stat-row mb8"><div class="stat"><div class="v">' + (st.streak ? icon('flame', 'm', '🔥 ') + st.streak : '0') + '</div><div class="k">Day streak</div></div><div class="stat"><div class="v">' + thisMonth + '</div><div class="k">This month</div></div><div class="stat"><div class="v">' + done.length + '</div><div class="k">Workouts</div></div></div>';
 
     const tracked = state.exercises.filter((e) => lastEntryFor(e.id));
     const chartSel = tracked.length ? '<div class="card"><div class="field"><label>Progress</label><select class="select" data-field="chart-ex"><option value="">Pick an exercise…</option>'
@@ -1328,11 +1372,18 @@
       const sets = w.entries.reduce((m, e) => m + e.sets.filter((s) => s.done).length, 0);
       const ups = w.entries.filter((e) => wentUp(e)).length;
       const prs = w.entries.filter((e) => e.prs && e.prs.length).length;
-      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + (w.deload ? ' <span class="pill amber">Deload</span>' : '') + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
+      // Each fact is one piece that does not break inside, so the line wraps between facts. The glyphs v2.8 wrote
+      // stay as the icons' hidden text (the chevron's too): the row reads as it always did.
+      const facts = [fmtDate(w.date), plural(w.entries.filter((e) => e.done).length, 'exercise'), plural(sets, 'set')].concat(durationText(w) ? [durationText(w)] : [])
+        .concat(w.cardio && w.cardio.done ? [icon('heart', 's', '🚶') + ' ' + w.cardio.min + ' min'] : [])
+        .concat(ups ? ['<span class="ok-ink">' + ups + ' weight ' + icon('arrow-up', 's', '↑') + '</span>'] : [])
+        .concat(prs ? [icon('trophy', 's', '🏆') + ' ' + prs] : []);
+      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + (w.deload ? ' <span class="pill amber">Deload</span>' : '') + '</div><div class="sub">'
+        + facts.map((x, i) => '<span class="nowrap">' + x + (i < facts.length - 1 ? ' ·' : '') + '</span>').join(' ') + '</div></div><span class="chev">' + icon('chevron-right', 'm', '›') + '</span></button>';
     }).join('');
 
     return '<div class="screen-title"><h1>History</h1></div>' + stats + renderVolumeCard() + renderReviewCard() + renderCalendar() + chartSel + renderBwCard() + renderSleepCard()
-      + '<div class="group-title">Workouts</div><div class="list">' + (items || '<div class="empty">No workouts yet. Finish one and it shows up here.</div>') + '</div>';
+      + '<div class="group-title">Workouts</div><div class="list">' + (items || '<div class="empty">' + icon('dumbbell') + '<b>No workouts yet</b>Finish one and it shows up here.</div>') + '</div>';
   }
 
   // ---- Weekly volume -------------------------------------------------------
@@ -1374,7 +1425,7 @@
     const first = (base.getDay() + 6) % 7; const daysIn = new Date(y, m + 1, 0).getDate();
     const byDate = {};
     state.workouts.forEach((w) => { if (w.finishedAt) (byDate[w.date] = byDate[w.date] || []).push(w); });
-    const today = todayKey();
+    const today = todayKey(), month = base.toLocaleDateString(undefined, { month: 'long' });
     let cells = '';
     for (let i = 0; i < first; i++) cells += '<span class="cal-cell empty"></span>';
     for (let d = 1; d <= daysIn; d++) {
@@ -1382,13 +1433,18 @@
       const ws = byDate[key] || [];
       const wd = (new Date(y, m, d).getDay() + 6) % 7;
       const rest = state.program.schedule[wd] == null;
-      const cls = ['cal-cell', ws.length ? 'hit' : '', key === today ? 'today' : '', key > today ? 'future' : '', rest && !ws.length ? 'rest' : ''].join(' ');
-      cells += ws.length ? '<button class="' + cls + '" data-action="view-workout" data-w="' + ws[0].id + '" title="' + esc(ws.map((w) => w.dayName).join(', ')) + '">' + d + '</button>' : '<span class="' + cls + '">' + d + '</span>';
+      // Trained days are filled (a deload day is hollow), days still to come that have a workout are outlined, a day
+      // with a PR has a dot. A workout cell says the same in words, for a screen reader.
+      const deload = ws.length > 0 && ws.every((w) => w.deload), pr = ws.some((w) => w.entries.some((e) => e.prs && e.prs.length));
+      const cls = ['cal-cell', ws.length ? 'hit' : '', deload ? 'deload' : '', pr ? 'pr' : '', key === today ? 'today' : '', key > today ? 'future' : '',
+        rest && !ws.length ? 'rest' : '', !rest && !ws.length && key >= today ? 'plan' : ''].filter(Boolean).join(' ');
+      cells += ws.length ? '<button class="' + cls + '" data-action="view-workout" data-w="' + ws[0].id + '" title="' + esc(ws.map((w) => w.dayName).join(', ')) + '" aria-label="' + esc(month + ' ' + d) + ': workout' + (deload ? ', deload' : '') + (pr ? ', PR' : '') + '">' + d + '</button>' : '<span class="' + cls + '">' + d + '</span>';
     }
     const count = Object.keys(byDate).filter((k) => k.slice(0, 7) === (y + '-' + String(m + 1).padStart(2, '0'))).length;
-    return '<div class="card"><div class="row between mb8"><button class="icon-btn" data-action="cal-prev">‹</button><b>' + base.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) + '</b><button class="icon-btn" data-action="cal-next" ' + (ui.calOffset >= 0 ? 'disabled' : '') + '>›</button></div>'
+    return '<div class="card cal-card"><div class="row between mb8"><button class="icon-btn" data-action="cal-prev" aria-label="Previous month">' + icon('chevron-left') + '</button><b>' + base.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) + '</b><button class="icon-btn" data-action="cal-next" aria-label="Next month" ' + (ui.calOffset >= 0 ? 'disabled' : '') + '>' + icon('chevron-right') + '</button></div>'
       + '<div class="cal-grid">' + WEEKDAYS.map((d) => '<span class="cal-head">' + d[0] + '</span>').join('') + cells + '</div>'
-      + '<div class="tiny muted mt8">' + plural(count, 'training day') + ' this month. Faded days are rest days in your schedule.</div></div>';
+      + '<div class="cal-legend"><span><i class="cal-key hit"></i>Trained</span><span><i class="cal-key deload"></i>Deload</span><span><i class="cal-key plan"></i>Planned</span><span><i class="cal-key pr"></i>PR that day</span></div>'
+      + '<div class="tiny muted mt8">' + plural(count, 'training day') + ' this month.</div></div>';
   }
 
   // ---- Weekly review -------------------------------------------------------
@@ -1429,9 +1485,9 @@
     const extra = (r.cardioMin ? '<li>Cardio <b>' + r.cardioMin + ' min</b></li>' : '') + (r.sleep ? '<li>Sleep avg <b>' + fmtHM(r.sleep.total) + '</b>' + (r.sleep.rem != null ? ' · REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ' · deep ' + fmtHM(r.sleep.deep) : '') + (r.sleep.recovery != null ? ' · recovery ' + Math.round(r.sleep.recovery) + '%' : '') + ' <span class="muted">(' + plural(r.sleep.n, 'night') + ')</span></li>' : '');
     const body = r.workouts
       ? '<div class="stat-row mb8"><div class="stat"><div class="v">' + r.workouts + '</div><div class="k">Workouts</div></div><div class="stat"><div class="v">' + r.sets + '</div><div class="k">Sets</div></div><div class="stat"><div class="v">' + (r.tonnage >= 10000 ? (r.tonnage / 1000).toFixed(1) + 'k' : Math.round(r.tonnage)) + '</div><div class="k">' + u + ' lifted</div></div></div>'
-        + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>🏆 PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + extra + '</ul>'
+        + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>' + icon('trophy', 's', '🏆 ') + 'PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + extra + '</ul>'
       : '<div class="empty small">No workouts logged for this week.</div>' + (bwLine || extra ? '<ul class="review-list">' + bwLine + extra + '</ul>' : '');
-    return '<div class="card"><div class="row between mb8"><b>Weekly review</b>' + seg + '</div>' + body + '<button class="btn ghost block mt8" data-action="review-share" ' + (r.workouts ? '' : 'disabled') + '>Share</button></div>';
+    return '<div class="card"><div class="row between mb8"><b>Weekly review</b>' + seg + '</div>' + body + '<button class="btn ghost block mt8" data-action="review-share" ' + (r.workouts ? '' : 'disabled') + '>' + icon('share') + 'Share</button></div>';
   }
 
   // ---- Sleep chart: last 14 nights, deep / REM / other stacked ------------------
@@ -1439,27 +1495,29 @@
     const list = sleepSorted(); if (!list.length) return '';
     const days = []; for (let i = 13; i >= 0; i--) days.push(addDays(todayKey(), -i));
     const by = {}; list.forEach((x) => { by[x.date] = x; });
-    const W = 320, H = 150, padL = 26, padR = 6, padT = 8, padB = 22, top = Math.max(9 * 60, ...days.map((k) => (by[k] ? by[k].total : 0)));
+    // Chart text is 13 units tall (11 px or more on the narrowest phone); the paddings make room for it.
+    const W = 320, H = 160, padL = 30, padR = 6, padT = 8, padB = 26, top = Math.max(9 * 60, ...days.map((k) => (by[k] ? by[k].total : 0)));
     const bw = (W - padL - padR) / days.length;
     const y = (m) => padT + (1 - m / top) * (H - padT - padB);
-    const bars = days.map((k, i) => { const x = by[k]; if (!x) return ''; const x0 = (padL + i * bw + 2).toFixed(1), w = (bw - 4).toFixed(1);
+    const bars = days.map((k, i) => { const x = by[k]; if (!x) return ''; const x0 = (padL + i * bw + 2.5).toFixed(1), w = (bw - 5).toFixed(1);
       const deep = x.deep || 0, rem = x.rem || 0;
-      const seg = (from, to, cls) => (to > from ? '<rect class="' + cls + '" x="' + x0 + '" y="' + y(to).toFixed(1) + '" width="' + w + '" height="' + (y(from) - y(to)).toFixed(1) + '" rx="1.5"/>' : '');
+      // A 1.5-unit gap between the stacked parts, so they read as parts without leaning on their tones alone.
+      const seg = (from, to, cls) => (to > from ? '<rect class="' + cls + '" x="' + x0 + '" y="' + (y(to) + (from ? 0.75 : 0)).toFixed(1) + '" width="' + w + '" height="' + Math.max(1, y(from) - y(to) - (from ? 1.5 : 0.75)).toFixed(1) + '" rx="1.5"/>' : '');
       return '<g><title>' + fmtDate(k) + ': ' + sleepLine(x) + '</title>' + seg(0, deep, 'sl-deep') + seg(deep, deep + rem, 'sl-rem') + seg(deep + rem, x.total, 'sl-other') + '</g>'; }).join('');
-    const grid = [0, 4, 8].map((h) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(h * 60).toFixed(1) + '" y2="' + y(h * 60).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(h * 60) + 3).toFixed(1) + '">' + h + 'h</text>').join('');
-    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(days[0]) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">Today</text>';
+    const grid = [0, 4, 8].map((h) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(h * 60).toFixed(1) + '" y2="' + y(h * 60).toFixed(1) + '"/><text class="lbl" x="0" y="' + (y(h * 60) + 4.5).toFixed(1) + '">' + h + 'h</text>').join('');
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 5) + '">' + fmtDate(days[0]) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 5) + '" text-anchor="end">Today</text>';
     const a = sleepAvg(7), p = sleepAvg(7, addDays(todayKey(), -7));
     const diff = a && p ? Math.round(a.total - p.total) : null;
     return '<div class="card"><div class="row between mb8"><b>Sleep</b><button class="btn small ghost" data-action="sleep-list">' + plural(list.length, 'night') + '</button></div>'
-      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + bars + labels + '</svg>'
-      + '<div class="row tiny muted" style="gap:12px"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
+      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sleep, last 14 nights">' + grid + bars + labels + '</svg>'
+      + '<div class="legend"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
       + (a ? '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtHM(a.total) + '</div><div class="k">7-night avg' + (diff != null ? ' (' + (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' min)' : '') + '</div></div><div class="stat"><div class="v">' + fmtHM(a.rem) + '</div><div class="k">REM avg</div></div><div class="stat"><div class="v">' + fmtHM(a.deep) + '</div><div class="k">Deep avg</div></div></div>' : '')
       + (a && a.recovery != null ? '<div class="small mt8">Recovery avg <b>' + Math.round(a.recovery) + '%</b>' + (a.rhr != null ? ' · resting HR ' + Math.round(a.rhr) : '') + (a.hrv != null ? ' · HRV ' + Math.round(a.hrv) + ' ms' : '') + ' <span class="muted">(7 nights)</span></div>' : '')
       + '</div>';
   }
   function sheetSleep() {
     const list = sleepSorted().reverse();
-    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + (x.recovery != null ? ' · recovery ' + x.recovery + '%' : '') + (x.src === 'whoop' ? ' · WHOOP' : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
+    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + (x.recovery != null ? ' · recovery ' + x.recovery + '%' : '') + (x.src === 'whoop' ? ' · WHOOP' : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '" aria-label="Delete this night">' + icon('trash') + '</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
   }
 
   // ---- Body weight chart ---------------------------------------------------
@@ -1469,21 +1527,24 @@
     const u = state.settings.units;
     const recent = list.slice(-60);
     const avg = recent.map((b, i) => { const win = recent.slice(Math.max(0, i - 6), i + 1); return win.reduce((n, x) => n + x.weight, 0) / win.length; });
-    const W = 320, H = 150, padL = 36, padR = 10, padT = 10, padB = 22;
+    const W = 320, H = 160, padL = 44, padR = 12, padT = 10, padB = 26;
     const ys = recent.map((b) => b.weight);
     let lo = Math.min(...ys), hi = Math.max(...ys); if (hi - lo < 2) { lo -= 1; hi += 1; }
     const x = (i) => padL + (recent.length === 1 ? (W - padL - padR) / 2 : (i / (recent.length - 1)) * (W - padL - padR));
     const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
     const line = (arr) => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(v) + 3).toFixed(1) + '">' + fmtW(Math.round(v * 10) / 10) + '</text>').join('');
+    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="0" y="' + (y(v) + 4.5).toFixed(1) + '">' + fmtW(Math.round(v * 10) / 10) + '</text>').join('');
     const dots = recent.map((b, i) => '<circle class="pt faint" cx="' + x(i).toFixed(1) + '" cy="' + y(b.weight).toFixed(1) + '" r="2.5"><title>' + b.date + ': ' + fmtW(b.weight) + '</title></circle>').join('');
-    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(recent[0].date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">' + fmtDate(recent[recent.length - 1].date) + '</text>';
+    // Where the running average stands now: the one accent mark of the chart.
+    const now = '<circle class="pt now" cx="' + x(avg.length - 1).toFixed(1) + '" cy="' + y(avg[avg.length - 1]).toFixed(1) + '" r="4.5"><title>Running average: ' + fmtW(Math.round(avg[avg.length - 1] * 10) / 10) + '</title></circle>';
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 5) + '">' + fmtDate(recent[0].date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 5) + '" text-anchor="end">' + fmtDate(recent[recent.length - 1].date) + '</text>';
     const latest = list[list.length - 1];
     const monthAgo = addDays(latest.date, -30);
     const ref = list.filter((b) => b.date <= monthAgo).slice(-1)[0];
     const change = ref ? latest.weight - ref.weight : null;
     return '<div class="card"><div class="row between mb8"><b>Body weight</b><span class="pill">' + plural(list.length, 'weigh-in') + '</span></div>'
-      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + dots + '<path class="line" d="' + line(avg) + '"/>' + labels + '</svg>'
+      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Body weight, last ' + plural(recent.length, 'weigh-in') + '">' + grid + dots + '<path class="line" d="' + line(avg) + '"/>' + now + labels + '</svg>'
+      + '<div class="legend"><span><i class="swatch dot"></i>Weigh-in</span><span><i class="swatch line"></i>Running average</span></div>'
       + '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtW(latest.weight) + '</div><div class="k">Latest</div></div><div class="stat"><div class="v">' + fmtW(Math.round(avg[avg.length - 1] * 10) / 10) + '</div><div class="k">7-entry avg</div></div><div class="stat"><div class="v">' + (change == null ? '–' : (change >= 0 ? '+' : '') + fmtW(Math.round(change * 10) / 10)) + '</div><div class="k">30-day change</div></div></div>'
       + '<div class="tiny muted mt8">Dots are weigh-ins, the line is the running average. ' + u + '.</div>'
       + '<button class="btn subtle small mt8" data-action="bw-list">Edit weigh-ins</button></div>';
@@ -1502,7 +1563,7 @@
       });
     });
     if (pts.length < 1) return '<div class="empty small">Nothing logged yet.</div>';
-    const W = 320, H = 160, padL = 34, padR = 10, padT = 12, padB = 22;
+    const W = 320, H = 168, padL = 40, padR = 12, padT = 12, padB = 26;
     const ys = pts.map((p) => p.weight);
     let lo = Math.min(...ys), hi = Math.max(...ys);
     if (hi === lo) { lo -= 5; hi += 5; }
@@ -1511,19 +1572,22 @@
     // Deload sessions are lighter on purpose: hollow dots, left out of the line and of "Current top set".
     const lined = pts.some((p) => !p.deload) ? pts.map((p, i) => ({ p, i })).filter((o) => !o.p.deload) : pts.map((p, i) => ({ p, i }));
     const path = lined.map((o, j) => (j ? 'L' : 'M') + x(o.i).toFixed(1) + ' ' + y(o.p.weight).toFixed(1)).join(' ');
-    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(v) + 3).toFixed(1) + '">' + fmtW(v) + '</text>').join('');
-    const dots = pts.map((p, i) => '<circle class="pt' + (p.deload ? ' deload' : '') + '" cx="' + x(i).toFixed(1) + '" cy="' + y(p.weight).toFixed(1) + '" r="3.5"><title>' + p.date + ': ' + fmtW(p.weight) + '×' + p.reps + (p.deload ? ' (deload)' : '') + '</title></circle>').join('');
+    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="0" y="' + (y(v) + 4.5).toFixed(1) + '">' + fmtW(v) + '</text>').join('');
+    // The latest session on the line is the one accent mark ("Current top set" below is the same session).
+    const nowI = lined[lined.length - 1].i;
+    const dots = pts.map((p, i) => '<circle class="pt' + (p.deload ? ' deload' : i === nowI ? ' now' : '') + '" cx="' + x(i).toFixed(1) + '" cy="' + y(p.weight).toFixed(1) + '" r="' + (!p.deload && i === nowI ? 4.5 : 3.5) + '"><title>' + p.date + ': ' + fmtW(p.weight) + '×' + p.reps + (p.deload ? ' (deload)' : '') + '</title></circle>').join('');
     const first = pts[0], lastP = pts[pts.length - 1], curP = lined[lined.length - 1].p;
-    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(first.date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">' + fmtDate(lastP.date) + '</text>';
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 5) + '">' + fmtDate(first.date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 5) + '" text-anchor="end">' + fmtDate(lastP.date) + '</text>';
+    const legend = '<div class="legend">' + (curP.deload ? '' : '<span><i class="swatch now"></i>Latest</span>') + (pts.some((p) => p.deload) ? '<span><i class="swatch ring"></i>Deload (off the line)</span>' : '') + '</div>';
     const best = pts.reduce((a, b) => (b.e1rm > a.e1rm ? b : a));
     const heaviest = pts.reduce((a, b) => (b.weight > a.weight || (b.weight === a.weight && b.reps > a.reps) ? b : a));
     const prCount = state.workouts.reduce((n, w) => n + w.entries.filter((e) => e.exId === exId && e.prs && e.prs.length).length, 0);
     const sessions = [];
     state.workouts.forEach((w) => { if (!w.finishedAt) return; w.entries.forEach((e) => { if (e.exId !== exId) return; const done = e.sets.filter((s) => s.done && s.reps > 0); if (done.length) sessions.push({ date: w.date, text: done.map((s) => fmtW(s.weight) + '×' + s.reps).join(', '), pr: !!(e.prs && e.prs.length), deload: !!w.deload }); }); });
-    const recent = '<div class="group-title" style="margin-top:14px">Recent sessions</div>' + sessions.slice(-8).reverse().map((s) => '<div class="hist-set"><span>' + fmtDate(s.date) + (s.pr ? ' 🏆' : '') + (s.deload ? ' <span class="pill amber">Deload</span>' : '') + '</span><span><b>' + s.text + '</b></span></div>').join('');
-    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + '<path class="line" d="' + path + '"/>' + dots + labels + '</svg>'
+    const recent = '<div class="group-title">Recent sessions</div>' + sessions.slice(-8).reverse().map((s) => '<div class="hist-set"><span class="nowrap">' + fmtDate(s.date) + (s.pr ? ' ' + icon('trophy', 's', '🏆') : '') + (s.deload ? ' <span class="pill amber">Deload</span>' : '') + '</span><span><b>' + s.text + '</b></span></div>').join('');
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Top set weight per session">' + grid + '<path class="line" d="' + path + '"/>' + dots + labels + '</svg>' + legend
       + '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtW(curP.weight) + '</div><div class="k">Current top set</div></div><div class="stat"><div class="v">' + fmtW(best.weight) + '×' + best.reps + '</div><div class="k">Best set</div></div><div class="stat"><div class="v">' + pts.length + '</div><div class="k">Sessions</div></div></div>'
-      + '<div class="review-list mt8 small"><div>🏆 Heaviest: <b>' + fmtW(heaviest.weight) + ' × ' + heaviest.reps + '</b> on ' + fmtDate(heaviest.date) + '</div><div>Est. 1RM: <b>' + fmtW(Math.round(best.e1rm)) + ' ' + state.settings.units + '</b> from ' + fmtW(best.weight) + ' × ' + best.reps + '</div><div>' + plural(prCount, 'PR session') + ' logged</div></div>' + recent;
+      + '<div class="review-list mt8 small"><div>' + icon('trophy', 's', '🏆 ') + 'Heaviest: <b>' + fmtW(heaviest.weight) + ' × ' + heaviest.reps + '</b> on ' + fmtDate(heaviest.date) + '</div><div>Est. 1RM: <b>' + fmtW(Math.round(best.e1rm)) + ' ' + state.settings.units + '</b> from ' + fmtW(best.weight) + ' × ' + best.reps + '</div><div>' + plural(prCount, 'PR session') + ' logged</div></div>' + recent;
   }
 
   // ---- Settings ------------------------------------------------------------
@@ -1532,31 +1596,31 @@
     return '<div class="screen-title"><h1>Settings</h1></div>'
       + '<div class="card">'
       + '<div class="toggle-row"><div><div>Appearance</div><div class="small muted">System follows your phone</div></div><div class="seg">' + ['system', 'dark', 'light'].map((t) => '<button class="' + ((s.theme || 'system') === t ? 'on' : '') + '" data-action="set-theme" data-v="' + t + '">' + t[0].toUpperCase() + t.slice(1) + '</button>').join('') + '</div></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: barbell</div><div class="small muted">Also cable-free moves and anything else. Per exercise override in Exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: dumbbell</div><div class="small muted">Per hand. Most racks go up in 5s</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.incDumbbell + '" data-field="setting" data-k="incDumbbell"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: machine</div><div class="small muted">Stack pin or plate-loaded</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.incMachine + '" data-field="setting" data-k="incMachine"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: cable</div><div class="small muted">Cable stack</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.incCable + '" data-field="setting" data-k="incCable"></div>'
-      + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax"></div></div>'
-      + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec"></div>'
-      + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets"></div>'
-      + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: barbell</div><div class="small muted">Also cable-free moves and anything else. Per exercise override in Exercises</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: dumbbell</div><div class="small muted">Per hand. Most racks go up in 5s</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incDumbbell + '" data-field="setting" data-k="incDumbbell"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: machine</div><div class="small muted">Stack pin or plate-loaded</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incMachine + '" data-field="setting" data-k="incMachine"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: cable</div><div class="small muted">Cable stack</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incCable + '" data-field="setting" data-k="incCable"></div>'
+      + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax"></div></div>'
+      + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec"></div>'
+      + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets"></div>'
+      + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets"></div>'
       + '<div class="toggle-row"><div><div>Reps in reserve</div><div class="small muted">After you tick a set, tap how many reps you had left (3+, 2, 1, 0). 3+ on every set moves weight up early</div></div><div class="seg"><button class="' + (s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="1">On</button><button class="' + (!s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="0">Off</button></div></div>'
-      + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest"></div>'
-      + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
-      + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" style="width:auto" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
+      + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest"></div>'
+      + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
+      + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
       + '<div class="toggle-row"><div><div>Sleep</div><div class="small muted">Time asleep, REM and deep in the morning check-in</div></div><div class="seg"><button class="' + (s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="1">On</button><button class="' + (!s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="0">Off</button></div></div>'
       + '</div>'
       + '<div class="group-title">Cardio</div><div class="card">'
       + '<div class="toggle-row"><div><div>Cardio after lifting</div><div class="small muted">Adds a cardio card with a timer to the end of every workout</div></div><div class="seg"><button class="' + (s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="1">On</button><button class="' + (!s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="0">Off</button></div></div>'
-      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" style="max-width:200px" value="' + esc(s.cardioName) + '" data-field="cardio-name"></div>'
-        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin"></div>' : '')
+      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" value="' + esc(s.cardioName) + '" data-field="cardio-name"></div>'
+        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin"></div>' : '')
       + '</div>'
       + (window.__overloadConn ? window.__overloadConn.settingsCard() : '')
       + '<div id="handover" data-where="settings">' + handoverHtml('settings') + '</div>'
       + renderBackupCard()
       + renderCloudCard()
-      + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
-      + '<p class="tiny muted center mt16">Overload · v' + VERSION + '</p>';
+      + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">' + icon('trash') + 'Reset all data</button></div>'
+      + '<p class="version">Overload · v' + VERSION + '</p>';
   }
 
   function renderCloudCard() {
@@ -1566,21 +1630,19 @@
       body = '<p class="small muted">Cloud sync is loading. If this never changes, the sync module could not load (offline, or sync.js is missing).</p>';
     } else if (sync.user) {
       const st = ui.sync;
-      const colour = cloudColour(st.status);
-      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill" id="cloud-status" style="color:' + colour + '">' + esc(st.msg || 'Connected') + '</span></div>'
+      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill ' + st.status + '" id="cloud-status">' + esc(st.msg || 'Connected') + '</span></div>'
         + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
-        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
+        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
     } else {
       body = '<p class="small muted mb8">Sign in to keep your data in the cloud so it survives clearing this phone and follows you to a new one. First time here? Enter an email and password and tap Create account.</p>'
         + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required></div>'
         + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required></div>'
-        + '<div id="cloud-msg" class="small mb8" style="color:var(--accent-2)"></div>'
+        + '<div id="cloud-msg" class="small mb8"></div>'
         + '<div class="btn-row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-action="cloud-signup">Create account</button></div>'
         + '<button class="btn subtle block mt8" type="button" data-action="cloud-reset">Forgot password</button></form>';
     }
     return '<div id="cloud-card"><div class="group-title">Cloud sync</div><div class="card">' + body + '</div></div>';
   }
-  function cloudColour(status) { return status === 'error' ? 'var(--accent-2)' : status === 'synced' ? 'var(--green)' : 'var(--amber)'; }
 
   async function cloudAction(kind) {
     const sync = window.__overloadSync; if (!sync) return;
@@ -1610,7 +1672,7 @@
     if (fresh || was !== now) panel.scrollTop = 0;
   }
   function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; document.dispatchEvent(new CustomEvent('overload:sheetclose')); }
-  function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close">✕</button></div></div>'; }
+  function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close" aria-label="Close">' + icon('close') + '</button></div></div>'; }
 
   function sheetExercise(exId) {
     const ex = exId ? exById(exId) : { id: null, name: '', muscle: 'Chest', equipment: 'Dumbbell', increment: null, repMin: null, repMax: null, custom: true };
@@ -1621,13 +1683,14 @@
       + '<div class="field"><label>Name</label><input class="input" name="name" required value="' + esc(ex.name) + '" placeholder="e.g. Incline Dumbbell Press"></div>'
       + '<div class="field-row"><div class="field"><label>Muscle</label><select class="select" name="muscle">' + opt(MUSCLES, ex.muscle) + '</select></div><div class="field"><label>Equipment</label><select class="select" name="equipment">' + opt(EQUIPMENT, ex.equipment) + '</select></div></div>'
       + '<div class="field"><label>Notes</label><input class="input" name="notes" value="' + esc(ex.notes || '') + '" placeholder="Seat 4, handles high, pin at 7…"></div>'
-      + '<div class="group-title" style="margin-top:6px">Current prescription</div>'
+      + '<div class="group-title">Current prescription</div>'
       + '<div class="field-row"><div class="field"><label>Weight (' + state.settings.units + ')</label><input class="input" name="weight" type="number" inputmode="decimal" step="any" min="0" value="' + (p.weight || '') + '"></div><div class="field"><label>Sets</label><input class="input" name="sets" type="number" inputmode="numeric" min="1" value="' + p.sets + '"></div><div class="field"><label>Goal reps</label><input class="input" name="targetReps" type="number" inputmode="numeric" min="1" value="' + p.targetReps + '"></div></div>'
-      + '<div class="group-title" style="margin-top:6px">Overrides <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">(blank = use settings)</span></div>'
+      + '<div class="group-title">Overrides <span class="muted">(blank = use settings)</span></div>'
       + '<div class="field-row"><div class="field"><label>Weight jump</label><input class="input" name="increment" type="number" inputmode="decimal" step="any" min="0" placeholder="' + state.settings.increment + '" value="' + (ex.increment || '') + '"></div><div class="field"><label>Rep min</label><input class="input" name="repMin" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMin + '" value="' + (ex.repMin || '') + '"></div><div class="field"><label>Rep max</label><input class="input" name="repMax" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMax + '" value="' + (ex.repMax || '') + '"></div></div>'
       + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '"></div><div class="field"><label>Fixed sets</label><input class="input" name="fixedSets" type="number" inputmode="numeric" min="1" placeholder="auto" value="' + (ex.fixedSets || '') + '"></div><div class="field"></div></div>'
-      + '<button class="btn block mt8" type="submit">Save</button>'
-      + (exId ? '<button class="btn subtle block mt8" type="button" data-action="delete-ex" data-ex="' + exId + '">Delete exercise</button>' : '')
+      + (exId ? '<button class="btn danger block mt8" type="button" data-action="delete-ex" data-ex="' + exId + '">' + icon('trash') + 'Delete exercise</button>' : '')
+      // Save stays in reach at the bottom of the sheet while the form scrolls under it.
+      + '<div class="sheet-foot"><button class="btn block" type="submit">Save</button></div>'
       + '</form>');
   }
 
@@ -1635,14 +1698,14 @@
     const d = dayById(dayId); if (!d) return;
     const items = d.exercises.map((exId, i) => { const ex = exById(exId); if (!ex) return '';
       return '<div class="list-item"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + esc(ex.muscle) + '</div></div>'
-        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="-1" ' + (i === 0 ? 'disabled' : '') + '>↑</button>'
-        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="1" ' + (i === d.exercises.length - 1 ? 'disabled' : '') + '>↓</button>'
-        + '<button class="icon-btn danger" data-action="day-remove-ex" data-day="' + dayId + '" data-i="' + i + '">✕</button></div>'; }).join('');
+        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="-1" ' + (i === 0 ? 'disabled' : '') + ' aria-label="Move up">' + icon('arrow-up') + '</button>'
+        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="1" ' + (i === d.exercises.length - 1 ? 'disabled' : '') + ' aria-label="Move down">' + icon('arrow-down') + '</button>'
+        + '<button class="icon-btn danger" data-action="day-remove-ex" data-day="' + dayId + '" data-i="' + i + '" aria-label="Remove from this day">' + icon('close') + '</button></div>'; }).join('');
     openSheet(sheetHeader('Edit day')
       + '<div class="field"><label>Name</label><input class="input" value="' + esc(d.name) + '" data-field="day-name" data-day="' + dayId + '"></div>'
       + '<div class="list">' + (items || '<div class="empty small">No exercises yet</div>') + '</div>'
-      + '<button class="btn block mt12" data-action="pick-ex" data-day="' + dayId + '">+ Add exercise</button>'
-      + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn subtle" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>', 'day:' + dayId);
+      + '<button class="btn block mt12" data-action="pick-ex" data-day="' + dayId + '">' + icon('plus') + 'Add exercise</button>'
+      + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn danger" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>', 'day:' + dayId);
   }
 
   function sheetPicker(target) {
@@ -1656,9 +1719,9 @@
     const title = ui.pickTarget.swap != null ? 'Swap exercise' : 'Add exercise';
     const list = state.exercises.filter((e) => !exclude.includes(e.id) && (!q || e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q)));
     const groups = MUSCLES.map((m) => { const items = list.filter((e) => e.muscle === m); if (!items.length) return '';
-      return '<div class="group-title">' + m + '</div><div class="list">' + items.map((ex) => '<button class="list-item" data-action="pick-ex-choose" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + esc(ex.equipment) + '</div></div><span class="chev">+</span></button>').join('') + '</div>'; }).join('');
+      return '<div class="group-title">' + m + '</div><div class="list">' + items.map((ex) => '<button class="list-item" data-action="pick-ex-choose" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + esc(ex.equipment) + '</div></div><span class="chev">' + icon('plus', 'm') + '</span></button>').join('') + '</div>'; }).join('');
     openSheet(sheetHeader(title, '<button class="btn small ghost" data-action="pick-new-ex">New</button>')
-      + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.pickSearch || '') + '" data-field="pick-search" autofocus>'
+      + '<div class="search">' + icon('search') + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.pickSearch || '') + '" data-field="pick-search" aria-label="Search exercises" autofocus></div>'
       + (groups || '<div class="empty">No matches</div>'));
   }
 
@@ -1670,13 +1733,13 @@
       return '<div class="card flat"><div class="row between"><b>' + esc(ex ? ex.name : 'Deleted exercise') + (en.swappedFrom ? ' <span class="muted small">(swap)</span>' : '') + '</b>' + (ex ? '<span class="pill">' + esc(ex.muscle) + '</span>' : '') + '</div>'
         + (en.warmups && en.warmups.some((x) => x.done) ? '<div class="hist-set"><span>Warm-up</span><span>' + en.warmups.filter((x) => x.done).map((x) => fmtW(x.weight) + '×' + x.reps).join(', ') + '</span></div>' : '')
         + done.map((s, i) => '<div class="hist-set"><span>Set ' + (i + 1) + '</span><span><b>' + fmtW(s.weight) + '</b> ' + state.settings.units + ' × <b>' + s.reps + '</b>' + (s.rir != null ? ' <span class="muted">· ' + s.rir + ' RIR</span>' : '') + '</span></div>').join('')
-        + (en.prs && en.prs.length ? '<div class="tiny mt8" style="color:var(--green)">🏆 ' + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
+        + (en.prs && en.prs.length ? '<div class="pr-line">' + icon('trophy', 's') + '<span>' + esc(en.prs.map((x) => x.text).join(' · ')) + '</span></div>' : '')
         + (fb ? '<div class="tiny muted mt8">' + fb + '</div>' : '')
-        + (en.next && en.next.reasons.length ? '<div class="tiny mt8" style="color:var(--amber)">' + esc(en.next.reasons[0]) + '</div>' : '') + '</div>'; }).join('');
+        + (en.next && en.next.reasons.length ? '<div class="tiny muted mt8">' + esc(en.next.reasons[0]) + '</div>' : '') + '</div>'; }).join('');
     const sore = Object.keys(w.soreness || {}).map((m) => m + ': ' + SORENESS[w.soreness[m]]).join(' · ');
     openSheet(sheetHeader(esc(w.dayName)) + '<p class="small muted mb8">' + (w.deload ? '<span class="pill amber">Deload</span> ' : '') + fmtDate(w.date) + (durationText(w) ? ' · ' + durationText(w) : '') + (sore ? ' · ' + esc(sore) : '') + '</p>' + (body || (w.cardio ? '' : '<div class="empty">Nothing logged</div>'))
       + (w.cardio && w.cardio.done ? '<div class="card flat"><div class="row between"><b>' + esc(w.cardio.name) + '</b><span class="pill">Cardio</span></div><div class="hist-set"><span>' + esc(cardioText(w.cardio)) + '</span></div></div>' : '')
-      + '<div class="btn-row mt8"><button class="btn ghost" data-action="edit-workout" data-w="' + w.id + '">Edit sets</button><button class="btn subtle" data-action="delete-workout" data-w="' + w.id + '">Delete workout</button></div>');
+      + '<div class="btn-row mt8"><button class="btn ghost" data-action="edit-workout" data-w="' + w.id + '">' + icon('edit') + 'Edit sets</button><button class="btn danger" data-action="delete-workout" data-w="' + w.id + '">Delete workout</button></div>');
   }
 
   // Fix a typo in a finished workout. Trophies follow; next time is redone only where this is the latest session.
@@ -1684,9 +1747,9 @@
     const w = state.workouts.find((x) => x.id === wId); if (!w) return;
     const u = state.settings.units;
     const body = w.entries.map((en, ei) => { const ex = exById(en.exId);
-      const rows = en.sets.map((s, si) => !s.done ? '' : '<div class="row mt8"><span class="muted small" style="width:52px;flex-shrink:0;white-space:nowrap">Set ' + (si + 1) + '</span>'
-        + '<input class="input" style="text-align:center" type="number" inputmode="decimal" step="any" min="0" name="w-' + ei + '-' + si + '" value="' + (s.weight || '') + '" placeholder="' + u + '">'
-        + '<input class="input" style="text-align:center" type="number" inputmode="numeric" min="0" name="r-' + ei + '-' + si + '" value="' + (s.reps || '') + '" placeholder="reps"></div>').join('');
+      const rows = en.sets.map((s, si) => !s.done ? '' : '<div class="row mt8"><span class="set-lbl">Set ' + (si + 1) + '</span>'
+        + '<input class="input num fill" type="number" inputmode="decimal" step="any" min="0" name="w-' + ei + '-' + si + '" value="' + (s.weight || '') + '" placeholder="' + u + '" aria-label="Set ' + (si + 1) + ' weight">'
+        + '<input class="input num fill" type="number" inputmode="numeric" min="0" name="r-' + ei + '-' + si + '" value="' + (s.reps || '') + '" placeholder="reps" aria-label="Set ' + (si + 1) + ' reps"></div>').join('');
       return rows ? '<div class="card flat"><b>' + esc(ex ? ex.name : 'Deleted exercise') + '</b>' + rows + '</div>' : ''; }).join('');
     openSheet(sheetHeader('Edit sets') + '<form id="edit-workout-form" data-w="' + w.id + '"><p class="small muted mb8">' + esc(w.dayName) + ' · ' + fmtDate(w.date) + '. ' + (w.deload ? 'Deload workout: corrections fix the log only. Next-time numbers and trophies stay as they are.' : 'Trophies follow your corrections. If this is the latest time you did an exercise and a correction changes how it went, its next-time numbers are worked out again with its current rep range. Older sessions keep the ones already set.') + '</p>'
       + body + '<button class="btn block mt12" type="submit">Save changes</button></form>');
@@ -1744,7 +1807,7 @@
 
   function sheetBodyweight() {
     const list = bwSorted().slice().reverse();
-    openSheet(sheetHeader('Weigh-ins') + '<div class="list">' + (list.map((b) => '<div class="list-item"><div class="grow"><div class="title">' + fmtW(b.weight) + ' ' + state.settings.units + '</div><div class="sub">' + fmtDate(b.date) + '</div></div><button class="icon-btn danger" data-action="bw-delete" data-date="' + b.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
+    openSheet(sheetHeader('Weigh-ins') + '<div class="list">' + (list.map((b) => '<div class="list-item"><div class="grow"><div class="title">' + fmtW(b.weight) + ' ' + state.settings.units + '</div><div class="sub">' + fmtDate(b.date) + '</div></div><button class="icon-btn danger" data-action="bw-delete" data-date="' + b.date + '" aria-label="Delete this weigh-in">' + icon('trash') + '</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
   }
 
   // ---------------------------------------------------------------------------
@@ -1835,7 +1898,7 @@
     en.next = next;
     en.done = true;
     en.prs = detectPrs(en.exId, en, w.id);
-    if (en.prs.length) toast('🏆 PR! ' + en.prs[0].text);
+    if (en.prs.length) toast('PR! ' + en.prs[0].text);
     else if (ticked) toast('Counted ' + plural(ticked, 'set') + ' you typed but did not tick');
     state.presc[en.exId] = { weight: next.weight, targetReps: next.targetReps, sets: next.sets, soreCut: next.soreCut, reasons: next.reasons, updatedAt: next.updatedAt };
     return ticked;
@@ -1977,13 +2040,17 @@
       });
     } catch (e) { /* ignore */ }
   }
-  function startTimer(sec, kind) {
+  // next: one line for the dock about what this rest is before ("Set 3 of 3 next"). The caller writes it: the
+  // timer is given seconds, not a set.
+  function startTimer(sec, kind, next) {
     if (!sec) return;
     if (timer.handle && timer.kind === 'cardio' && kind !== 'cardio') return;  // cardio keeps running
     unlockAudio();
     timer.kind = kind || 'rest';
     const label = $('.rest-label'); if (label) label.textContent = timer.kind === 'cardio' ? 'Cardio' : 'Rest';
+    const line = $('#rest-next'); if (line) line.textContent = next || '';
     timer.total = sec; timer.end = Date.now() + sec * 1000;
+    showRestOf();
     $('#rest-timer').hidden = false;
     tick();
     clearInterval(timer.handle);
@@ -2001,6 +2068,8 @@
       else toast(kind === 'cardio' ? 'Cardio done' : 'Rest over');
     }
   }
+  // The whole rest beside the time left ("1:24 / 2:00"). It changes only with +30s.
+  function showRestOf() { const el = $('#rest-of'); if (el) el.textContent = '/ ' + fmtTime(timer.total); }
   function stopTimer() { clearInterval(timer.handle); timer.handle = null; timer.kind = 'rest'; $('#rest-timer').hidden = true; }
 
   // ---------------------------------------------------------------------------
@@ -2047,11 +2116,11 @@
     $('#app').innerHTML = '<div class="screen-title"><h1>Your data</h1></div>'
       + '<div class="card"><p><b>Overload could not read the data saved on this phone.</b></p>'
       + '<p class="small muted mt8">' + (raw ? 'Nothing has been changed or deleted. Save a copy of it first, then choose what to do.' : 'The phone did not let the app read its storage. Try again first.') + '</p>'
-      + '<div class="list mt12">' + (raw ? '<button class="btn block" data-action="unreadable-export">Export the unreadable copy</button>' : '')
-      + '<button class="btn ghost block" data-action="unreadable-retry">Try again</button></div></div>'
+      + '<div class="btn-row mt12">' + (raw ? '<button class="btn" data-action="unreadable-export">' + icon('export') + 'Export the unreadable copy</button>' : '')
+      + '<button class="btn ghost" data-action="unreadable-retry">Try again</button></div></div>'
       + '<div id="restore-section" hidden><div class="group-title">Restore an automatic copy</div><div class="card"><div id="safety-copies"></div></div></div>'
       + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty app with the default program. If you used cloud sync, your cloud copy comes back once you are signed in.</p>'
-      + '<button class="btn danger block" data-action="unreadable-fresh">Start fresh</button></div>';
+      + '<button class="btn danger block" data-action="unreadable-fresh">' + icon('trash') + 'Start fresh</button></div>';
     fillCopies(true);
   }
   // He chose: the data now in memory is the app's again. Sync starts over with a full download and merge.
@@ -2241,13 +2310,15 @@
   // Get Fuel and Copy link. A Home Screen app on an iPhone opens a link to its own site inside itself, where Fuel
   // would run on this app's storage and could not be added to the Home Screen. The x-safari-https address asks the
   // phone to open Safari instead. That address form is not documented anywhere, so Copy link is always there too.
+  // Both are keys, not the accent: on Today, Start workout stays the one main action. The link's text is exactly
+  // "Get Fuel" (its icon adds none). The address hint is fine print, which Today leaves out ("more").
   function fuelButtons() {
     const u = fuelUrl();
     const get = navigator.standalone === true
-      ? '<a class="btn" style="text-decoration:none" href="' + esc('x-safari-https://' + location.host + u.pathname) + '">Get ' + FUEL + '</a>'
-      : '<a class="btn" style="text-decoration:none" href="' + esc(u.href) + '" target="_blank" rel="noopener">Get ' + FUEL + '</a>';
-    return '<div class="btn-row mt8">' + get + '<button class="btn ghost" data-action="handover-link">Copy link</button></div>'
-      + '<p class="tiny muted mt8" style="overflow-wrap:anywhere">In Safari tap Share, then Add to Home Screen. If Safari does not open, tap Copy link and paste it into Safari\'s address bar: ' + esc(u.host + u.pathname) + '</p>';
+      ? '<a class="btn ghost" href="' + esc('x-safari-https://' + location.host + u.pathname) + '">Get ' + FUEL + icon('external') + '</a>'
+      : '<a class="btn ghost" href="' + esc(u.href) + '" target="_blank" rel="noopener">Get ' + FUEL + icon('external') + '</a>';
+    return '<div class="btn-row mt8">' + get + '<button class="btn ghost" data-action="handover-link">' + icon('link') + 'Copy link</button></div>'
+      + '<p class="tiny muted mt8 break more">In Safari tap Share, then Add to Home Screen. If Safari does not open, tap Copy link and paste it into Safari\'s address bar: ' + esc(u.host + u.pathname) + '</p>';
   }
   async function copyFuelLink() {
     const link = fuelUrl().href;
@@ -2274,10 +2345,11 @@
     const h = handoverInfo(), f = h.f, today = where === 'today';
     if (today && !h.today) return '';
     const title = today ? '' : '<div class="group-title">Food</div>';
+    const tile = '<span class="app-tile l" data-app="fuel">' + icon('mark-fuel') + '</span>';   // Fuel's Home Screen icon, in its own colour
     // Nothing to hand over (a new install, or the old log was removed): one line and the way to Fuel.
     if (!f.any || h.removed) {
-      return title + '<div class="card"><p class="small muted">Food is logged in a separate app, ' + FUEL + '.'
-        + (h.removed ? ' The old food log was removed from Overload on ' + fmtDate(todayKey(new Date(h.removedAt))) + '.' : '') + '</p>' + fuelButtons() + '</div>';
+      return title + '<div class="card handover"><div class="handover-head">' + tile + '<p class="small muted">Food is logged in a separate app, ' + FUEL + '.'
+        + (h.removed ? ' The old food log was removed from Overload on ' + fmtDate(todayKey(new Date(h.removedAt))) + '.' : '') + '</p></div>' + fuelButtons() + '</div>';
     }
     const holds = [plural(f.days, 'day'), entriesText(f.entries), plural(f.foods, 'saved food')].concat(f.meals ? [plural(f.meals, 'saved meal')] : []).join(', ') + ' (about ' + fmtSize(f.chars) + ')';
     const made = [h.copied && h.copied.hash === f.hash ? 'Copied ' + agoText(h.copied.at) : '', h.filed && h.filed.hash === f.hash ? 'Saved as a file ' + agoText(h.filed.at) : ''].filter(Boolean);
@@ -2292,18 +2364,23 @@
       ? 'Your whole food log is in your account. Signing in to ' + FUEL + ' with the same email brings it across too.'
       : 'Signing in to ' + FUEL + ' with the same email also brings across the food log your account holds. This phone may hold more, so copy it from here as well.') + '</p>';
     // Offered only when the last copy or file holds exactly what is here now.
-    const remove = !today && h.current && f.days ? '<div class="mt16"><b>When ' + FUEL + ' shows your food log</b></div>'
+    const remove = !today && h.current && f.days ? '<div class="handover-remove"><b>When ' + FUEL + ' shows your food log</b>'
       + '<p class="small muted">You can remove the old food log from Overload. That frees about ' + fmtSize(f.diaryChars) + ' on this phone. A safety copy is kept first, and your saved foods and targets stay.</p>'
-      + '<button class="btn danger block mt8" data-action="handover-remove">Remove the old food log from Overload</button>' : '';
-    return title + '<div class="card">'
-      + '<div class="row between"><b>Food has moved to ' + FUEL + '</b>' + (today ? '<button class="icon-btn" data-action="handover-hide" aria-label="Hide this card">✕</button>' : '') + '</div>'
+      + '<button class="btn danger block mt8" data-action="handover-remove">' + icon('trash') + 'Remove the old food log from Overload</button></div>' : '';
+    // One markup for both places. The stylesheet draws it short on Today (#handover[data-where="today"]): no step
+    // numbers, no step headings, no fine print. The steps are numbered by the list; the second is done (solid)
+    // while the last copy or file holds what is here now.
+    return title + '<div class="card handover">'
+      + '<div class="handover-head">' + tile + '<b>Food has moved to ' + FUEL + '</b>' + (today ? '<button class="icon-btn" data-action="handover-hide" aria-label="Hide this card">' + icon('close') + '</button>' : '') + '</div>'
       + '<p class="small muted mt8">The food log is now its own app, ' + FUEL + '. Your log is still on this phone: ' + holds + '. Nothing is taken away until you remove it yourself.</p>'
-      + (h.stale ? '<div class="notice mt8"><span>The food log here changed after you ' + (file ? 'saved it as a file' : 'copied it') + ' on ' + lastDay + '. ' + (file ? 'Save' : 'Copy') + ' it again so ' + FUEL + ' gets the rest.</span></div>' : '')
-      + '<div class="mt12"><b>1. Get ' + FUEL + '</b></div>' + fuelButtons()
-      + '<div class="mt12"><b>2. Take your food log along</b></div>'
-      + '<button class="btn block mt8" data-action="handover-copy">Copy my food log</button><button class="btn ghost block mt8" data-action="handover-file">Save as a file</button>'
-      + '<p class="small muted mt8">' + status + '</p>'
-      + '<div class="mt12"><b>3. In ' + FUEL + ', tap Paste from Overload</b></div><p class="small muted">If you saved a file, tap Choose a file there instead.</p>'
+      + (h.stale ? '<div class="banner warn mt8">' + icon('warning') + '<span>The food log here changed after you ' + (file ? 'saved it as a file' : 'copied it') + ' on ' + lastDay + '. ' + (file ? 'Save' : 'Copy') + ' it again so ' + FUEL + ' gets the rest.</span></div>' : '')
+      + '<ol class="steps">'
+      + '<li><b>Get ' + FUEL + '</b>' + fuelButtons() + '</li>'
+      + '<li' + (h.current ? ' class="done"' : '') + '><b>Take your food log along</b>'
+      + '<div class="btn-row mt8"><button class="btn ghost" data-action="handover-copy">' + icon('copy') + 'Copy my food log</button><button class="btn ghost" data-action="handover-file">' + icon('export') + 'Save as a file</button></div>'
+      + '<p class="small muted mt8">' + status + '</p></li>'
+      + '<li><b>In ' + FUEL + ', tap Paste from Overload</b><p class="small muted more">If you saved a file, tap Choose a file there instead.</p></li>'
+      + '</ol>'
       + cloud + remove
       + (today ? '<p class="tiny muted mt12">This card is also in Settings, under Food.</p>' : '') + '</div>';
   }
@@ -2359,7 +2436,15 @@
     switch (a) {
       // Today
       case 'select-day': ui.selectedDay = +d.i; ui.showOthers = false; render(); break;
-      case 'toggle-others': ui.showOthers = !ui.showOthers; render(); break;
+      case 'toggle-others': {
+        ui.showOthers = !ui.showOthers; render();
+        // The button is in the day's card now and the list opens under the card, mostly below the screen's edge.
+        // Bring the list's heading to where the button is, so the list shows up at the finger as it did when the
+        // button sat under the card. Bottom edge on bottom edge: the first Start then lies clear below the finger.
+        const list = $('#other-days'), at = $('[data-action="toggle-others"]');
+        if (list && at) window.scrollBy(0, list.getBoundingClientRect().bottom - at.getBoundingClientRect().bottom);
+        break;
+      }
       case 'reload': location.reload(); break;
       case 'start-workout': startWorkout(d.day); break;
       case 'start-deload': startWorkout(d.day, true); break;
@@ -2386,7 +2471,11 @@
           }
           // Empty reps box: one tap logs the goal shown in it (marked, so unticking takes it back out).
           if (!(s.reps > 0)) { if (!(en.targetReps > 0)) { toast('Enter reps first'); return; } s.reps = en.targetReps; s.auto = true; }
-          s.done = true; startTimer(restFor(ex));
+          s.done = true;
+          // What the rest is before: the next set of this exercise (the first one not ticked, the row the screen
+          // marks as next), else the next exercise still open.
+          const nextSet = en.sets.findIndex((x) => !x.done), later = w.entries.slice(+d.e + 1).find((o) => !o.done && exById(o.exId));
+          startTimer(restFor(ex), 'rest', nextSet >= 0 ? 'Set ' + (nextSet + 1) + ' of ' + en.sets.length + ' next' : later ? 'Next: ' + exById(later.exId).name : 'Last set done');
         } else {
           s.done = false; s.rir = null;  // its RIR row is hidden while unticked, so a picked value must not linger and count later
           if (s.auto) { s.reps = 0; delete s.auto; }  // reps typed by hand stay
@@ -2404,7 +2493,7 @@
       }
       case 'gen-warmup': genWarmups(w.entries[+d.e]); save(); render(); break;
       case 'clear-warmup': w.entries[+d.e].warmups = null; save(); render(); break;
-      case 'toggle-warmup': { const wu = w.entries[+d.e].warmups[+d.s]; wu.done = !wu.done; if (wu.done) startTimer(state.settings.warmupRest); save(); render(); break; }
+      case 'toggle-warmup': { const wu = w.entries[+d.e].warmups[+d.s]; wu.done = !wu.done; if (wu.done) startTimer(state.settings.warmupRest, 'rest', 'Warm-up'); save(); render(); break; }
       case 'swap-entry': sheetPicker({ swap: +d.e }); break;
       case 'remove-set': {
         const en = w.entries[+d.e]; if (en.sets.length <= 1) break;
@@ -2422,12 +2511,12 @@
       case 'remove-entry': if (confirm('Remove this exercise from today?')) { if (w.entries[+d.e].done) reopenEntry(w, +d.e); w.entries.splice(+d.e, 1); save(); render(); } break;
       case 'add-entry': sheetPicker({ workout: true }); break;
       case 'finish-workout': finishWorkout(); break;
-      case 'cardio-timer': { const c = ensureCardio(w); if (!c || !(c.min > 0)) break; startTimer(Math.round(c.min * 60), 'cardio'); render(); break; }
+      case 'cardio-timer': { const c = ensureCardio(w); if (!c || !(c.min > 0)) break; startTimer(Math.round(c.min * 60), 'cardio', c.name); render(); break; }
       case 'cardio-done': { const c = ensureCardio(w); if (!c) break; if (timer.kind === 'cardio') stopTimer(); c.done = true; save(); render(); toast('Cardio logged'); break; }
       case 'cardio-undo': if (w && w.cardio) { w.cardio.done = false; save(); render(); } break;
       case 'discard-workout': discardWorkout(); break;
       case 'rest-skip': { const k = timer.kind; stopTimer(); if (k === 'cardio') render(); break; }
-      case 'rest-add': timer.end += 30000; timer.total += 30; tick(); break;
+      case 'rest-add': timer.end += 30000; timer.total += 30; showRestOf(); tick(); break;
 
       // Program
       case 'add-day': { const day = { id: uid(), name: 'New day', exercises: [] }; state.program.days.push(day); save(); render(); sheetDay(day.id); break; }
@@ -2659,7 +2748,8 @@
   if (!ui.unreadable) safetyCopy('day');
   // Ask the browser to keep this app's storage when the phone runs low on space (no question is shown on iPhone).
   try { navigator.storage.persisted().then((p) => p || navigator.storage.persist()).catch(() => {}); } catch (e) { /* not available */ }
-  setInterval(() => { const el = $('#elapsed'); const w = activeWorkout(); if (el && w) el.textContent = durationText(w); }, 30000);
+  // The time so far is shown in the top bar (#tb-elapsed) and kept in the screen's sub line (#elapsed, read aloud).
+  setInterval(() => { const w = activeWorkout(); ['#elapsed', '#tb-elapsed'].forEach((q) => { const el = $(q); if (el && w) el.textContent = durationText(w); }); }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.dayKey !== todayKey() && !ui.sheet) render(); });
   // A workout in progress opens at the next set, not at the top (and the browser must not restore an old position over it).
   try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) { /* ignore */ }
@@ -2707,9 +2797,9 @@
     setSyncStatus(status, msg) {
       ui.sync = { status, msg: msg || '' };
       const pill = $('.sync-pill');
-      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.textContent = syncIcon(status); pill.title = ui.sync.msg; }
+      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.innerHTML = syncIcon(status); pill.title = ui.sync.msg; pill.setAttribute('aria-label', 'Cloud sync: ' + status); }
       else renderTopbar();
-      const cs = $('#cloud-status'); if (cs) { cs.textContent = ui.sync.msg || 'Connected'; cs.style.color = cloudColour(status); }
+      const cs = $('#cloud-status'); if (cs) { cs.textContent = ui.sync.msg || 'Connected'; cs.className = 'pill ' + status; }
     },
     // Signed in or out: redraw the pill and the Cloud sync card only, not the screen.
     syncChanged() {

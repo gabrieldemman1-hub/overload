@@ -188,7 +188,7 @@ async function fixture(browser, server, name) {
 
   await step('settings: v3.0, no food targets, the Food card, WHOOP and reminders, the split copy listed', async () => {
     await lib.openTab(page, 'settings');
-    need((await T.text(page, '#app p.tiny.center')) === 'Overload · v3.0', 'the version line reads ' + (await T.text(page, '#app p.tiny.center')));
+    need((await T.text(page, '#app p.version')) === 'Overload · v3.0', 'the version line reads ' + (await T.text(page, '#app p.version')));
     need(await T.count(page, '[data-field="food-target"]') === 0, 'the food targets are still in Settings');
     need(/^Food has moved to Fuel/.test(await T.text(page, '#handover .card')), 'no Food card in Settings');
     need(/WHOOP/.test(await T.text(page, '#conn-cards')) && /Reminders/.test(await T.text(page, '#conn-cards')), 'the WHOOP and Reminders cards are missing');

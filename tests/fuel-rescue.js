@@ -7,7 +7,7 @@
  * release" (every ?v=3.0 turned into a later number), lets fuel.js of that release fail, and puts stored
  * copies into Cache Storage by hand, as Fuel's service worker would have left them:
  *   - an older release with the same first number (3.0 for a 3.1 page) is started from the stored copies:
- *     every script and both stylesheets, nothing asked of the network under the old names;
+ *     every script (the shared icon set too) and both stylesheets, nothing asked of the network under the old names;
  *   - of two older releases the newer one is used;
  *   - never used: a release with another first number, a newer release, and copies kept in a cache that is
  *     not Fuel's (overload-…). The page then says "Fuel did not finish starting", and that what was logged
@@ -42,7 +42,8 @@ function stored(cache, v) {
     Object.assign(at('/fuel/fuel.js'), { type: js, body: read('fuel/fuel.js') + '\nwindow.__rescued = ' + JSON.stringify(v + ' from ' + cache) + ';\n' }),
     Object.assign(at('/fuel/food.js'), { type: js, body: read('fuel/food.js') }),
     Object.assign(at('/fuel/sync.js'), { type: js, body: 'window.__rescuedSync = ' + JSON.stringify(v) + ';\n' }),
-    Object.assign(at('/styles.css'), { type: css, body: read('styles.css') + '\nbody { --stored-styles: ' + JSON.stringify(v) + '; }\n' }),
+    Object.assign(at('/shared/icons.js'), { type: js, body: read('shared/icons.js') + '\nwindow.__rescuedIcons = ' + JSON.stringify(v) + ';\n' }),
+    Object.assign(at('/shared/ui.css'), { type: css, body: read('shared/ui.css') + '\nbody { --stored-styles: ' + JSON.stringify(v) + '; }\n' }),
     Object.assign(at('/fuel/fuel.css'), { type: css, body: read('fuel/fuel.css') + '\nbody { --stored-fuel-css: ' + JSON.stringify(v) + '; }\n' })
   ];
 }
@@ -81,11 +82,11 @@ const note = (page) => F.text(page, '#boot-note');
       const { phone, page } = await scene(browser, server, '3.1', stored('fuel-v1', '3.0').concat(decoys), true);
       try {
         await page.waitForFunction(() => !!window.__overload && !!window.__overloadFood, null, { timeout: 15000 });
-        const got = await page.evaluate(() => ({ from: window.__rescued, sync: window.__rescuedSync, backup: !!window.__overloadBackup,
+        const got = await page.evaluate(() => ({ from: window.__rescued, sync: window.__rescuedSync, icons: window.__rescuedIcons, backup: !!window.__overloadBackup,
           css: [getComputedStyle(document.body).getPropertyValue('--stored-styles').trim(), getComputedStyle(document.body).getPropertyValue('--stored-fuel-css').trim()],
           blobs: [...document.querySelectorAll('script[src^="blob:"]')].length, note: !!document.querySelector('#boot-note') }));
         need(got.from === '3.0 from fuel-v1', 'fuel.js ran from ' + got.from);
-        same([got.sync, got.backup, got.css, got.blobs, got.note], ['3.0', true, ['"3.0"', '"3.0"'], 4, false], 'what the rescue started');
+        same([got.sync, got.icons, got.backup, got.css, got.blobs, got.note], ['3.0', '3.0', true, ['"3.0"', '"3.0"'], 5, false], 'what the rescue started');
         const day = await F.readDay(page);
         need((await F.screen(page)) === 'food' && day.kcalLine === fx.facts.foodDays[0].kcalLine && day.entries === fx.facts.foodDays[0].entries, 'the diary shows ' + JSON.stringify(day).slice(0, 120));
         const old = phone.asked.filter((u) => /[?&]v=(3\.0|2\.9)/.test(u));

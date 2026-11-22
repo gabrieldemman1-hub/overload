@@ -25,12 +25,13 @@ const PORT = Number(args.port) || 8426;
 const run = F.runner('fuel-update');
 const { need, same } = run;
 
-// The site, in a folder of its own: Fuel's page files, the stylesheet it shares, and stand-in workers.
+// The site, in a folder of its own: Fuel's page files, the stylesheet and icons it shares, and stand-in workers.
 function buildSite(tmp) {
   const fuel = path.join(tmp.dir, 'fuel');
   fs.mkdirSync(fuel);
   for (const f of ['index.html', 'fuel.js', 'food.js', 'backup.js', 'fuel.css', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png']) fs.copyFileSync(path.join(lib.REPO, 'fuel', f), path.join(fuel, f));
-  fs.copyFileSync(path.join(lib.REPO, 'styles.css'), path.join(tmp.dir, 'styles.css'));
+  fs.mkdirSync(path.join(tmp.dir, 'shared'));
+  for (const f of ['ui.css', 'icons.js']) fs.copyFileSync(path.join(lib.REPO, 'shared', f), path.join(tmp.dir, 'shared', f));
   fs.mkdirSync(path.join(tmp.dir, 'data'));
   fs.copyFileSync(path.join(lib.REPO, 'data', 'foods.json'), path.join(tmp.dir, 'data', 'foods.json'));   // the Add sheet asks for the food list when it opens
   fs.writeFileSync(path.join(fuel, 'sync.js'), '// cloud sync is not part of this test\n');

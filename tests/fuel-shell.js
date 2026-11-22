@@ -136,6 +136,9 @@ const TODAY = fx.meta.today;
     await step('drag a food to another meal', async () => {
       await lib.sleep(500);
       const q = (await entries()).find((e) => e.name === 'Trail mix');
+      // Away from the screen's edges first: a food held near the top or the bottom makes the page scroll by
+      // itself, and the place measured here would have moved by the time the mouse gets there.
+      await page.evaluate((id) => document.querySelector('.f-meal .f-row[data-id="' + id + '"]').scrollIntoView({ block: 'center' }), q.id);
       const from = await page.locator('.f-meal .f-row[data-id="' + q.id + '"]').boundingBox();
       const to = await page.locator('.f-meal[data-meal="1"] [data-action="food-add"]').boundingBox();
       const a = { x: from.x + from.width / 2, y: from.y + from.height / 2 }, b = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
@@ -218,7 +221,7 @@ const TODAY = fx.meta.today;
       await page.click('[data-action="set-theme"][data-v="light"]');
       need((await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'light', 'data-theme is not light');
       need((await lib.readStorage(page, 'fuel.theme')) === 'light' && (await F.stored(page)).settings.theme === 'light', 'the theme was not saved');
-      need((await page.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgb(243, 243, 245)', 'the page is not drawn light');
+      need((await page.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgb(246, 246, 243)', 'the page is not drawn light');   // --bg of the light theme (shared/ui.css)
       return 'light';
     });
 

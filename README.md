@@ -7,6 +7,10 @@ be logged as a deload.
 Food (calories, protein, carbs and fat against daily targets) is logged in a
 separate app, Fuel: see Two apps below.
 
+This repository holds both apps: Overload at the root, Fuel in `fuel/`, and the
+files they share in `shared/`. They are released together under one number
+(see Releases below).
+
 No build step. Data lives in the browser on the phone, and optionally mirrors to
 a Firebase account (see Cloud sync below) so it survives clearing the phone.
 
@@ -56,12 +60,13 @@ go past the top of the weekly sets target in Settings (default 20).
 
 ## Also in the app
 
-- **Fast logging.** The reps box shows the goal. Tap ✓ on an empty box to log the goal as done; type a number only when you missed or beat it. Unticking a set ticked that way empties it again. Sets you typed but did not tick are counted when you finish. A barbell, dumbbell, machine or cable set cannot be ticked at 0 lb. − Set removes the last empty set (it asks before removing a logged one).
+- **Fast logging.** The reps box shows the goal. Tap the tick beside an empty box to log the goal as done; type a number only when you missed or beat it. Unticking a set ticked that way empties it again. Sets you typed but did not tick are counted when you finish. A barbell, dumbbell, machine or cable set cannot be ticked at 0 lb. The minus Set button removes the last empty set (it asks before removing a logged one).
 - **Back where you left off.** Opening the app or going back to Today during a workout scrolls to the next set, or to the check-in while it still has unanswered questions and nothing is ticked. The answered check-in folds to one line (Edit opens it) and finished exercises fold to one row with their sets, next weight and PR mark (tap to open).
 - **Reps in reserve.** Optional. Each set has a row of four buttons under it (3+, 2, 1, 0), greyed out until you tick the set, so ticking never moves the sets below. Tap the reps you had left; tap the picked one again to clear it. 3+ on every set moves the weight up a session early when the jump is not a big one and the spare reps would pay for it.
 - **Warm-up generator.** One tap builds a 50 / 70 / 85 percent ramp from your working weight, with its own shorter rest timer. Warm-ups never affect progression.
 - **Swap.** Replace an exercise for today only, without touching the program. Sets you already logged are kept: that exercise is finished as it is and the new one goes right after it.
 - **Deload.** Start as deload on Today (or the Deload switch in a workout) logs the session without changing any next-time weight, set count or goal, and without trophies. History tags it Deload, and the progress chart shows it as a hollow dot off the line (it does not count as your current top set).
+- **During a workout.** The top bar shows the workout's name, exercises done, the time so far and one block per set, filled as sets are ticked. The rest timer sits above the tab bar and says what the rest is before ("Set 3 of 3 next").
 - **Finishing.** Finish workout asks first when exercises still have unticked sets. The cardio card keeps its size after Done, so the next tap cannot land on Finish by mistake.
 - **PR alerts.** Heaviest set, best estimated one-rep max, or most reps at a weight, flagged when you finish an exercise and listed under the progress chart.
 - **Weekly volume.** Sets per muscle this week against a target range you set.
@@ -96,7 +101,7 @@ go past the top of the weekly sets target in Settings (default 20).
   does not bring your own sets and ranges back. FST-7 finishers are their own
   exercises ("Pec Deck (FST-7)"), always 7 sets with 35–50 s rest. Where a
   source was paywalled or thin, the program says what it was built from.
-- **Consistency calendar and streak.** Training days by month, rest days faded, streak counted across scheduled days only.
+- **Consistency calendar and streak.** Training days by month: trained days are filled, deload days hollow, days still planned outlined, and a day with a PR has a dot. The streak counts scheduled days only.
 - **Weekly review.** Workouts, sets, tonnage, weight increases, PRs and body weight trend for this week or last, with a Share button.
 - **Equipment-aware jumps.** Barbell, dumbbell, machine and cable each have their own default weight jump (2.5 / 5 / 5 / 5 lb), with a per-exercise override.
 - **Exercise notes and rest.** Seat height, handle, pin position, and a per-exercise rest time, shown and used during the workout.
@@ -111,7 +116,14 @@ on its own and keeps its own data.
 | | Overload (training) | Fuel (food) |
 | --- | --- | --- |
 | Address | the site itself | `fuel/` |
+| In the repository | the root | `fuel/` (its own `README.md` says how it is built) |
 | Holds | exercises, program, workouts, weigh-ins, sleep, WHOOP and reminders | food targets, saved foods and meals, the food diary |
+| Saved under | `overload.state.v1` | `fuel.state.v1` |
+| Offline cache | `overload-vN` (`sw.js`) | `fuel-vN` (`fuel/sw.js`) |
+
+Both load the same stylesheet and icon set from `shared/`; Fuel also uses the
+food list in `data/` and the barcode reader in `vendor/`. On an iPhone each
+Home Screen app has its own storage, so the two never see each other's data.
 
 Overload no longer shows or changes food. The food data it held stays in its
 saved data on the phone (the "old food log") until you remove it yourself, so
@@ -120,8 +132,8 @@ its first start 3.0 also keeps a copy of all data as it was: "Before the split
 into two apps" under Settings → Backup → Automatic copies.
 
 Moving the food log to Fuel is done from the card "Food has moved to Fuel". It
-is on Today until you hide it or have copied the log, and always in Settings →
-Food.
+is on Today (in a short form) until you hide it or have copied the log, and
+always in full in Settings → Food.
 
 1. **Get Fuel** opens `fuel/` in Safari; there, Share → Add to Home Screen.
    Copy link gives the address to paste into Safari if it does not open.
@@ -150,14 +162,17 @@ The clipboard text is `OVERLOAD-FOOD:1:` followed by base64 of the gzipped
 JSON, or `OVERLOAD-FOOD:0:` and base64 of the JSON where the browser cannot
 gzip. The format is in `dev/notes/SPEC.md`, section 5.
 
-## Food log
+## Fuel: the food log
 
-Since 3.0 this is the app Fuel (`fuel/`), not a tab of Overload. The rest of
-this section describes the food log as it works there.
+Since 3.0 this is the app Fuel (`fuel/`), not a tab of Overload. This section
+says what it does; `fuel/README.md` says how it is built and how its data is
+kept.
 
-The Food tab tracks calories, protein, carbs and fat for each day, in Breakfast,
-Lunch, Dinner and Snacks, against targets you set (Settings → Food targets, or
-Set target on the Food screen). Any target can be left empty.
+Fuel's Today screen tracks calories, protein, carbs and fat for each day, in
+Breakfast, Lunch, Dinner and Snacks, against targets you set (Settings → Food
+targets, or tap the target under the calorie gauge). Any target can be left
+empty. Trends shows the last 14 days and this week's averages against last
+week's.
 
 Adding a food:
 
@@ -194,12 +209,12 @@ Faster logging:
 - **Several foods per trip.** After Add, the Add sheet stays open on the same
   list or search, with an "Added: …" line and Done. Favorites and Recent rows
   show what one tap logs, and their + logs it at once.
-- **Favorites.** Tap ☆ on a food to keep it at the top of the add sheet and of
-  search results.
-- **Saved meals.** A meal's ⋯ menu → Save as a meal. It then sits at the top of
+- **Favorites.** Tap the star on a food to keep it at the top of the add sheet
+  and of search results.
+- **Saved meals.** A meal's menu (the three dots) → Save as a meal. It then sits at the top of
   the add sheet (and in search); one tap logs every food in it to any meal.
   Rename it, drop a food from it, or delete it from the same sheet.
-- **Copy.** The ⋯ menu copies yesterday's version of that meal, copies a past
+- **Copy.** The same menu copies yesterday's version of that meal, copies a past
   day's meal to today, or clears the meal. An empty day offers to copy the whole
   day before in one tap.
 - **Move foods between meals.** Hold a logged food for a moment, then drag it to
@@ -216,31 +231,56 @@ Each logged entry keeps its own numbers, so editing or deleting a
 food later never changes past days, and opening an entry and saving it with the
 same amount keeps them too.
 
-The Food tab goes back to today on a new day or after 30 minutes away. A past
+Today goes back to the current day on a new day or after 30 minutes away. A past
 day, or a sheet still open from yesterday, names that day in its title.
 
 ## Files
 
+Overload, at the root:
+
 | File                   | Purpose                                      |
 | ---------------------- | -------------------------------------------- |
-| `index.html`           | App shell and bottom tab bar                 |
-| `app.js`               | State, progression algorithm, all screens    |
+| `index.html`           | The page: top bar, tab bar, rest timer, sheet. Also the start-up rescue, which starts the previous release's stored files when this release's did not arrive |
+| `app.js`               | State, progression algorithm, all screens, the hand-over of the food log to Fuel |
 | `connector.js`         | WHOOP sync and reminders in the app (talks to the connector) |
-| `connector/`           | The connector: a Cloudflare Worker (`worker.js`, `wrangler.toml`) |
 | `programs.js`          | Built-in program library (CBum, FST-7, arm programs) |
-| `styles.css`           | Dark theme with red accent                   |
-| `fuel/`                | Fuel, the diet app: its own page, scripts (the food log is `fuel/food.js`), offline cache and automatic copies |
-| `data/foods.json`      | USDA food list, built by `tools/build_foods.py` |
-| `tools/`               | Food list builder, everyday foods (`staples.tsv`), packaged foods (`branded_wishlist.txt` → `branded.tsv`) |
-| `vendor/zxing/`        | Barcode reader (zxing-wasm 3.1.4, MIT), self-hosted |
-| `lab/scan.html`        | Stand-alone barcode test page (not linked from the app) |
-| `sync.js`              | Optional cloud sync via Firebase             |
+| `train.css`            | The rules only Overload needs (week strip, exercise card, set rows, rest timer). Loaded after `shared/ui.css` |
+| `sync.js`              | Optional cloud sync via Firebase (training data only) |
 | `backup.js`            | Automatic daily safety copies (IndexedDB)    |
-| `firestore.rules`      | Firestore security rules to paste in Firebase|
-| `sw.js`                | Service worker so the app opens offline      |
-| `bump.sh`              | Bumps the version string everywhere at once  |
+| `sw.js`                | Service worker so the app opens offline (cache `overload-vN`) |
 | `manifest.webmanifest` | Home-screen install metadata                 |
 | `icon*.png`, `icon.svg`| App icons                                    |
+
+Fuel, in `fuel/` (see `fuel/README.md`):
+
+| File                   | Purpose                                      |
+| ---------------------- | -------------------------------------------- |
+| `fuel/index.html`, `fuel/fuel.js` | The page and the shell: data, Welcome, Trends, Settings, backups, the import from Overload |
+| `fuel/food.js`         | The food diary and its sheets (until 2.8 this was `food.js` at the root) |
+| `fuel/fuel.css`        | The rules only Fuel needs                    |
+| `fuel/sync.js`, `fuel/backup.js`, `fuel/sw.js` | Fuel's own cloud sync, automatic copies and offline cache (`fuel-vN`) |
+| `fuel/manifest.webmanifest`, `fuel/icon*` | Fuel's Home Screen metadata and icons |
+
+Used by both apps, or by Fuel from outside its folder:
+
+| File                   | Purpose                                      |
+| ---------------------- | -------------------------------------------- |
+| `shared/ui.css`        | The look both apps share: colours, type and every shared component. `data-app` on `<html>` picks the app's accent |
+| `shared/icons.js`      | The icon set: `icon('name')` returns an inline SVG |
+| `data/foods.json`      | USDA food list for Fuel, built by `tools/build_foods.py` |
+| `vendor/zxing/`        | Barcode reader for Fuel (zxing-wasm 3.1.4, MIT), self-hosted |
+| `firestore.rules`      | Firestore security rules to paste in Firebase (one rule covers both apps) |
+
+Everything else:
+
+| File                   | Purpose                                      |
+| ---------------------- | -------------------------------------------- |
+| `bump.sh`              | Sets the release number in both apps and checks the release (see Releases) |
+| `connector/`           | The connector: a Cloudflare Worker (`worker.js`, `wrangler.toml`) |
+| `tools/`               | Food list builder, everyday foods (`staples.tsv`), packaged foods (`branded_wishlist.txt` → `branded.tsv`) |
+| `tests/`               | Playwright tests for both apps (`train-*.js`, `fuel-*.js`), their fixtures and a stand-in for Firebase |
+| `dev/`                 | Notes for whoever works on the code: the spec of the split (`dev/notes/SPEC.md`), the builders' notes, the design system (`dev/design/SYSTEM.md`) |
+| `lab/scan.html`        | Stand-alone barcode test page (not linked from the apps) |
 
 ## Run it
 
@@ -250,8 +290,29 @@ Any static file server works. For example:
 python3 -m http.server 8080
 ```
 
-Then open `http://localhost:8080`. Opening `index.html` directly from disk also
-works (the service worker is skipped in that case).
+Then open `http://localhost:8080` for Overload and `http://localhost:8080/fuel/`
+for Fuel. Serve the repository root, not `fuel/` alone: Fuel loads `shared/`,
+`data/` and `vendor/` from one folder up. Opening Overload's `index.html`
+directly from disk also works (the service worker is skipped in that case).
+
+On a computer both apps share one browser storage, so Fuel offers to bring the
+food log across on the spot. On an iPhone they do not: see Two apps.
+
+The tests need Node and Playwright (Chromium). Each starts its own local server
+and takes `--port=`:
+
+```bash
+node tests/train-upgrade.js    # 2.8 data opened by 3.0: nothing lost, every screen draws
+node tests/train-handover.js   # the card "Food has moved to Fuel", copy, file, remove
+node tests/train-replace.js    # Import, Restore and Reset keep the old food log
+node tests/train-rollback.js   # 2.8 running again on data 3.0 has used
+node tests/train-rescue.js     # the start-up rescue in index.html
+node tests/train-connector.js  # what is sent to the connector
+node tests/train-sw.js         # the offline worker, with real service workers
+node tests/train-sync.js       # cloud sync against a stand-in for Firebase
+```
+
+Fuel's tests are listed in `fuel/README.md`.
 
 ## Put it on an iPhone
 
@@ -265,6 +326,38 @@ After an update, open it once on Wi-Fi (Settings shows the new version) before y
 rely on it offline. If an update only half arrived on a weak signal, the app starts
 with the previous version it still has and finishes the update next time there is signal.
 
+Fuel is added the same way from its own address (`…/fuel/`), as a second Home
+Screen app. Get Fuel on Overload's card "Food has moved to Fuel" opens that
+address in Safari.
+
+## Releases
+
+Both apps are released together under one number. From the repository root:
+
+```bash
+sh bump.sh 3.1       # set the release to 3.1 in every place, then check
+sh bump.sh --check   # change nothing, only check
+```
+
+A new number changes the `?v=` on every file address in `index.html`, `sw.js`,
+`fuel/index.html` and `fuel/sw.js`, `VERSION` in `app.js` and `fuel/fuel.js`,
+and moves both offline cache names on by one (`overload-vN`, `fuel-vN`), also
+when only one app changed. Commit the result and push; a phone picks the
+release up the next time the app is opened with a connection.
+
+The check fails, with exit code 1, when:
+
+- a `?v=` with another number is left, or the two `VERSION`s differ;
+- a file in a worker's install list (`ASSETS` in `sw.js` and `fuel/sw.js`) is
+  not on disk: that install would fail on every phone;
+- a page loads a versioned file its worker's list does not name: the app would
+  start without it when there is no signal;
+- the food list's `?db=` differs between `fuel/food.js` and `fuel/sw.js`.
+
+So a new script or stylesheet goes into the page and into `ASSETS` of the same
+app's worker, written the same way, one address per line. Run the check before
+every push that touches those files.
+
 ## Cloud sync (optional)
 
 Settings → Cloud sync lets you sign in with an email and password. After that
@@ -272,34 +365,57 @@ every change is mirrored to Firebase (Firestore) under your account and pulled
 back on any device you sign in on. Offline changes queue and send later. The
 app works exactly the same signed out; it just stays on one phone.
 
+Fuel has the same card and uses the same account. Each app syncs its own data
+and nothing else: since 3.0 Overload syncs the training data only.
+
 The first sign-in on a phone reads the account from the server before sending
 anything. If that read fails (no signal, rules), nothing is uploaded and it
 retries, so a bad connection cannot overwrite the cloud copy. Reset and Import
-say so when you are signed in, because they replace the cloud copy too.
+say so when you are signed in, because they replace the training data in the
+account too; the food log in the account is not changed by them.
 
 Data layout in Firestore:
 
-| Document                          | Contents                                          |
-| --------------------------------- | ------------------------------------------------- |
-| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, weigh-ins, sleep, templates, food targets, saved foods and meals, deletion records |
-| `users/{uid}/workouts/{id}`       | one document per workout                          |
-| `users/{uid}/foodDays/{date}`     | one document per day of food log                  |
+| Document                          | Contents                                          | Written by |
+| --------------------------------- | ------------------------------------------------- | ---------- |
+| `users/{uid}/meta/state`          | settings, exercises, prescriptions, program, weigh-ins, sleep, templates, deletion records; and the food targets, saved foods and meals as 2.8 left them | Overload |
+| `users/{uid}/workouts/{id}`       | one document per workout                          | Overload |
+| `users/{uid}/foodDays/{date}`     | the food log as Overload kept it up to 2.8        | nobody since 3.0 |
+| `users/{uid}/meta/fuel`           | Fuel's units and theme, food targets, saved foods and meals, deletion records, body weight | Fuel |
+| `users/{uid}/fuelDays/{date}`     | one document per day of Fuel's food log           | Fuel |
 
-Two phones never overwrite each other's lists: food entries merge by id, and
-weigh-ins and nights merge by date, even when a phone that was offline replays
-old writes. Deletions are recorded (kept 90 days) so a merge never brings back
-something you deleted. A change not uploaded yet wins over the cloud's copy.
-On first sign-in a phone's own workouts, templates and weigh-ins are kept, and
-its exercises are matched to the account's by name.
+What changed for food in 3.0:
+
+- Overload no longer reads, writes or deletes `foodDays`, and sends the food
+  part of `meta/state` back exactly as the account already holds it. Food from
+  the account is no longer merged into the old food log on the phone.
+- A phone that signs in to Overload 3.0 for the first time gets the training
+  data and no food. The food log reaches Fuel, not Overload.
+- Fuel's first sign-in to an account without `meta/fuel` reads `meta/state`
+  and `foodDays` once and brings that food log across. After that it uses only
+  its own two places.
+- The account can hold less food than a phone does (food logged while signed
+  out, for example). Copy my food log on Overload's card carries everything
+  the phone holds; the card says when signing in to Fuel is enough.
+- Phones still on 2.8 keep syncing food among themselves through `foodDays`.
+
+Two phones never overwrite each other's lists: weigh-ins and nights merge by
+date, even when a phone that was offline replays old writes. Deletions are
+recorded (kept 90 days) so a merge never brings back something you deleted. A
+change not uploaded yet wins over the cloud's copy. On first sign-in a phone's
+own workouts, templates and weigh-ins are kept, and its exercises are matched
+to the account's by name.
 
 Firebase project setup (one time, in the Firebase console):
 
 1. Authentication → Sign-in method → enable **Email/Password**.
 2. Firestore Database → Rules → paste the contents of `firestore.rules` → Publish.
 
-`sync.js` holds the Firebase web config. Those values identify the project;
-they are not secrets. Access is controlled by the rules above, which only let a
-signed-in user read and write their own documents.
+`sync.js` and `fuel/sync.js` hold the Firebase web config. Those values identify
+the project; they are not secrets. Access is controlled by the rules above,
+which only let a signed-in user read and write their own documents. The Firebase
+version is written in `sync.js`, `fuel/sync.js` and `fuel/sw.js` and must be the
+same in all three.
 
 ## WHOOP and reminders (optional)
 
@@ -390,12 +506,15 @@ says when you last exported, and with cloud sync off Today reminds you after
 
 ## Rebuilding the food list
 
-`data/foods.json` is generated, not edited by hand. Push a change to
+The food list is Fuel's. `data/foods.json` is generated, not edited by hand. Push a change to
 `tools/build_foods.py`, `tools/staples.tsv` or `tools/branded.tsv` on the
 `food-data` branch and the "Build food list" GitHub Action downloads USDA's SR
 Legacy and Foundation Foods, adds the packaged products, rebuilds the file and
 commits it to that branch; merge it into `main`. When the file changes, bump
-`?db=` in both `food.js` (`DB_URL`) and `sw.js`.
+`?db=` in both `fuel/food.js` (`DB_URL`) and `fuel/sw.js`: Fuel's worker stores
+the list under that address, and `sh bump.sh --check` fails when the two
+numbers differ. (`bump.sh` never changes `?db=` itself. Overload's `sw.js` no
+longer stores the food list.)
 
 Packaged foods:
 

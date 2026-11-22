@@ -306,7 +306,13 @@
 .hist-set b { color: var(--ink); }
 .hist-set .pill { min-height: 20px; padding: 0 6px; font-size: 11px; vertical-align: 1px; }
 .card.flat > .hist-set:first-of-type { margin-top: 6px; }
+.hist-set > span:only-child { text-align: left; }   /* one sentence, not a label and its numbers (the cardio line of a past workout) */
 .set-lbl { width: 52px; flex: none; white-space: nowrap; color: var(--ink-3); font-size: var(--t-small); }
+/* Edit sets: the label, then the weight and the reps box sharing what is left of the row.
+   '<div class="row mt8"><span class="set-lbl">Set 1</span><input class="input num fill" …><input class="input num fill" …></div>' */
+.row > .input.num.fill { flex: 1 1 0; width: auto; min-width: 0; }
+/* Edit exercise: three boxes in a row stay level when one label needs two lines (a small phone). */
+#ex-form .field-row { align-items: flex-end; }
 /* A record: trophy and text in the accent ink. '<div class="pr-line">' + icon('trophy', 's') + text */
 .pr-line { display: flex; gap: 6px; margin-top: 8px; font-size: var(--t-small); font-weight: 600; color: var(--accent-ink); line-height: 1.4; }
 .pr-line .ic { margin-top: 1px; }

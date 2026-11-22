@@ -12,6 +12,7 @@
  */
 (function () {
   'use strict';
+  const icon = window.icon || (() => '');   // ../shared/icons.js. If it did not arrive the app still runs, without its icons
 
   // ---------------------------------------------------------------------------
   // Constants
@@ -284,7 +285,7 @@
     el.hidden = !ui.saveFailed;
     document.body.classList.toggle('has-save-warning', !!ui.saveFailed);
     el.innerHTML = ui.saveFailed ? '<div class="banner danger"><b>The app\'s storage is full.</b> Your latest changes are not saved on this phone and are lost if the app closes. '
-      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">Export backup</button></div></div>' : '';
+      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>' : '';
     // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in the stylesheet).
     document.documentElement.style.setProperty('--save-warning-h', ui.saveFailed ? el.offsetHeight + 'px' : '0px');
   }
@@ -337,10 +338,10 @@
   function noticesHtml() {
     if (ui.unreadable) return '';
     const pct = Math.round(storageUsed() / STORE_LIMIT * 100);
-    if (pct >= 70) return '<div class="notice"><span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
+    if (pct >= 70) return '<div class="notice">' + icon('warning') + '<span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
     if (exportDue()) {
       const t = backupInfo().lastExport;
-      return '<div class="notice"><span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">✕</button></div>';
+      return '<div class="notice">' + icon('warning') + '<span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">' + icon('close', 'm') + '</button></div>';
     }
     return '';
   }
@@ -378,12 +379,12 @@
   function renderBackupCard() {
     const used = storageUsed(), pct = Math.round(used / STORE_LIMIT * 100), cls = pct >= 70 ? 'high' : 'ok';
     return '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your food log lives.</p>'
-      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
+      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">' + icon('export') + 'Export JSON</button><button class="btn ghost" data-action="import">' + icon('import') + 'Import JSON</button></div>'
       + '<p class="small muted mt8" id="last-export">' + lastExportText() + '</p>'
       + '<p class="small muted mt8">Import adds what a file holds and you do not have here. It never replaces or removes anything.</p>'
       + '<div class="toggle-row"><div><div>Storage used</div><div class="small muted">' + used.toLocaleString() + ' of about ' + STORE_LIMIT.toLocaleString() + ' characters the app can safely use. Today warns at 70%.</div>'
       + '<span class="vol-bar store-bar"><span class="vol-fill ' + cls + '" style="width:' + Math.min(100, pct) + '%"></span></span></div><span class="vol-n ' + cls + '">' + pct + '%</span></div>'
-      + '<div class="mt12">Automatic copies</div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days (brought up to date when you leave the app), and one taken before each import, reset, restore or cloud sign-in.</p>'
+      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days (brought up to date when you leave the app), and one taken before each import, reset, restore or cloud sign-in.</p>'
       + '<div id="safety-copies">' + (ui.copiesHtml || '<p class="small muted">Looking for copies…</p>') + '</div></div>';
   }
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
@@ -415,7 +416,7 @@
     root.classList.toggle('system-light', t === 'system' && light);
     // Not while the app waits at "Add to Home Screen" or at Welcome: nothing is stored before he begins.
     if (!ui.gate && !ui.welcome) { try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* ignore */ } }
-    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f3f3f5' : '#111214';
+    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f6f6f3' : '#0a0b0c';   // --bg of each theme (shared/ui.css)
   }
   // Replace the whole state (used by cloud sync when remote data arrives).
   function setState(next) {
@@ -470,7 +471,7 @@
       console.error(e);
       $('#app').innerHTML = '<div class="card mt16"><p><b>This screen could not be shown.</b> Your saved data has not changed. Export a backup to keep it safe, then try another tab.</p>'
         + '<p class="small muted mt8">' + esc((e && e.message) || e) + '</p>'
-        + '<div class="btn-row mt12"><button class="btn" data-action="export">Export backup</button></div></div>';
+        + '<div class="btn-row mt12"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>';
     }
   }
   function markTabs(active) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.screen === active)); }
@@ -485,12 +486,16 @@
       case 'settings': app.innerHTML = renderSettings(); break;
     }
   }
+  // The top bar names the screen (the screen's own h1 is hidden from view, except on Welcome and Add to Home
+  // Screen, where it is the headline). The diary says the app's name: the day switcher under it names the day.
+  const TITLES = { trends: 'Trends', settings: 'Settings', unreadable: 'Your data' };
   function renderTopbar() {
-    const upd = ui.updateReady ? '<button class="pill accent" data-action="reload">Update ready</button>' : '';
-    const sync = ui.sync.status === 'off' || ui.gate ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
+    const title = $('#topbar-title'); if (title) title.textContent = TITLES[shown()] || APP_NAME;
+    const upd = ui.updateReady ? '<button class="pill accent" data-action="reload" aria-label="Update ready">' + icon('refresh', 'm') + '<span>Update ready</span></button>' : '';
+    const sync = ui.sync.status === 'off' || ui.gate ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" aria-label="Cloud sync: ' + ui.sync.status + '" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
     $('#topbar-right').innerHTML = upd + sync;
   }
-  function syncIcon(st) { return { synced: '☁ ✓', syncing: '☁ …', offline: '☁ ⏸', error: '☁ !' }[st] || '☁'; }
+  function syncIcon(st) { return icon({ synced: 'cloud-check', syncing: 'sync', offline: 'cloud-off', error: 'warning' }[st] || 'cloud', 'm'); }
 
   // ---- Where it runs on an iPhone --------------------------------------------
   // An iPhone keeps a separate storage for Safari and for every Home Screen app. Fuel's data must live in
@@ -508,24 +513,27 @@
     return ui.welcome && hasOverloadData() ? 'inside' : null;
   }
   function fuelAddress() { return new URL('./', location.href).href.split(/[?#]/)[0]; }
-  const INSTALL_STEPS = '<li>Tap <b>Share</b> in Safari\'s toolbar.</li><li>Choose <b>Add to Home Screen</b>.</li><li>Open <b>' + APP_NAME + '</b> from its new icon.</li>';
+  // Each icon follows its bold word with no space of its own, so the sentence reads as it did without it.
+  const INSTALL_STEPS = '<li>Tap <b>Share</b>' + icon('share') + ' in Safari\'s toolbar.</li><li>Choose <b>Add to Home Screen</b>' + icon('add-square') + '.</li><li>Open <b>' + APP_NAME + '</b> from its new icon.</li>';
+  const BRAND = '<div class="onboard-brand"><span class="app-tile xl">' + icon('mark-fuel') + '</span></div>';   // the Home Screen icon, as he will find it there
   function renderGate() {
     markTabs(null);
     renderTopbar();
     const url = fuelAddress();
-    $('#app').innerHTML = '<div class="onboard"><div class="screen-title"><h1>Add ' + APP_NAME + ' to your Home Screen</h1></div>'
+    $('#app').innerHTML = '<div class="onboard">' + BRAND + '<div class="screen-title"><h1>Add ' + APP_NAME + ' to your Home Screen</h1></div>'
       + (ui.gate === 'inside'
-        ? '<p class="muted">This page opened inside Overload. ' + APP_NAME + ' keeps its own data, so it has to be added from Safari.</p>'
+        ? '<p class="lede">This page opened inside Overload. ' + APP_NAME + ' keeps its own data, so it has to be added from Safari.</p>'
           + '<ol class="install-steps"><li>Tap <b>Open in Safari</b> below.</li>' + INSTALL_STEPS + '</ol>'
-          // The x-safari address asks the iPhone to open the page in Safari itself. A plain link would stay inside this app.
-          + '<a class="btn block" data-action="fuel-open-safari" href="' + esc('x-safari-' + url) + '">Open in Safari</a>'
-          + '<button class="btn ghost block mt8" data-action="fuel-copy-link">Copy link</button>'
+          // The x-safari address asks the iPhone to open the page in Safari itself. A plain link would stay inside this app,
+          // and a button cannot hand over to Safari at all: this stays a link.
+          + '<a class="btn block big" data-action="fuel-open-safari" href="' + esc('x-safari-' + url) + '">Open in Safari' + icon('external') + '</a>'
+          + '<button class="btn ghost block mt8" data-action="fuel-copy-link">' + icon('link') + 'Copy link</button>'
           + '<p class="small muted center mt8">If the button does nothing: copy the link, open Safari and paste it there.</p>'
           + '<p class="small muted center mt8 link-text">' + esc(url) + '</p>'
-        : '<p class="muted">' + APP_NAME + ' works best as its own app: it opens full screen, works offline and keeps its data between visits.</p>'
+        : '<p class="lede">' + APP_NAME + ' works best as its own app: it opens full screen, works offline and keeps its data between visits.</p>'
           + '<ol class="install-steps">' + INSTALL_STEPS + '</ol>'
-          + '<div class="banner">On an iPhone, a Safari tab can lose its data after about a week without a visit. The Home Screen app does not.</div>'
-          + '<div class="center mt16"><button class="btn subtle" data-action="fuel-use-here">Use it here anyway</button></div>')
+          + '<div class="banner">' + icon('info') + '<span>On an iPhone, a Safari tab can lose its data after about a week without a visit. The Home Screen app does not.</span></div>'
+          + '<div class="foot"><button class="btn text" data-action="fuel-use-here">Use it here anyway</button></div>')
       + '</div>';
   }
 
@@ -561,25 +569,28 @@
     }
     return ui.here || null;
   }
-  function choiceRow(action, title, sub, first) {
-    return '<button class="list-item choice-card' + (first ? ' first' : '') + '" data-action="' + action + '"><div class="grow"><div class="title">' + title + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
+  // One way in. `mark` goes in front: Overload's tile where the food comes from Overload, else an icon.
+  function choiceRow(action, title, sub, first, mark) {
+    return '<button class="list-item choice-card' + (first ? ' first' : '') + '" data-action="' + action + '">' + (mark || '') + '<div class="grow"><div class="title">' + title + '</div><div class="sub">' + sub + '</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>';
   }
+  const OV_TILE = '<span class="app-tile l" data-app="overload">' + icon('mark-overload') + '</span>';
+  const lead = (name) => '<span class="lead">' + icon(name) + '</span>';
   function hereRow(first) {
     const h = overloadHere();
-    return h ? choiceRow('fuel-here', 'Bring it from Overload on this device', 'Found in this browser: ' + plural(h.days, 'day') + ', ' + plural(h.entries, 'entry', 'entries') + '.', first) : '';
+    return h ? choiceRow('fuel-here', 'Bring it from Overload on this device', 'Found in this browser: ' + plural(h.days, 'day') + ', ' + plural(h.entries, 'entry', 'entries') + '.', first, OV_TILE) : '';
   }
   function renderWelcome() {
     markTabs(null);
     renderTopbar();
     const sync = window.__overloadSync, here = hereRow(true);
-    $('#app').innerHTML = '<div class="onboard"><div class="screen-title"><h1>Welcome to ' + APP_NAME + '</h1></div>'
-      + '<p class="muted mb8">' + APP_NAME + ' is the food half of Overload, now its own app. Your days, targets, favorites and saved meals come across in one step. Nothing is removed from Overload.</p>'
-      + '<div class="list mt16">' + here
-      + choiceRow('fuel-paste', 'Paste from Overload', 'In Overload, tap Copy my food log. Then tap here.', !here)
-      + choiceRow('fuel-file', 'Choose a file', 'The food file or a backup saved from Overload.')
-      + choiceRow('fuel-signin', 'Sign in to cloud sync', sync && sync.user ? 'Signed in as ' + esc(sync.user.email) + '. Tap to go on.' : 'The same email and password as in Overload.')
-      + '</div><div class="center mt16"><button class="btn subtle" data-action="fuel-fresh">Start fresh</button>'
-      + '<p class="small muted mt8">You can still bring your log across later, in Settings.</p></div></div>';
+    $('#app').innerHTML = '<div class="onboard">' + BRAND + '<div class="screen-title"><h1>Welcome to ' + APP_NAME + '</h1></div>'
+      + '<p class="lede">' + APP_NAME + ' is the food half of Overload, now its own app. Your days, targets, favorites and saved meals come across in one step. Nothing is removed from Overload.</p>'
+      + '<div class="list">' + here
+      + choiceRow('fuel-paste', 'Paste from Overload', 'In Overload, tap Copy my food log. Then tap here.', !here, OV_TILE)
+      + choiceRow('fuel-file', 'Choose a file', 'The food file or a backup saved from Overload.', false, lead('file'))
+      + choiceRow('fuel-signin', 'Sign in to cloud sync', sync && sync.user ? 'Signed in as ' + esc(sync.user.email) + '. Tap to go on.' : 'The same email and password as in Overload.', false, lead('cloud'))
+      + '</div><div class="foot"><button class="btn text" data-action="fuel-fresh">Start fresh</button>'
+      + '<p class="small muted">You can still bring your log across later, in Settings.</p></div></div>';
   }
   // He chose where to begin. From here on the app keeps its own data on this phone.
   function leaveWelcome() {
@@ -631,7 +642,7 @@
         + '<text class="lbl' + (day === today ? ' strong' : '') + '" x="' + r1(padL + i * bw + bw / 2) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(letter) + '</text></g>';
     }).join('');
     const line = target ? '<line class="target" stroke="currentColor" x1="' + padL + '" x2="' + (W - padR + 4) + '" y1="' + r1(y(target)) + '" y2="' + r1(y(target)) + '"/>'
-      + '<text class="lbl target-lbl" x="' + W + '" y="' + r1(y(target) + 4) + '" text-anchor="end">' + fmtK(target) + '</text>' : '';
+      + '<text class="lbl target-lbl" x="' + W + '" y="' + r1(y(target) + 4.5) + '" text-anchor="end">' + fmtK(target) + '</text>' : '';
     return '<svg class="chart trend-chart" viewBox="0 0 ' + W + ' ' + H + '" role="group" aria-label="Calories per day, last 14 days">'
       + '<line class="axis" stroke="currentColor" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + base + '" y2="' + base + '"/>' + cols + line + '</svg>';
   }
@@ -644,21 +655,22 @@
     const all = average(full(days)), a = average(full(thisWeek)), b = average(lastWeek);
     const logged = (list) => list.filter((d) => dayTotal(d)).length;
     const g = (x) => (x == null ? '–' : fmtK(x));
-    const of = (v, unit) => (v > 0 ? '<span class="muted"> / ' + fmtK(v) + (unit || '') + '</span>' : '');
-    const row = (k, label, av, bv) => '<tr data-k="' + k + '"><td>' + label + '</td><td class="r">' + av + '</td><td class="r">' + bv + '</td></tr>';
+    const of = (v, unit) => (v > 0 ? '<span class="of"> / ' + fmtK(v) + (unit || '') + '</span>' : '');
+    const mk = (c) => '<i class="mk ' + c + '"></i>';   // the macro's own mark, as in the diary's summary
+    const row = (k, label, av, bv) => '<tr data-k="' + k + '"><td>' + label + '</td><td class="r">' + av + '</td><td class="r prev">' + bv + '</td></tr>';
     const hero = all
-      ? '<div class="trend-hero"><div><div class="tiny muted">Average a day, ' + plural(all.n, 'full day') + '</div><div><span class="f-big">' + fmtK(all.kcal) + '</span><span class="muted"> kcal</span></div></div>'
-        + (target ? '<div class="side small muted"><b>' + Math.round(all.kcal / target * 100) + '%</b> of ' + fmtK(target) + ' target</div>' : '') + '</div>'
-      : '<p class="muted">No full day logged in the last 14 days yet.</p>';
+      ? '<div class="trend-hero"><div><div class="label">Average a day, ' + plural(all.n, 'full day') + '</div><div><span class="f-big">' + fmtK(all.kcal) + '</span><span class="muted"> kcal</span></div></div>'
+        + (target ? '<div class="side' + (all.kcal > target * 1.05 ? ' over' : '') + '"><b>' + Math.round(all.kcal / target * 100) + '%</b> of ' + fmtK(target) + ' target</div>' : '') + '</div>'
+      : '<p class="muted mb8">No full day logged in the last 14 days yet.</p>';
     return '<div class="screen-title"><h1>Trends</h1><span class="sub">Last 14 days</span></div>'
       + '<div class="card">' + hero + trendChart(days, today, target)
-      + '<div class="legend tiny muted"><span><i class="swatch"></i>Logged</span>' + (target ? '<span><i class="swatch over"></i>Over target</span>' : '') + '<span><i class="swatch now"></i>Today so far</span></div></div>'
+      + '<div class="legend"><span><i class="swatch"></i>Logged</span>' + (target ? '<span><i class="swatch over"></i>Over target</span>' : '') + '<span><i class="swatch now"></i>Today so far</span></div></div>'
       + '<div class="group-title">Daily averages</div><div class="card"><table class="table trend-table"><thead><tr><th>Per logged day</th><th class="r">This week</th><th class="r">Last week</th></tr></thead><tbody>'
       + row('kcal', 'Calories' + of(t.kcal), g(a && a.kcal), g(b && b.kcal))
-      + row('p', 'Protein' + of(t.protein, ' g'), g(a && a.p), g(b && b.p))
-      + row('c', 'Carbs' + of(t.carbs, ' g'), g(a && a.c), g(b && b.c))
-      + row('f', 'Fat' + of(t.fat, ' g'), g(a && a.f), g(b && b.f))
-      + row('days', 'Days logged', logged(thisWeek) + '<span class="muted"> of ' + thisWeek.length + '</span>', logged(lastWeek) + '<span class="muted"> of 7</span>')
+      + row('p', mk('p') + 'Protein' + of(t.protein, ' g'), g(a && a.p), g(b && b.p))
+      + row('c', mk('c') + 'Carbs' + of(t.carbs, ' g'), g(a && a.c), g(b && b.c))
+      + row('f', mk('f') + 'Fat' + of(t.fat, ' g'), g(a && a.f), g(b && b.f))
+      + row('days', 'Days logged', logged(thisWeek) + '<span class="of"> of ' + thisWeek.length + '</span>', logged(lastWeek) + '<span class="of"> of 7</span>')
       + '</tbody></table></div>'
       + '<p class="tiny muted center mt8">Averages count full days only: today joins tomorrow. Weeks start on Monday. ' + (target ? 'A day is over target from 5% above it. ' : '') + 'Tap a day to open it.</p>';
   }
@@ -680,15 +692,15 @@
     return '<div class="screen-title"><h1>Settings</h1></div>'
       + (F ? F.settingsCard() : '')
       + '<div class="group-title">You</div><div class="card">'
-      + '<div class="toggle-row"><div><div>Body weight</div><div class="small muted">Only used for the protein guide under the targets</div></div><div class="row"><input class="input num" type="number" inputmode="decimal" step="any" min="0" placeholder="–" value="' + (bw ? esc(bw.weight) : '') + '" data-field="fuel-bw" aria-label="Body weight"><span class="muted">' + s.units + '</span></div></div>'
+      + '<div class="toggle-row"><div><div>Body weight</div><div class="small muted">Only used for the protein guide under the targets</div></div><div class="row tight"><input class="input num" type="number" inputmode="decimal" step="any" min="0" placeholder="–" value="' + (bw ? esc(bw.weight) : '') + '" data-field="fuel-bw" aria-label="Body weight"><span class="muted">' + s.units + '</span></div></div>'
       + '<div class="toggle-row"><div><div>Units</div><div class="small muted">For body weight</div></div>' + seg('fuel-units', [['lb', 'lb'], ['kg', 'kg']], s.units) + '</div>'
       + '<div class="toggle-row"><div><div>Appearance</div><div class="small muted">System follows your phone</div></div>' + seg('set-theme', [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], s.theme || 'system') + '</div>'
       + '</div>'
       + renderBackupCard()
       + renderCloudCard()
       + '<div class="group-title">From Overload</div><div class="card"><p class="small muted mb8">' + movedText() + '</p>'
-      + '<button class="btn ghost block" data-action="fuel-import">Bring food from Overload</button></div>'
-      + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
+      + '<button class="btn ghost block" data-action="fuel-import">' + icon('clipboard') + 'Bring food from Overload</button></div>'
+      + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">' + icon('trash') + 'Reset all data</button></div>'
       + '<div class="group-title">About</div><div class="card"><p><b>' + APP_NAME + '</b> · v' + VERSION + '</p><p class="small muted mt8">Food data: USDA FoodData Central, Open Food Facts.</p></div>';
   }
   function movedText() {
@@ -726,7 +738,7 @@
       const st = ui.sync;
       return '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill cloud-status ' + esc(st.status) + '" id="cloud-status">' + esc(st.msg || 'Connected') + '</span></div>'
         + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
-        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
+        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
     }
     return '<p class="small muted mb8">Sign in to keep your food log in the cloud so it survives clearing this phone and follows you to a new one. Use the same email and password as in Overload: the food log that account holds comes across the first time. New here? Enter an email and a password and tap Create account.</p>'
       + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required></div>'
@@ -775,7 +787,7 @@
   }
   // Every way of closing a sheet comes through here: food.js turns the camera off and ends its Add trip on the event.
   function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; document.dispatchEvent(new CustomEvent('overload:sheetclose')); }
-  function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close">✕</button></div></div>'; }
+  function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close" aria-label="Close">' + icon('close') + '</button></div></div>'; }
 
   // ---------------------------------------------------------------------------
   // Toast
@@ -827,11 +839,12 @@
     $('#app').innerHTML = '<div class="screen-title"><h1>Your data</h1></div>'
       + '<div class="card"><p><b>' + APP_NAME + ' could not read the data saved on this phone.</b></p>'
       + '<p class="small muted mt8">' + (raw ? 'Nothing has been changed or deleted. Save a copy of it first, then choose what to do.' : 'The phone did not let the app read its storage. Try again first.') + '</p>'
-      + '<div class="list mt12">' + (raw ? '<button class="btn block" data-action="unreadable-export">Export the unreadable copy</button>' : '')
-      + '<button class="btn ghost block" data-action="unreadable-retry">Try again</button></div></div>'
+      // One row: where the two labels do not fit side by side (a phone) it breaks, and each button takes a full line.
+      + '<div class="btn-row mt12">' + (raw ? '<button class="btn" data-action="unreadable-export">' + icon('export') + 'Export the unreadable copy</button>' : '')
+      + '<button class="btn ghost" data-action="unreadable-retry">Try again</button></div></div>'
       + '<div id="restore-section" hidden><div class="group-title">Restore an automatic copy</div><div class="card"><div id="safety-copies"></div></div></div>'
       + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty food diary. If you used cloud sync, your cloud copy comes back once you are signed in.</p>'
-      + '<button class="btn danger block" data-action="unreadable-fresh">Start fresh</button></div>';
+      + '<button class="btn danger block" data-action="unreadable-fresh">' + icon('trash') + 'Start fresh</button></div>';
     fillCopies(true);
   }
   // He chose: the data now in memory is the app's again. Sync starts over with a full download and merge.
@@ -1092,11 +1105,11 @@
   function sheetImport(opts) {
     opts = opts || {};
     openSheet(sheetHeader('Bring food from Overload')
-      + (opts.msg ? '<div class="banner" id="fuel-import-msg" role="alert">' + esc(opts.msg) + '</div>' : '')
+      + (opts.msg ? '<div class="banner warn" id="fuel-import-msg" role="alert">' + icon('warning') + '<span>' + esc(opts.msg) + '</span></div>' : '')
       + '<p class="small muted mb8">In Overload, open the card "Food has moved to ' + APP_NAME + '" and tap Copy my food log, or Save as a file. Then come back here. Only what is missing here is added: nothing in ' + APP_NAME + ' is replaced or removed.</p>'
       + '<div class="list">' + hereRow(false)
-      + choiceRow('fuel-paste', 'Paste from Overload', 'Reads the food log you copied in Overload.')
-      + choiceRow('fuel-file', 'Choose a file', 'The food file, a full Overload backup, or a ' + APP_NAME + ' backup.') + '</div>'
+      + choiceRow('fuel-paste', 'Paste from Overload', 'Reads the food log you copied in Overload.', false, OV_TILE)
+      + choiceRow('fuel-file', 'Choose a file', 'The food file, a full Overload backup, or a ' + APP_NAME + ' backup.', false, lead('file')) + '</div>'
       + (opts.box ? '<form id="fuel-paste-form" class="mt16"><div class="field"><label for="fuel-paste">Or paste the copied text here</label>'
         + '<textarea class="input" id="fuel-paste" name="text" data-field="fuel-paste" rows="3" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="OVERLOAD-FOOD:…"></textarea></div>'
         + '<button class="btn block" type="submit">Bring it in</button></form>'
@@ -1270,7 +1283,7 @@
     setSyncStatus(status, msg) {
       ui.sync = { status, msg: msg || '' };
       const pill = $('.sync-pill');
-      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.textContent = syncIcon(status); pill.title = ui.sync.msg; }
+      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.innerHTML = syncIcon(status); pill.setAttribute('aria-label', 'Cloud sync: ' + status); pill.title = ui.sync.msg; }
       else renderTopbar();
       const cs = $('#cloud-status'); if (cs) { cs.textContent = ui.sync.msg || 'Connected'; cs.className = 'pill cloud-status ' + status; }
     },

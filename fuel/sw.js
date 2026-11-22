@@ -9,16 +9,16 @@ const CACHE = 'fuel-v1';
 const ASSETS = [
   './',
   './index.html',
-  '../styles.css?v=3.0',
   './fuel.css?v=3.0',
   './backup.js?v=3.0',
   './fuel.js?v=3.0',
   './food.js?v=3.0',
   './sync.js?v=3.0',
-  // SHARED FILES GO HERE. The redesign adds '../shared/ui.css?v=3.0' and '../shared/icons.js?v=3.0' on two
-  // lines of their own, once index.html loads them (and takes '../styles.css' out when the page no longer
-  // links it). Not before: one address in this list that the server cannot deliver makes the whole install
-  // fail, and the phone then stays on the version it has.
+  // The stylesheet and the icon set both apps share, one folder up. Every address in this list must be one
+  // the server delivers: a single one that fails makes the whole install fail, and the phone then stays on
+  // the version it has.
+  '../shared/ui.css?v=3.0',
+  '../shared/icons.js?v=3.0',
   '../data/foods.json?db=5',
   './manifest.webmanifest',
   './icon.svg',

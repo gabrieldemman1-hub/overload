@@ -1,6 +1,5 @@
-/* Fuel (diet): the rules only this app needs. Load after shared/ui.css, with data-app="fuel" on <html>.
- * Guide: dev/design/SYSTEM.md. This file replaces fuel/fuel.css whole: every rule that file had (the hidden tab bar on
- * Welcome, .link-text, the Trends chart and table, .choice-card, .install-steps) has its counterpart here.
+/* Fuel (diet): the rules only this app needs. Load after ../shared/ui.css, with data-app="fuel" on <html>.
+ * Guide: dev/design/SYSTEM.md. Reference screens: dev/design/system/fuel-*.html, built with this very file.
  */
 
 /* Tabular figures on the food read-outs (see the note in shared/ui.css, section 1). */
@@ -154,6 +153,11 @@ body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none
 .f-preview .stat:nth-child(2) { border-left: 0; padding-left: 0; }
 .f-preview .stat .v .u { font-size: var(--t-small); }
 .f-preview .stat:nth-child(n+2) .k { display: flex; align-items: baseline; gap: 4px; letter-spacing: 0.02em; overflow-wrap: normal; padding-right: 2px; }
+/* Emptying the amount box must not move it under the finger: the place of the numbers keeps its height
+   (the calories line and the macros strip), and "Enter an amount." sits in the middle of it. */
+#food-preview { display: flex; flex-direction: column; justify-content: center; min-height: 126px; }
+/* The footer with more than its main button (Remove, Edit food) scrolls with the sheet instead of sticking. */
+.sheet-foot.f-foot-tall { position: static; }
 .f-mealseg { display: flex; width: 100%; }
 .f-mealseg button { flex: 1 1 0; min-width: 0; padding: 0 2px; }
 
@@ -165,6 +169,9 @@ body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none
 
 /* ============================================================ 7. Targets, cloud */
 .f-target-note p { color: var(--ink-3); font-size: var(--t-small); }
+/* Settings opens with the heading of the targets card (food.js writes it, for any place on a screen):
+   the first heading of a screen has no gap above it, as with .group-title.first. */
+.screen-title + .group-title { margin-top: 4px; }
 /* The cloud card as fuel.js writes it (classes beside the ids the shared stylesheet styles). */
 .cloud-msg { color: var(--bad-ink); }
 .cloud-msg:empty { display: none; }
@@ -231,5 +238,12 @@ body.no-tabs .screen { padding-bottom: calc(var(--safe-bottom) + 24px); }
   .f-macro .v .muted { font-size: 12px; }
   .f-amount .input { font-size: 28px; }
   .f-preview .stat:first-child .v { font-size: 40px; }
+  #food-preview { min-height: 118px; }
+  /* New food: Brand and Barcode each take a line (a 13-digit barcode does not fit in half the width). */
+  .f-brandrow { display: block; }
   .onboard { padding-left: 4px; padding-right: 4px; }
+  /* Trends table: "Protein / 190 g" does not fit beside the two number columns, and would leave its unit alone on a
+     second line. The target goes under the label as one piece, in line with the word (past the 9 + 6 px mark). */
+  .trend-table td:first-child .of { display: block; margin-left: 0; }
+  .trend-table td:first-child .mk ~ .of { margin-left: 15px; }
 }
