@@ -109,8 +109,9 @@ button.f-row:active, .f-qpick:active { background: var(--key); }
 body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none; user-select: none; }
 
 /* ============================================================ 4. Add sheet */
-/* What this trip has added. Stays in view while the list scrolls; the same height empty and filled. */
-#food-added { position: sticky; top: calc(-1 * var(--sheet-top)); z-index: 2; background: var(--panel); margin: 0; padding: 0 0 12px; }
+/* What this trip has added. Stays in view while the list scrolls; the same height empty and filled. It sticks at the
+   sheet's top edge, so 8 px of the panel go above the strip there (pulled up by the margin: unscrolled, nothing moves). */
+#food-added { position: sticky; top: calc(-1 * var(--sheet-top)); z-index: 2; background: var(--panel); margin: -8px 0 0; padding: 8px 0 12px; }
 .f-added {
   display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 6px 6px 12px;
   border: 1px solid var(--accent-line); border-radius: var(--r-3); background: var(--accent-wash);

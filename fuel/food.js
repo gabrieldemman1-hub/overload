@@ -329,6 +329,8 @@
   const CHEV = '<span class="chev">' + icon('chevron-right', 'm') + '</span>';      // a row that opens something
   const BACK = '<button class="btn subtle small" data-action="food-back">' + icon('chevron-left') + 'Back</button>';  // back to the Add list
   const GRAMS = '<span class="u">g</span>';  // the unit sits small beside the number, so the key under it is one word
+  // In an amount (already escaped) a number keeps its unit on its line: "(118 g)" never leaves "g)" alone on the next one.
+  const units = (html) => html.replace(/\d[\d.,]* (?:fl oz|g|ml|oz)\b\)?/g, '<span class="nowrap">$&</span>');
 
   // ---------------------------------------------------------------------------
   // Food screen
@@ -379,7 +381,7 @@
       const items = list.filter((e) => e.meal === mi);
       const kcal = sum(items).kcal;
       const rows = items.map((e) => '<button class="f-row" data-action="food-edit" data-id="' + esc(e.id) + '"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">'
-        + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div><div class="f-rk">' + fmtK(e.kcal) + '</div></button>').join('');
+        + units(esc([e.amt, e.brand].filter(Boolean).join(' · '))) + '</div></div><div class="f-rk">' + fmtK(e.kcal) + '</div></button>').join('');
       return '<div class="card f-meal" data-meal="' + mi + '"><div class="f-meal-head"><h2>' + m + '</h2><div class="row"><span class="muted small">' + (items.length ? fmtK(kcal) + ' kcal' : '') + '</span>'
         + '<button class="icon-btn f-more" data-action="food-meal-menu" data-meal="' + mi + '" aria-label="' + m + ' options">' + icon('more') + '</button></div></div>'
         + rows + '<button class="btn subtle small block mt8" data-action="food-add" data-meal="' + mi + '">' + icon('plus') + 'Add food</button></div>';
@@ -526,8 +528,9 @@
     // Packaged foods read best per label serving; plain foods per 100 g.
     const sv = f.serving && (f.serving.n || (f.n && f.serving.g ? scale(f.n, f.serving.g / 100) : null));
     const n = sv || f.n;
-    const per = sv ? fmtK(sv.kcal) + ' kcal / ' + esc(servingText(f.serving, f.liquid)) : f.n ? fmtK(f.n.kcal) + ' kcal / 100 ' + (f.liquid ? 'ml' : 'g') : '';
-    const macro = n ? ' · P ' + fmtG(n.p) + ' C ' + fmtG(n.c) + ' F ' + fmtG(n.f) : '';
+    // The line wraps between its parts, never inside "120 kcal" or "P 15 C 12 F 0.5" (a letter apart from its number).
+    const per = sv ? '<span class="nowrap">' + fmtK(sv.kcal) + ' kcal</span> / ' + units(esc(servingText(f.serving, f.liquid))) : f.n ? '<span class="nowrap">' + fmtK(f.n.kcal) + ' kcal / 100 ' + (f.liquid ? 'ml' : 'g') + '</span>' : '';
+    const macro = n ? ' · <span class="nowrap">P ' + fmtG(n.p) + ' C ' + fmtG(n.c) + ' F ' + fmtG(n.f) + '</span>' : '';
     const sub = [f.brand && esc(f.brand), per + macro].filter(Boolean).join(' · ');
     return '<button class="f-row" data-action="food-pick" data-src="' + src + '" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? FAVMARK : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div>' + CHEV + '</button>';
   }
@@ -536,7 +539,7 @@
     const a = defaultAmount(f), n = nutrition(f, a.qty, a.unit);
     if (!n) return resultRow(f, 'mine');
     const amount = amountText(f, a.qty, a.unit), done = fu.trip.some((x) => x.id === f.id);
-    const sub = [esc(amount), f.brand && esc(f.brand)].filter(Boolean).join(' · ');
+    const sub = [units(esc(amount)), f.brand && esc(f.brand)].filter(Boolean).join(' · ');
     // The calories are a column of their own, so a list of foods can be compared at a glance.
     return '<div class="f-row f-qrow"><button class="f-qpick" data-action="food-pick" data-src="mine" data-id="' + esc(f.id) + '"><div class="grow"><div class="title">' + (f.fav ? FAVMARK : '') + esc(f.name) + '</div><div class="sub">' + sub + '</div></div></button>'
       + '<div class="f-rk">' + fmtK(n.kcal) + '</div>'
@@ -775,7 +778,7 @@
     fu.sm = { id, meal: meal != null ? meal : (fu.sm && fu.sm.id === id ? fu.sm.meal : fu.meal) };
     const t = sum(m.items);
     const cell = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
-    const rows = m.items.map((e, i) => '<div class="f-row f-static"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">' + esc([e.amt, e.brand].filter(Boolean).join(' · ')) + '</div></div>'
+    const rows = m.items.map((e, i) => '<div class="f-row f-static"><div class="grow"><div class="title">' + esc(e.name) + '</div><div class="sub">' + units(esc([e.amt, e.brand].filter(Boolean).join(' · '))) + '</div></div>'
       + '<div class="f-rk">' + fmtK(e.kcal) + '</div><button class="icon-btn f-x" data-action="food-sm-remove" data-i="' + i + '" aria-label="Remove ' + esc(e.name) + '">' + icon('close') + '</button></div>').join('');
     openSheet(sheetHeader(esc(m.name), fu.from === 'add' ? BACK : '')
       + '<div class="stat-row f-preview">' + cell(fmtK(t.kcal), 'kcal') + cell(fmtG(t.p) + GRAMS, 'Protein') + cell(fmtG(t.c) + GRAMS, 'Carbs') + cell(fmtG(t.f) + GRAMS, 'Fat') + '</div>'
