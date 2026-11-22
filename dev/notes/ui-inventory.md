@@ -17,6 +17,7 @@ Contents
 8. Critique of the current look and use, with evidence
 9. Layout constraints the redesign must respect
 10. Open questions
+11. Check against the spec and the chosen design direction
 
 ---
 
@@ -49,7 +50,7 @@ Measured at 390x844 (no insets):
 | Thing | Size |
 | --- | --- |
 | Top bar | 57 px (56 + 1 px border), fixed |
-| Tab bar | 66 px, fixed; tabs are not equal width (Today 54 px, Exercises and Settings wider) |
+| Tab bar | 66 px, fixed; tabs are not equal width: Today 54, Food 54, Program 71, Exercises 77, History 64, Settings 71 px |
 | Screen padding | 72 px top, 16 px sides, 162 px bottom (`styles.css:92`) |
 | Card content width | 324 px (390 - 2x16 - 2x16 - borders) |
 | Rest timer | 366x68 px at y 700 to 768, 10 px above the tab bar |
@@ -70,7 +71,7 @@ All of it is static markup in `index.html`; `app.js` fills it.
 | --- | --- | --- | --- |
 | **Top bar** | `index.html:89-94` (`header.topbar`, `.brand`, `.brand-mark`, `#topbar-right`) | `renderTopbar` `app.js:771-775`, `syncIcon` `app.js:776`, `setSyncStatus` `app.js:2430-2436` | Left: a red diamond and "OVERLOAD" (uppercase by CSS). Right, both optional: pill "Update ready" (`.pill.accent`, action `reload`; shown when a new version arrived mid-workout or while typing, `app.js:2403`, `2427`) and the cloud pill (`.pill.sync-pill` + `synced` / `syncing` / `offline` / `error`; text `☁ ✓`, `☁ …`, `☁ ⏸`, `☁ !`; tap goes to Settings; hidden when signed out). Translucent with blur. No title, no back button, no per-screen actions. Pictures: `fresh-dark-114-topbar-pills`, `fresh-dark-115-topbar-sync-error`, `extra-dark-06-topbar-sync-offline`. |
 | **Tab bar** | `index.html:113-120` (`nav.tabbar`, six `button.tab[data-screen]`, each a `span.tab-icon` glyph and a label) | active class set in `renderScreen` `app.js:759`; tap handler `app.js:2078-2079` (sets `ui.screen`, renders, scrolls to top, then `scrollToNext`) | Today, Food, Program, Exercises, History, Settings. One state: `.active` (text colour `--accent-2`). No badge, no pressed state. On the unreadable-data screen no tab is active (`app.js:1989`). The tab bar stays visible on every screen, also on the start-up note. |
-| **Rest timer** | `index.html:99-111` (`#rest-timer`, `.rest-label`, `#rest-time`, `+30s`, `Skip`, `#rest-bar-fill`) | `startTimer` `app.js:1925-1936`, `tick` `1937-1948`, `stopTimer` `1949`, `beep` `1910-1924`; actions `rest-add`, `rest-skip` `app.js:2157-2158` | A floating card above the tab bar. Label "Rest" or "Cardio" (`app.js:1930`), time `m:ss`, a bar that empties. Starts on ticking a set (`app.js:2117`), a warm-up (`2135`) or the cardio timer (`2153`). A cardio timer is not replaced by a rest timer (`1927`). At zero: hides, beeps, toast "Rest over" / "Cardio done · N min logged". It is global: it stays up on every tab and over nothing else (`fresh-dark-121-save-warning-settings` shows it on Settings). Not shown above an open sheet (sheet z-index 40, timer 25). |
+| **Rest timer** | `index.html:99-111` (`#rest-timer`, `.rest-label`, `#rest-time`, `+30s`, `Skip`, `#rest-bar-fill`) | `startTimer` `app.js:1925-1936`, `tick` `1937-1948`, `stopTimer` `1949`, `beep` `1910-1924`; actions `rest-add`, `rest-skip` `app.js:2157-2158` | A floating card above the tab bar. Label "Rest" or "Cardio" (`app.js:1930`), time `m:ss`, a bar that empties. Starts on ticking a set (`app.js:2117`), a warm-up (`2135`) or the cardio timer (`2153`). A cardio timer is not replaced by a rest timer (`1927`). At zero: hides, beeps, toast "Rest over" / "Cardio done · N min logged". It is global: it stays up on every tab (`fresh-dark-121-save-warning-settings` shows it on Settings). An open sheet covers it (sheet z-index 40, timer 25). |
 | **Toast** | `index.html:127` (`#toast`) | `toast` `app.js:1955-1959` | One line or a few, centred, inverse colours (`--text` background, `--bg` text). Lives 2.2 to 6 s by length. `pointer-events: none`. One at a time; a new one replaces the old. Sits above the tab bar, and above the rest timer when that shows (`styles.css:314`). z-index 50, so it also shows over a sheet, at the same height (`fresh-dark-18-food-amount-starred-toast`). |
 | **Sheet** | `index.html:122-125` (`#sheet`, `.sheet-backdrop[data-action=sheet-close]`, `#sheet-panel`) | `openSheet` `app.js:1547-1556`, `closeSheet` `1557`, `sheetHeader` `1558` | Bottom sheet. See 9.3 for how it scrolls. Header: `h2` title, optional extra buttons, a 40x40 `✕`. Closes by `✕`, by a tap on the backdrop, or by code. No drag handle, no swipe to close, no Escape key. |
 | **Save warning** | `index.html:96` (`#save-warning`, `role="alert"`) | `renderSaveWarning` `app.js:343-351`; toggled in `save` `app.js:332-336` | When writing to localStorage fails: a red-outlined banner fixed under the top bar with "The app's storage is full…" and a full-width "Export backup" button. The screen is pushed down by the banner's height through `--save-warning-h` and `body.has-save-warning` (`styles.css:338`). Stays until a save works. Pictures: `fresh-dark-120-save-warning`. |
@@ -101,7 +102,7 @@ check-in (while not done) · day strip · the day's card · "Start a different d
 | Streak banner | `app.js:817` | `.banner`: "🔥 N-day streak. Keep it going." | only when the streak is over 1 | none |
 | Red recovery banner | `app.js:819-820` | `.banner`: "🔴 Recovery N% (red). Train, but hold the weights and skip extra sets today." | only with a WHOOP recovery under 34 today, on today's training day | none |
 | Day strip | `app.js:784-789` | seven `.day-chip` buttons M T W T F S S, a dot under today | `.today` (dot), `.selected` (red tint and border), `.rest` (55% opacity) | tap selects the day (`select-day`) |
-| Day card (training day) | `app.js:803-812` | `.card.flat`: day name `h2`, "Saturday · 7 exercises", then one `.list-item` per exercise: name and `prescText` ("3 × 10–12 @ **40 lb** each · goal 11", or "**set weight**" before a weight exists, `app.js:928-932`) | no exercises: "No exercises yet. Add some in Program." and both start buttons disabled | "Start as deload" (`.btn.small.subtle.deload-start`, 44 px), "Start workout" (`.btn.block`), each exercise row opens Edit exercise (`edit-ex`) |
+| Day card (training day) | `app.js:803-812` | `.card.flat`: day name `h2`, "Saturday · 7 exercises" (the word is always plural: a day with one reads "1 exercises", `app.js:809`), then one `.list-item` per exercise: name and `prescText` ("3 × 10–12 @ **40 lb** each · goal 11", or "**set weight**" before a weight exists, `app.js:928-932`) | no exercises: "No exercises yet. Add some in Program." and both start buttons disabled | "Start as deload" (`.btn.small.subtle.deload-start`, 44 px), "Start workout" (`.btn.block`), each exercise row opens Edit exercise (`edit-ex`) |
 | Rest day | `app.js:801` | `.card` with `.empty`: "Rest day. Nothing scheduled. Start any day below if you feel like lifting." and the list of days | | |
 | Start a different day | `app.js:793-798` | collapsed: one `.btn.subtle.block` "Start a different day…"; open (always open on a rest day): `.group-title` and a `.list` of the other days with "N exercises" and "· not on the schedule" | | "Start" per day (`.btn.small.ghost`, 64x40) |
 | Last workout line | `app.js:814-815` | "Last workout: Legs · Thu, Nov 19" small, muted, centred | absent before the first workout | none |
@@ -383,7 +384,8 @@ styled and are part of the look today.
 
 There are no tokens for spacing, type sizes, radii (other than the card's) or control heights. Literal values in
 use: font sizes 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 22, 24, 28 px; weights 500, 600, 700 (24 rules), 800;
-radii 2, 3, 8, 10, 12, 14, 16, 20, 999 px and 50%; control heights 28, 32, 40, 44, 46, 48, 50, 52, 56, 60 px.
+radii 2, 3, 8, 10, 12, 14, 16, 20, 999 px and 50%; control heights 28, 32, 40, 44, 48, 50, 52, 56, 60 px (text
+boxes come out at 46).
 
 Colours written outside the tokens: `#fff` (`styles.css:124` button text, `198` switch knob, `268` selected
 segment text), `#05130a` (`134`, `188`, `226`: text on green), `rgba(62,207,110,.5)` and `.08` (`184`, `221`: the
@@ -584,7 +586,8 @@ Restyle freely, but these are selectors in code. Renaming one breaks behaviour w
   (`743`), `.choice-grid` (`1724`), `.set-row` (`1733`), `.prompt` (`1736`), `.f-meal` and `.f-row[data-id]`
   (`food.js:401`, `425`, `430`, `455`, `482`), `.f-mealseg button` (`food.js:1040`, `1090`), `.f-target-note`
   (`food.js:1139`), `link[rel="stylesheet"]` and `script[src]` (`index.html:51`, `63`, `75`).
-- Attributes: `data-action` (77 values in `app.js`, 32 in `food.js`, 10 in `connector.js`, 3 in `index.html`),
+- Attributes: `data-action` (78 values in `app.js`; 32 in `food.js`, four of them built in `food.js:730-733`; 10 in
+  `connector.js`; 3 in `index.html`),
   `data-field` (`weight`, `reps`, `cardio`, `cardio-name`, `schedule`, `day-name`, `setting`, `chart-ex`, `search`,
   `pick-search`, `food-search`, `food-qty`, `food-unit`, `food-target`, `food-photo`, `conn-code`, `conn-time`,
   `conn-url`), `data-screen`, `data-card`, `data-meal`, `data-e`, `data-s`, `data-v`, `data-k`, `data-id`, form
@@ -601,7 +604,7 @@ All three charts are **inline SVG built as text** in `app.js`. No canvas, no lib
 
 | Chart | Code | Built from | Sizes written in code |
 | --- | --- | --- | --- |
-| Sleep, last 14 nights | `renderSleepCard` `app.js:1383-1404` (SVG at `1387-1395`, `1399`) | per night a `<g>` with a `<title>` and up to three stacked `<rect>`s (`sl-deep`, `sl-rem`, `sl-other`), grid lines and labels at 0, 4, 8 h, date labels | 320x150; padding 26 / 6 / 8 / 22; bar corner 1.5; top of scale = 9 h or the longest night |
+| Sleep, last 14 nights | `renderSleepCard` `app.js:1383-1404` (SVG at `1387-1395`, `1399`) | per night a `<g>` with a `<title>` and up to three stacked `<rect>`s (`sl-deep`, `sl-rem`, `sl-other`), grid lines and labels at 0, 4, 8 h, date labels | 320x150; padding left / right / top / bottom 26 / 6 / 8 / 22; bar corner 1.5; top of scale = 9 h or the longest night |
 | Body weight, last 60 | `renderBwCard` `app.js:1411-1435` (SVG at `1417-1425`, `1431`) | grid at low / mid / high, a `<circle class="pt faint" r="2.5">` per weigh-in with a `<title>`, a `<path class="line">` of the 7-entry running average, two date labels | 320x150; padding 36 / 10 / 10 / 22 |
 | Exercise progress | `renderChart` `app.js:1437-1472` (SVG at `1450-1462`, `1469`) | grid, a `<path class="line">` through the top-set weights (deload sessions left out), a `<circle class="pt" r="3.5">` per session (`pt deload` = hollow), two date labels | 320x160; padding 34 / 10 / 12 / 22 |
 
@@ -651,6 +654,10 @@ the device's fonts (see section 10).
 | switch | CSS | `styles.css:197-198` | deload |
 | text arrows → ≥ ≈ × · – | | reason lines (`app.js:662-724`), prescriptions, separators | part of sentences, not icons |
 
+Three places change a glyph from code by setting `textContent`, which would wipe an inline SVG icon put in the
+same element: the cloud pill (`app.js:2433`), the star button (`food.js:707`) and the quick-add `+` that becomes
+`✓` (`food.js:1033`). The rest build the glyph into the markup string.
+
 App icons: `icon.svg`, `icon-180.png`, `icon-512.png` (a dumbbell, red and white on `#111214`), used by
 `index.html:14-15`, `manifest.webmanifest`, and for notifications (`sw.js:114`).
 
@@ -672,7 +679,7 @@ given; each has a `-light-` twin).
    selected "None" for joint pain looks like an error (`86-workout-feedback-answered`). "Save" (solid red) sits on
    "Remove from Breakfast" (red outline) (`27-food-edit-entry`). The rest timer's "Skip" is the reddest thing on
    the workout screen (`83-workout-set-ticked-rest-timer`).
-3. **Today opens on a form.** The morning check-in (five number boxes, about 390 px) is first; "Start workout"
+3. **Today opens on a form.** The morning check-in (seven number boxes, 434 px tall) is first; "Start workout"
    ends 8 px above the tab bar on the first screen (`01-today`). With the export notice and a recovery banner it
    is pushed off the screen (`extra-dark-01-…`).
 4. **The number you lift for is the faintest.** The goal reps is the reps box's placeholder: browser default
@@ -687,7 +694,7 @@ given; each has a `-light-` twin).
    tab is named for, comes last, after seven cards. The weekly review's PR bullet is one unbroken paragraph of 20
    lines (`rich-dark-43-history-weekly-review`). "Recent sessions" wraps its dates to make room for the sets
    (`rich-dark-42-history-progress-chart-lower`).
-7. **Settings is one undivided list.** The first card has no heading and 13 unrelated rows (appearance, weight
+7. **Settings is one undivided list.** The first card has no heading and 14 unrelated rows (appearance, weight
    jumps, rep range, timers, sleep); the page is 3,450 px (`70-settings-full`). Units are missing from the boxes
    ("Rest timer 120"; the unit is only in the grey description).
 8. **Food totals are small for the main thing on the screen**: 28 px calories, then three macro cells with 5 px
@@ -696,7 +703,7 @@ given; each has a `-light-` twin).
 
 ### 8.2 Density and scale
 
-- 13 font sizes between 10 and 28 px, nine corner radii, ten control heights, none of them tokens (5.1). Sizes
+- 13 font sizes between 10 and 28 px, nine corner radii, nine control heights, none of them tokens (5.1). Sizes
   that differ by one pixel sit side by side (13 / 14 / 15 / 16).
 - Nearly all text is bold: 700 is used in 24 rules and 800 in 6. With titles, values, labels and buttons all
   bold, weight carries no meaning.
@@ -726,7 +733,8 @@ is 40x40, and both are used far more than the full-size button.
 | 41x41 | calendar day with a workout | `100-history-one-workout` |
 | 54 to 89 x 40 | theme segments, "This week" / "Last week", the four-way meal control | `70-settings`, `60-history-empty`, `17-food-amount` |
 | any x 40 | every `.btn.small`: "+ Set", "− Set", "Warm-up", "Swap exercise", "Remove", "+ Exercise", "+30s", "Skip", "+ Day", "+ New", "Edit", "Use", "Start", "New", "‹ Back", "Scan barcode", "Quick add", "New food", "+ Add food", "Set target", "Scan a photo", "Type the number", "Rename", "Delete meal", "Edit weigh-ins", "N nights", the day label on Food | workout, Program, Exercises, Food |
-| 34x56, 41x65 | day chips and tabs, only at 320 px wide | `special-w320-01-today` |
+| 42x56 | day chips at 375 px wide (44 at 390, 34 at 320) | measured |
+| 41x65 | the Food tab at 320 px wide | `special-w320-01-today` |
 
 The controls used most in the gym are the right size: set boxes and ticks 50 px, RIR buttons 63x44, choices
 140x50, "Start workout" 48 px. Gaps between neighbours are small though: 6 px between RIR buttons and 10 px
@@ -761,7 +769,7 @@ between the tick and the reps box.
 - **`✕` means four things**: close a sheet, dismiss a notice, clear warm-ups, delete a row.
 - **Card titles** are made four ways: `.group-title` above the card, `<h3>` inside (`app.js:948`), a bare `<b>` in
   a row (`app.js:864`, `1312`, `1379`), and a tiny uppercase label styled inline (`app.js:1047`, `1092`).
-- **Confirmations and names use the browser's own dialogs** (26 `confirm` and 4 `prompt` call sites): a different
+- **Confirmations and names use the browser's own dialogs** (24 `confirm` and 4 `prompt` call sites): a different
   look from the app, and on the phone they carry the site's address.
 - **Two scan buttons side by side** in the add sheet: the icon button next to the search box and "Scan barcode"
   under it (`13-food-add-empty`).
@@ -891,10 +899,14 @@ Numbers tied to the bars' sizes, to change together:
 
 - Tabs are static markup; `data-screen` is the screen's name and `renderScreen` switches on it
   (`app.js:761-768`). `.tab { flex: 1 }` with content-sized minimums, so widths are unequal today.
-- Six tabs at 390 px: 54 to 75 px each, 11 px labels. At 320 px the bar overflows and "SETTINGS" is cut
-  (`special-w320-01-today`); the media query at `styles.css:469` only shrinks the letters.
-- Training app with five tabs: 78 px each at 390, 64 px at 320. Diet app with three: 130 px each. Both have room
-  for a proper icon and a 12 px label, and the 380 px rule can go.
+- Six tabs at 390 px: 54 to 77 px each, 11 px labels. At 380 px and less the labels drop to 10 px
+  (`styles.css:469`); at 375 px the six still fit (59 to 69 px). At 320 px they need 343 px, so the bar overflows
+  and "SETTINGS" is cut (`special-w320-01-today`).
+- Training app with five tabs: 78 px each at 390, 64 px at 320. With four: 97 and 80 px. Diet app with three:
+  130 and 106 px. All have room for a proper icon and a 12 px label, and the 380 px rule can go.
+- The Exercises search rebuilds the whole of `#app` from `renderExercises()` on every keystroke
+  (`app.js:2312`). If the Exercises list becomes part of another screen (see 11.2), that handler has to change,
+  or the rest of the screen vanishes at the first letter typed.
 - `goto-settings` (the cloud pill) sets `ui.screen = 'settings'` (`app.js:2243`). The app opens on Today and goes
   back to Today after a workout (`app.js:731`, `1884`, `2381`).
 - Removing the Food tab from the training app: `renderScreen` already copes with a missing `__overloadFood`
@@ -924,9 +936,11 @@ Numbers tied to the bars' sizes, to change together:
 
 ### 9.7 Other constraints
 
-- **One stylesheet per app, loaded with `?v=`.** The start-up rescue (`index.html:51`, `75-78`) and the offline
-  cache list (`sw.js:3-23`) know one `styles.css?v=…`. A second stylesheet, a web font or icon files must be added
-  to the cache list of the app that uses them and are not covered by the rescue as written.
+- **One stylesheet today, loaded with `?v=`.** The start-up rescue (`index.html:51`, `75-78`) looks for the first
+  `link[rel="stylesheet"]` only, and the offline cache list (`sw.js:3-23`) names one `styles.css?v=…`. The spec
+  plans a shared `shared/ui.css` (SPEC section 1) and a rescue that handles every stylesheet link (SPEC 3.11). Any
+  stylesheet, font or icon file a page loads must be in the install list of that app's own service worker, with
+  the same `?v=` text as in the page, or the app starts unstyled offline.
 - **The start-up note must read with no stylesheet** (it carries an inline style, `index.html:45`), and the first
   script must run before paint to set the theme.
 - **Icons**: if text glyphs are replaced, inline SVG in the markup needs no extra file and no cache entry.
@@ -951,7 +965,56 @@ Numbers tied to the bars' sizes, to change together:
 5. **Does the page behind a sheet stay still on iOS** with only `overflow: hidden` on `body`, and does the keyboard
    cover the bottom buttons of a tall sheet (88vh)?
 6. **Units.** There is no kilograms control. Is that wanted in the new Settings?
-7. **Native dialogs.** Are the 30 `confirm` / `prompt` call sites in scope for the redesign, or left as they are?
+7. **Native dialogs.** Are the 28 `confirm` / `prompt` call sites in scope for the redesign, or left as they are?
 8. **The diet app's Trends tab** has no existing screen or chart to restyle; what it shows is a product decision.
 9. **Where food targets are edited in the diet app** once a calorie target exists (today: only Settings).
 10. **`lab/scan.html`** (not linked from the app) was not inventoried.
+
+---
+
+## 11. Check against the spec and the chosen design direction
+
+A snapshot, taken when this note was written: `dev/notes/SPEC.md` and `dev/design/a-instrument/` at commit
+`c1026d7`. `dev/design/SYSTEM.md`, which the spec names for the final changes, did not exist yet, so nothing here
+was checked against it.
+
+### 11.1 Classes the v2.8 markup uses that `a-instrument/ui.css` does not define
+
+The design's stylesheet keeps the current class names, and covers 188 of the 201 styled classes the markup uses.
+The other 13, with what each does today:
+
+| Class | Built at | Today's rule | What breaks without it |
+| --- | --- | --- | --- |
+| `cardio-line` and `.cardio-line > .off` | `app.js:1002-1003` | `styles.css:256-258` | both the "Last time" and the "Today" text of the cardio card show at once, and the card changes height on Done |
+| `deload-start` | `app.js:810` | `styles.css:203` | "Start as deload" may shrink below 44 px or squeeze the day name |
+| `backup-btns` | `app.js:423` | `styles.css:347` | "Export JSON" / "Import JSON" overflow at 320 px |
+| `copy-row` | `app.js:406` | `styles.css:344` | "Restore" under 44 px |
+| `store-bar` | `app.js:427` | `styles.css:346` | the storage meter (a `span`) has no block layout |
+| `f-addbtns` | `food.js:495` | `styles.css:467` | the three add-sheet buttons do not fit at 320 px |
+| `f-copyday` | `food.js:366` | `styles.css:476` | no gap under "Copy yesterday" |
+| `f-menu` | `food.js:734` | `styles.css:477` | a rule above the first row of the meal menu |
+| `f-danger` | `food.js:733` | `styles.css:478` | "Clear Breakfast" is not marked as destructive |
+| `f-static` | `food.js:749` | `styles.css:479` | cosmetic (cursor) |
+| `f-x` | `food.js:750` | `styles.css:480` | the remove button in a saved meal takes the default icon-button size (fine if that is 44 px) |
+| `f-dragging` | `food.js:411` | `styles.css:439` | text gets selected while a food is dragged |
+
+One more rule is missing and matters on the phone: `.f-meal .f-row[data-id] { user-select: none;
+-webkit-touch-callout: none }` (`styles.css:434`). `ui.css` has no `user-select` or `touch-callout` rule at all.
+Without it, the 300 ms hold that starts a drag also starts iOS's text selection and its call-out menu.
+
+Present in `ui.css` (checked, because they are state rules that are easy to lose): `f-lifted`, `f-drop-target`,
+`f-ghost`, `f-drop-line`, `#food-added` (sticky, with its own offset), `body.has-save-warning`,
+`#rest-timer:not([hidden]) ~ .toast`, `.rir-row.idle`, `.input:disabled`, a global `[hidden]` rule, the 88vh sheet.
+
+### 11.2 Things that do not agree yet
+
+- **Tabs of the training app.** The spec's table says Today, Program, Exercises, History, Settings, "screen names
+  unchanged" (SPEC section 1). The design's README says four tabs, with Exercises moved into Program as a second
+  segment (`dev/design/a-instrument/README.md`, "Tab bar"). See the search handler note in 9.5.
+- **Screens the design has not drawn** (its README lists them): the Exercises list, the barcode scanner, search
+  results, the soreness check-in. Their current states are in `fresh-dark-50…52`, `-24…25`, `-14…16`, `-110…111`.
+  Not drawn either, as far as the mockup file names show: Edit exercise, Edit day, the picker, the program sheet,
+  workout detail and Edit sets, the unreadable-data screen, the start-up note, the Cloud sync, WHOOP, Reminders
+  and Backup cards (`fresh-dark-53`, `-41…44`, `rich-dark-48…49`, `special-dark-01…03`, `extra-dark-03…09`).
+- **Native dialogs** are not mentioned by either document.
+
