@@ -18,7 +18,7 @@ under one number (`bump.sh` in the repo root sets it in both), but they are sepa
 | `backup.js` | Automatic copies in IndexedDB (`fuel-copies`). Fuel's own copy of the training app's file. |
 | `fuel.css` | The rules only Fuel needs: the calorie gauge and the macros, meals and food rows, the Add and amount sheets, the scanner, Trends, Welcome and Add to Home Screen. Loaded after `../shared/ui.css`. |
 | `sync.js` | Cloud sync (optional). The app starts and works without it. Where its data is in the account: see below. |
-| `sw.js` | The offline worker (cache `fuel-vN`, scope `/overload/fuel/`). Its install list names every versioned file the page loads, written as the page writes it (`sh bump.sh --check` in the repo root compares them). |
+| `sw.js` | The offline worker (cache `fuel-vN`, scope `/overload/fuel/`). Its install list names every versioned file the page loads, written as the page writes it (`sh bump.sh --check` in the repo root compares them). Until Fuel's own worker is active, Settings > About says the app is getting ready, or not ready, to work offline; a first install that failed is tried again each time the app comes back to the front. |
 | `manifest.webmanifest`, `icon*.png`, `icon.svg` | What "Add to Home Screen" uses: a fork beside a plate with a leaf, on Fuel's green. `start_url` and `scope` must not change once the app is on a phone. |
 
 Shared with the training app, one folder up, and left where they are:
@@ -35,7 +35,10 @@ The look is described in `../dev/design/SYSTEM.md`; its reference screens are in
 The scripts are classic scripts in this order: `../shared/icons.js`, `backup.js`, `fuel.js`, `food.js`.
 `fuel.js` and `food.js` draw their icons with `icon()` and still run if `icons.js` did not arrive (without
 icons). `food.js` takes `window.__overload` and its twelve `lib` helpers while it loads, so `fuel.js` must
-have run first. `sync.js` is a module and comes last.
+have run first. `sync.js` is a module and comes last. `window.__overload` has twelve members: the six
+`food.js` uses (`state`, `screen`, `saveFailed`, `save`, `render`, `lib`) and six more for `sync.js`
+(`setState`, `unreadable`, `safetyCopy`, `setSyncStatus`, `syncChanged`, and `startedWithData`: whether the
+page started on saved data). `tests/fuel-shell.js` checks the list.
 
 ## How the data is kept
 
@@ -70,10 +73,12 @@ Everything is in `localStorage` on the device, under names of Fuel's own:
 - A save that fails (storage full) shows a banner until a save works. Stored data that cannot be read is
   never written over: the app shows "Your data" and lets the owner export it, restore a copy or start fresh.
 - Automatic copies: one a day for the last 7 days (taken at start, brought up to date when the app goes to
-  the background), and one before each import, reset, restore and cloud sign-in. Settings lists them. Reset,
-  Restore and an import wait for their copy: when it cannot be stored (IndexedDB does not answer), nothing is
-  erased, replaced or added, and the app offers Export instead. A connection to the copies that the phone
-  dropped is opened again by the next copy.
+  the background), and the latest one from before an import, a reset, a restore and a cloud sign-in (one of
+  each kind: the next one of that kind replaces it). Settings lists them. Reset, Restore and an import wait
+  for their copy: when it cannot be stored (IndexedDB does not answer), nothing is erased, replaced or added,
+  and the app offers Export instead. A connection to the copies that the phone dropped is opened again by the
+  next copy. The copy before a cloud sign-in is taken from the data as it was before the account's was merged
+  in, and the sign-in does not wait for it.
 - Export JSON writes the state itself as `fuel-backup-YYYY-MM-DD.json`.
 
 ## Cloud sync: where the data is in the account
@@ -92,9 +97,13 @@ one account holds both apps' data, in documents of their own:
   Overload's documents, so nothing either app does can change what the other finds.
 - The first sign-in to an account that has no `meta/fuel` yet reads `meta/state` and `foodDays` once, to bring
   the food log across: days, targets, saved foods and meals, the deletion records of entries, units, theme
-  and the latest weigh-in. It is added the way an import adds: what the phone holds wins by id, and what was
-  deleted on the phone stays deleted. Nothing is sent before those reads have worked. After that Overload's
-  copy is never read again: food logged later in an old Overload comes with Copy my food log.
+  and the latest weigh-in. It is added by the rules of an import (below; `addFromOverload` in `sync.js`
+  repeats `planImport` in `fuel.js`, and a change to one must be made to both), so signing in and Paste from
+  Overload, in either order, end the same and the second finds nothing new. Units and theme are taken when
+  the phone holds no food of its own yet (signing in from Welcome leaves Welcome before the account answers).
+  Entries without an id, which v2.8 never uploads, are left out; they come with Copy my food log.
+  Nothing is sent before those reads have worked. After that Overload's copy is never read again: food logged
+  later in an old Overload comes with Copy my food log.
 - On the phone, `fuel.sync.v1` is sync's note of what the account holds of this phone's data (`{ uid, core,
   days }`, as fingerprints). A day leaves a phone only through deletion records, never because its document
   is missing in the account. `moved` is not part of `core`: it stays on each phone. A page that starts with no
@@ -141,11 +150,24 @@ Fuel reads four things:
   its settings is ever read (its connector key is a secret);
 - a Fuel backup.
 
-An import never replaces and never removes. Entries, saved foods and saved meals are added by id, and what
-Fuel already has stays as it is. Targets and body weight are taken only when Fuel has none; units and theme
-only at Welcome. What was deleted in Fuel stays deleted. Before anything is added Fuel says what the copy
-holds and what is new, keeps a safety copy, and afterwards notes the hand-over in `moved`. A copy that is not
-newer than the last one brought in is said to be so.
+An import never removes, and adds only what is missing here, with one exception for saved foods:
+
+- Entries go by day and id. An entry is already here when Fuel holds its id on the same day, and then Fuel's
+  copy stays. (Before v2.5 an entry edited across midnight was kept on both days under one id; v2.8 shows
+  both, and both arrive.) New entries go at the end of their day. An entry without an id gets one made from
+  its day and what it holds, so a later copy does not add it again.
+- Saved foods go by id. One Fuel already holds stays, and takes the copy's star when it has none. When the
+  copy's is one he corrected or typed in (src `custom`) and Fuel's is the food list's own (src `usda` or
+  `off`), the copy's whole food takes its place, with Fuel's last use, last amount and star kept. A food made
+  or corrected in Fuel keeps its numbers.
+- Saved meals go by id, and Fuel's stay. Targets and body weight are taken only when Fuel has none; units and
+  theme only at Welcome. What was deleted in Fuel stays deleted, and the copy's deletion records come along
+  for anything Fuel does not hold.
+
+Before anything is added Fuel says what the copy holds, what is new and which saved foods are updated, keeps
+a safety copy (and waits for it: when it cannot be stored, nothing is added; at Welcome there is nothing to
+keep), and afterwards notes the
+hand-over in `moved`. A copy that is not newer than the last one brought in is said to be so.
 
 ## Tests
 
@@ -161,7 +183,7 @@ node tests/fuel-look.js      # Today's three macro cells at 320, 390 and 430 px
 node tests/fuel-host.js      # what the shell gives cloud sync, with a stand-in for sync.js
 node tests/fuel-update.js    # how the page takes a new offline worker, with stand-in workers
 node tests/fuel-rescue.js    # the start-up rescue in index.html, with stored copies put there by hand
-node tests/fuel-sync.js      # cloud sync against a stand-in for Firebase (tests/fake-firebase), next to Overload
+node tests/fuel-sync.js      # cloud sync against a stand-in for Firebase (tests/fake-firebase), next to Overload; sign-in against Paste
 node tests/fuel-sw.js        # the offline worker with real service workers, alone and beside Overload's
 ```
 

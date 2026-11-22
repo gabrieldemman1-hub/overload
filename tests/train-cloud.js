@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Overload 3.0 and cloud sync, two cases at the edge of the app (tests/fake-firebase; no outside host).
+/* Overload 3.0 and cloud sync, three cases at the edge of the app (tests/fake-firebase; no outside host).
  *
  *   node tests/train-cloud.js [--app=<folder>] [--port=8418]
  *
@@ -12,6 +12,15 @@
  *     as well, sign that phone out first and reset it before it signs in again. Each part is checked: both signed
  *     in (they come back), the other phone signed out and then in again without a reset (they come back), and
  *     signed out, reset, signed in (nothing comes back). No deletion records are written by Reset.
+ *   - Restore while signed in, with a second phone signed in. The copy is older: it lacks the latest weigh-in,
+ *     night and workout, has another weight for a date both hold, and holds a workout, a weigh-in and a night that
+ *     the second phone deleted since. The question says what happens, in Reset's words where they apply: the
+ *     training data in the account is replaced, but weigh-ins and nights on the other phone come back for dates
+ *     the copy does not have, and that phone deletes again what was deleted in the last 90 days; to keep only
+ *     what is in the copy, sign that phone out first and reset it before it signs in again. Each part is checked
+ *     on the account and both phones: both signed in (the copy's program, workouts and weights; the other
+ *     phone's weigh-in and night back; the three deletions done again), signed out and in again without a reset
+ *     (the same), and signed out, reset, signed in (exactly the copy's).
  * The app's files are answered from a folder by a Playwright route (nothing listens on the port).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
@@ -165,11 +174,108 @@ async function resetTwoPhones(browser) {
   for (const p of world.phones) await p.close();
 }
 
+// Restore on A of an older copy while B is signed in to the same account (Import asks the same, with "the backup").
+async function restoreTwoPhones(browser) {
+  const name = 'Restore with two phones', step = (title, fn) => run.step(name, title, fn);
+  const world = { browser, cloud: createCloud(), phones: [] }, cloud = world.cloud;
+  const A = await makePhone(world, 'A', true), B = await makePhone(world, 'B', false);
+  await A.open(); await A.ev(([e, p]) => window.__overloadSync.createAccount(e, p), [EMAIL, PASSWORD]); await settle(world);
+  await B.open(); await B.ev(([e, p]) => window.__overloadSync.signIn(e, p), [EMAIL, PASSWORD]); await settle(world);
+  // The copy: the data as it was a little earlier. The latest weigh-in, night and workout are not in it yet, the
+  // weigh-in of a date both hold has another weight, and the program has a name the account's has not.
+  const all = JSON.parse(fx.text), dates = (l) => l.map((x) => x.date).join(','), ids = (l) => l.map((w) => w.id).sort().join(',');
+  const lastBw = all.bodyweight[all.bodyweight.length - 1].date, lastNight = all.sleep[all.sleep.length - 1].date, lastW = all.workouts[all.workouts.length - 1].id;
+  const st = JSON.parse(fx.text);
+  st.bodyweight = st.bodyweight.filter((x) => x.date !== lastBw);
+  st.sleep = st.sleep.filter((x) => x.date !== lastNight);
+  st.workouts = st.workouts.filter((w) => w.id !== lastW);
+  const both = st.bodyweight[st.bodyweight.length - 1]; both.weight = +(both.weight + 1.3).toFixed(1);
+  st.program.name = 'From the copy';
+  const copyText = JSON.stringify(st);
+  // What B deletes after the copy was made: one workout, one weigh-in and one night the copy holds.
+  const goneW = st.workouts[0].id, goneBw = st.bodyweight[0].date, goneNight = st.sleep[0].date;
+  const after = { workouts: ids(st.workouts.filter((w) => w.id !== goneW)), bw: dates(st.bodyweight.filter((x) => x.date !== goneBw)) + ',' + lastBw, sleep: dates(st.sleep.filter((x) => x.date !== goneNight)) + ',' + lastNight };
+  const exact = { workouts: ids(st.workouts), bw: dates(st.bodyweight), sleep: dates(st.sleep) };
+  const tail = '\n\nYou are signed in to cloud sync, so the training data in your account (' + EMAIL + ') is replaced too. Weigh-ins and nights on another phone signed in to it come back from that phone for dates the copy does not have. That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. To keep only what is in the copy, sign out on that phone first and reset it before it signs in again. The food log in your account is not changed.';
+  const looks = async () => {
+    const c = core(cloud), a = await A.live(), b = await B.live();
+    const one = (s, ws) => ({ workouts: ids(ws), bw: dates(s.bodyweight), sleep: dates(s.sleep), program: s.program.name, both: (s.bodyweight.find((x) => x.date === both.date) || {}).weight });
+    return { account: one(c, cloud.paths(WORKOUTS).map((p) => ({ id: p.split('/').pop() }))), A: one(a, a.workouts), B: one(b, b.workouts) };
+  };
+  const tell = (n) => ['account', 'A', 'B'].map((k) => k + ' ' + n[k].workouts + ' | ' + n[k].bw + ' | ' + n[k].sleep + ' | ' + n[k].program + ' ' + n[k].both).join('; ');
+  const allAre = (n, want, what) => ['account', 'A', 'B'].forEach((k) => {
+    need(n[k].program === 'From the copy' && n[k].both === both.weight, what + ': the copy\'s program or weight is not on ' + k + ': ' + tell(n));
+    need(n[k].workouts === want.workouts && n[k].bw === want.bw && n[k].sleep === want.sleep, what + ': ' + k + ' is not as the question says: ' + tell(n));
+  });
+  await A.ev((t) => window.__overloadBackup.take('import', t), copyText);   // the copy, planted in A's Automatic copies
+  async function restore() {
+    A.page.dialogs.length = 0;
+    await lib.openTab(A.page, 'today'); await lib.openTab(A.page, 'settings');   // the list of copies is drawn again
+    await A.page.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+    await A.page.click('[data-action="restore-copy"][data-id="before-import"]');
+    await A.page.waitForFunction((d) => window.__overload.state.bodyweight.map((x) => x.date).join(',') === d, exact.bw, { timeout: 5000 });
+    return A.page.dialogs.slice();
+  }
+  await step('B deletes a workout, a weigh-in and a night the copy holds; the account and A have the deletion records', async () => {
+    const pg = B.page;
+    await lib.openTab(pg, 'history');
+    await pg.click('.list-item[data-action="view-workout"][data-w="' + goneW + '"]');
+    await pg.click('#sheet [data-action="delete-workout"][data-w="' + goneW + '"]');
+    await pg.waitForFunction((id) => !window.__overload.state.workouts.some((w) => w.id === id), goneW, { timeout: 5000 });
+    await pg.click('[data-action="bw-list"]');
+    await pg.click('#sheet [data-action="bw-delete"][data-date="' + goneBw + '"]');
+    await T.closeSheet(pg);
+    await pg.click('[data-action="sleep-list"]');
+    await pg.click('#sheet [data-action="sleep-delete"][data-date="' + goneNight + '"]');
+    await T.closeSheet(pg);
+    await settle(world);
+    const c = core(cloud), a = await A.live();
+    need(c.deleted.workouts[goneW] && c.deleted.bw[goneBw] && c.deleted.sleep[goneNight], 'the account\'s deletion records: ' + JSON.stringify(c.deleted));
+    need(!a.workouts.some((w) => w.id === goneW) && !a.bodyweight.some((x) => x.date === goneBw) && !a.sleep.some((x) => x.date === goneNight), 'A still holds what B deleted');
+    return 'deleted ' + goneW + ', weigh-in ' + goneBw + ', night ' + goneNight;
+  });
+  await step('both signed in: the question says what comes back and what is deleted again, and that is what happens', async () => {
+    const q = await restore();
+    need(q.length === 1 && q[0].startsWith('confirm: Replace the training data on this phone with the copy "Before import"?'), 'the questions: ' + q.join(' / ').replace(/\n/g, ' | '));
+    need(q[0].endsWith(tail), 'the question reads: ' + q[0].replace(/\n/g, ' | '));
+    await settle(world);
+    const n = await looks();
+    allAre(n, after, 'after the restore');
+    need(!n.account.workouts.split(',').includes(lastW), 'the workout the copy does not have is still in the account');
+    return tell(n);
+  });
+  await step('the other phone signed out first, then signed in again without a reset: the same comes back (so the question asks for a reset)', async () => {
+    await B.ev(() => window.__overloadSync.signOut()); await settle(world);
+    await restore(); await settle(world);
+    let n = await looks();
+    need(n.account.bw === exact.bw && n.account.sleep === exact.sleep && n.account.workouts === exact.workouts, 'with B signed out the account is not the copy: ' + tell(n));
+    await B.ev(([e, p]) => window.__overloadSync.signIn(e, p), [EMAIL, PASSWORD]); await settle(world);
+    n = await looks();
+    allAre(n, after, 'B signed in again');
+    return tell(n);
+  });
+  await step('the other phone signed out, reset, signed in again: exactly what is in the copy, everywhere', async () => {
+    await B.ev(() => window.__overloadSync.signOut()); await settle(world);
+    await restore(); await settle(world);
+    await reset(B); await settle(world);
+    await B.ev(([e, p]) => window.__overloadSync.signIn(e, p), [EMAIL, PASSWORD]); await settle(world);
+    const n = await looks();
+    allAre(n, exact, 'B reset and signed in');
+    const d = core(cloud).deleted;
+    need(!d.workouts[goneW] && !d.bw[goneBw] && !d.sleep[goneNight], 'the account still has the deletion records: ' + JSON.stringify(d));
+    return tell(n);
+  });
+  const probs = world.phones.reduce((l, p) => l.concat(p.problems()), []);
+  run.say(!probs.length, name, 'no page errors, no console errors', probs.join(' | ').slice(0, 400));
+  for (const p of world.phones) await p.close();
+}
+
 (async () => {
   const browser = await lib.launch();
   try {
     await noteWithoutData(browser);
     await resetTwoPhones(browser);
+    await restoreTwoPhones(browser);
   } finally { await browser.close(); }
   run.done();
 })().catch((e) => { console.error(e); process.exit(1); });

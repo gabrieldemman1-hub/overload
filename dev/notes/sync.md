@@ -12,6 +12,10 @@ Nothing in the repo was changed. The only file written is this note.
 
 Short names used below: **T** = the training app (Overload), **F** = the diet app (Fuel), **old food copy** = `state.food`, `state.diary` and `state.deleted.food` that T keeps carrying.
 
+This note was written before 3.0 was built; line numbers are v2.8's. Paragraphs marked **In 3.0** (1.1, 1.4, 1.5, 1.9, 1.10) and the notes in section 7 describe T's `sync.js` and `overload.js` (the main script, `app.js` up to 2.8) as released, after the review findings S1, S2, S4, S5 and S6. Where they and the rest differ about 3.0, they and the code are right.
+
+Paragraphs marked **In Fuel 3.0** (4.3, 4.4, after the host interface in section 5, and two notes in section 7) do the same for F's `fuel/sync.js` and `fuel/fuel.js`.
+
 ---
 
 ## 1. The protocol as it is in v2.8
@@ -43,6 +47,19 @@ On the phone, one localStorage key: `overload.sync.v1` (`SYNC_KEY`, `sync.js:32`
 - `saveKnown()` (`sync.js:84-88`) does **not** write while the app cannot save its own data (`host().saveFailed`). Reason in the comment at `sync.js:81-83`: a stale note is safe (the next start takes the cloud's copies back), a too-new note is not.
 - sync.js itself never removes the key. Only app.js does: when the saved data is unreadable (`app.js:199`), and on Reset, Import or Restore **while signed out** (`forgetCloudIfSignedOut`, `app.js:2041-2044`, called at `app.js:459` and `app.js:2238`). Checked for Reset **(run)**.
 - v2.8 keeps a field it does not know in this object across a restart and a push **(run)**.
+
+**In 3.0** (after the review, S1 and S2) the note has one more field, `parts`, written by 3.0's `sync.js` (`partsOf`) from the same core text that `core` is the hash of:
+
+```
+{ uid, core: hash | null, workouts: { workoutId: hash }, days: { 'YYYY-MM-DD': hash },
+  parts: { core: hash, keys: { settings, exercises, presc, program, active, bodyweight, sleep, templates: hash },
+           food: hash, del: { bw: { date: ms }, sleep: { date: ms }, workouts: { id: ms } } } }
+```
+
+- `parts.core` names the core the parts belong to. They are used only while it equals `known.core` (`notedParts`); v2.8 keeps the field as it is, so once v2.8 sends or takes a core the parts name an older one and 3.0 ignores them (until it next sends or takes a core, or works them out from the noted core in hand).
+- `keys` holds one hash per training key, `food` one hash of the food part (`food` and `deleted.food`), and `del` the training deletion records themselves (a few small entries, not hashes). The note is no longer hashes only: about 350 characters more on the small fixture, 520 on the heavy one.
+- With the parts a phone can tell, also after a restart and without the offline cache, which keys it changed itself since that core (1.4, 1.5).
+- 3.0's `overload.js` also removes the note at start when `overload.state.v1` is missing or empty (S2): a note cannot belong to no data, and the next sign-in is then a first link, which deletes nothing. `forgetSyncedDays` (Remove the old food log) parses and writes the whole object, `parts` included.
 
 Other module state (`sync.js:40-50`, `106`), all in memory only: `user`, `unsubs`, `pushTimer`, `inflight`, `lastSync`, `lastError`, `linking`, `linkTimer`, `linkTries`, and **`baseCore`**: the core as the cloud last held it, used to tell which key this phone changed. `baseCore` is empty after every restart until a core is pushed or received.
 
@@ -88,6 +105,14 @@ Does nothing without a user, without `known`, or while the data is unreadable (`
 - Offline, `commit()` does not answer; the SDK keeps the write on disk and sends it later, also after a restart **(SDK)**. The status then reads "Offline, will sync later".
 - So "deleted in the cloud" follows from **absence**: anything the note lists and the state no longer has is deleted. Reset, Import and Restore while signed in therefore replace the cloud copy; that is why they warn (`cloudNote`, `app.js:2046-2049`). Checked **(run)**: Reset while signed in deleted all 3 workouts and all 4 food days and wrote a core with empty food.
 
+**In 3.0** (Appendix A, then the fixes S1 and S5) the core row reads differently; workouts are as above, and no food day is ever written or deleted:
+
+- The core goes only when the cloud's core has been seen in this session (`cloudFood !== undefined`), its hash differs from `known.core`, **and** this phone is ahead (`coreAhead`): with the note's parts, a training key differs from its noted hash, or the food part as sent from here differs from the noted one, or a deletion record younger than 90 days differs. Records past their 90 days (the app drops them at every start) and this phone's old food copy do not count. Without parts (a note written by v2.8) the whole core text is compared, as in v2.8.
+- The first core of a session waits until the server's own core has been taken in (`serverSeen`): a listener snapshot that is not from the offline cache, or one `getDocFromServer` (`readServerCore`). That read only confirms: it is taken when it is the noted core or the account has none, and otherwise the listener brings the newer core and merges it. With no signal the read fails and is asked again when the signal returns, at the next save, and after 15 s doubling to 300 s. A change made offline therefore stays in localStorage and goes up merged once the server's core is in; it is not queued in the SDK. Workouts are still sent or queued at once.
+- While the core waits (`coreHeld`), the status reads "Syncing…" (signal) or "Offline, will sync later" instead of "Synced".
+- After sending, `known.core`, `baseCore`, `cloudFood` and `known.parts` describe what was sent.
+- A first link sets `serverSeen` (it read the server itself). Sign-out and every link forget it (`forgetServer`).
+
 ### 1.5 `listen()`: three live listeners (`sync.js:239-313`)
 
 All three skip their own unsent writes (`hasPendingWrites`) and anything whose hash equals the note.
@@ -101,6 +126,16 @@ All three skip their own unsent writes (`hasPendingWrites`) and anything whose h
   - `bodyweight` and `sleep` are always unions by date (`unionByDate`, `sync.js:120-125`), the phone's entry winning when `localAhead`, else the cloud's; deleted dates are dropped.
 - `applyDeleted` (`sync.js:146-153`): removes diary entries whose id is in `deleted.food` (and a day left empty), and workouts whose id is in `deleted.workouts` (except the one in progress).
 - `known.core = hash(remote)`, `baseCore = remote`, `setState(next)`, `saveKnown()`, then `schedulePush()`: if the merge differs from what the cloud sent, the merged core goes back up.
+
+**In 3.0** (Appendix A, then S1 and S5; `takeCore` and `mergeCore` in `sync.js`):
+
+- A snapshot with this phone's own pending writes, or whose hash is `known.core`, only notes the cloud's food part (`cloudFood`); with a note from v2.8 and the noted core in hand, the parts are worked out then.
+- `mergeCore` is per key. With the note's parts a key is "this phone's" when its hash differs from the noted one: that key stays, every other key is the cloud's (a key missing in the cloud keeps the phone's). This holds after a restart too, so `baseCore` matters only without parts (a note from v2.8, where the v2.8 rule above applies, with the remote's food part standing in until the cloud's is known). The key `food` is never merged; the phone's `deleted.food` is kept.
+- Weigh-ins and nights: still unions by date minus deleted dates, but per list: this phone's entry wins a date both have only when it changed **that** list itself (with parts; without, when the core is ahead as in v2.8). So a phone whose old copy of a weigh-in differs no longer overwrites a correction another phone made (S5).
+- `applyDeleted` removes workouts only (the old food copy is not filtered).
+- The `foodDays` listener is gone.
+
+What this means for Reset, Import and Restore on a phone signed in beside a second signed-in phone (run in `tests/train-cloud.js`): they write no deletion records, so the second phone has not changed the weigh-ins or nights lists itself and takes the replacing phone's entry for every date both have, but keeps its own entries for other dates, and its deletion records come back in the union. Its weigh-ins and nights for dates the new data lacks come back to the account and to the first phone, and after an Import or Restore a workout, weigh-in or night that its deletion records name (the last 90 days) is deleted again, although the file holds it. The questions say so (`cloudNote` in `overload.js`).
 
 **Workouts** (`sync.js:253-281`). Removed in the cloud and known here → removed here. Added or changed → replaces the phone's copy (the cloud's wins); but a workout this phone deleted (in `deleted.workouts`, and not in progress) is not taken: its hash is noted and the next push deletes it again.
 
@@ -137,13 +172,14 @@ Timers cleared, listeners off, `known = null` in memory, then `signOut`. **The s
 - `setState(next)` (`app.js:478-488`): ignored unless `next.v === 1` and the data is readable; `normalize`, write to localStorage, **no `overload:save` event**, redraw only when no box in the app has the keyboard (`app.js:491-496`).
 - Cloud sync card in Settings (`renderCloudCard`, `app.js:1507-1527`, placed at `app.js:1502`): "loading" while `window.__overloadSync` does not exist; a sign-in form; or the address, the status text `#cloud-status`, Sync now and Sign out. Actions: form submit → `signin` (`app.js:2253`); `cloud-signup`, `cloud-reset`, `cloud-signout`, `cloud-push` (`app.js:2244-2247`). The pill in the top bar (`app.js:771-776`) opens Settings.
 - `syncOn()` (`app.js:374-378`): signed in; or, while sync.js has not loaded, "the note exists". Used by the export reminder (`app.js:380-386`).
-- `cloudNote(verb)` (`app.js:2046-2049`) adds "You are signed in to cloud sync, so the copy in your account (…) is replaced/erased too" to the Import, Restore and Reset questions (`app.js:2057`, `438`, `2238`).
+- `cloudNote(verb)` (`app.js:2046-2049`) adds "You are signed in to cloud sync, so the copy in your account (…) is replaced/erased too" to the Import, Restore and Reset questions (`app.js:2057`, `438`, `2238`). In 3.0, `cloudNote(verb, what)` in `overload.js` says "the training data in your account (…)", says what a second signed-in phone sends back (and, for Import and Restore, deletes again; see 1.5) and how to stop it, and that the food log in the account is not changed.
 - `window.__overloadSync` (`sync.js:427-460`): `user` (`{ email, uid }` or null), `lastSync`, `error`, `signIn`, `createAccount`, `resetPassword`, `signOut`, `pushNow`. Only app.js uses it.
 
 ### 1.10 Easy to miss
 
 1. A push that throws while a batch is being built leaves the note saying "sent": the note is saved at `sync.js:221`, the document references are made at `sync.js:229`. A day key that is empty or holds `/` makes the SDK throw there **(SDK)**; `normalize` does not check day keys (`app.js:264`).
 2. The core is last-writer-wins at document level. A phone that was offline replays its old whole core when it reconnects; other phones that are not "ahead" then adopt it key by key. Only weigh-ins, nights, deletion records, workouts and food entries are protected by merging.
+   **In 3.0** (S1) much less of this is left: a 3.0 phone sends its core only when it changed a training key or a live deletion record itself, the first one of a session only after the server's core was taken in (merged first), and a merge keeps the phone's value only for the keys it changed (1.4, 1.5). What remains: a change made offline in a session that **had** seen the server's core before the signal dropped is queued in the SDK at once and replays as last-writer-wins (`serverSeen` is not forgotten when the signal drops; on iOS the events for that are unreliable); and a phone still on v2.8 behaves as described above (the review's `r9-returning-phone.js` with the second phone on v2.8: it sends its whole old core once its deletion records expire; `tests/train-sync.js` returnRun closes its v2.8 phone before the 91-day jump for that reason).
 3. `known.days` and the days listener make every signed-in phone a full mirror of the food log.
 4. An empty day array (`[]`) counts as a day (`!diary[date]` is false).
 
@@ -303,6 +339,17 @@ safety copy of what is on the phone ('cloud'), setState, save the note, listen, 
 - Never write `meta/state`, `workouts` or `foodDays` from F.
 - After the bootstrap F never reads the legacy documents again by itself. A button "bring my food from my Overload account again" could run the same merge by hand.
 
+**In Fuel 3.0** (`link`, `takeCore`, `fromOverload` and `addFromOverload` in `fuel/sync.js`). The first branch is as sketched, with saved foods and meals settled against their deletion records (one used after its record was written counts as back), and the account's body weight taken or, when it has none, the phone's converted to the account's units. The legacy bootstrap differs from the sketch:
+
+- It only adds, by the rules of an import (`planImport` in `fuel/fuel.js`, SPEC section 4), repeated in `addFromOverload` (a change to one must be made to both):
+  - entries by day and id, added at the end of their day: an entry is already here only when the phone holds its id on that same day (before v2.5 an entry edited across midnight was kept on both days under one id, and v2.8 shows both); one the phone deleted stays deleted (by id);
+  - saved foods by id: the phone's stays and takes Overload's star when it has none; when Overload's is `src: 'custom'` and the phone's is the food list's own (`src: 'usda'` or `'off'`), Overload's whole food takes its place, with the phone's `used`, `last` and star kept; a food that is `src: 'custom'` on the phone keeps its numbers (it can still take the star); one deleted on the phone stays deleted;
+  - saved meals by id (the phone's stay); targets and body weight only when the phone has none; units and theme only when the phone holds no food of its own (signing in from Welcome leaves Welcome before the account answers, so "at Welcome" cannot be the test here);
+  - Overload's records of entries are taken for every entry the phone does not hold. They do not filter what is brought: an entry still in a legacy day arrives, as v2.8 shows it there (one copy of an entry kept on two days, whose other copy was removed in v2.8, is such an entry), and Paste from Overload does the same. The union-and-filter of the sketch would also delete an entry the phone holds whenever Overload has a record for it.
+- Entries without an id in a legacy day are left out: v2.8 never uploads them, and Copy my food log carries them.
+- No `legacy: 'done'` field: up to 399 days go with the core in one batch; more go in several, and a refused one is sent again a minute later.
+- The copy `'cloud'` is taken only when the account held something and the phone holds food. Its text is the phone's state before `setState` (taken in the call: everything before it changed a copy); the sign-in does not wait for it to be stored.
+
 ### 4.4 Food already brought across by clipboard or file
 
 Nothing is duplicated, because every route carries the entries with their original ids and all merging is by id (1.5):
@@ -316,6 +363,8 @@ Three conditions:
 1. The transfer payload carries entries whole, with `id` and `at`, and `deleted.food`.
 2. F gives an id to any entry that has none **before** the first merge or upload (1.5: entries without an id collapse).
 3. F does not drop its food deletion records after 90 days the way `app.js:285-288` does. The legacy copies stay around for good; an entry deleted in F comes back from them once its record is gone. Keeping every record costs 29 characters each.
+
+**In Fuel 3.0** all three hold (records for entries, saved foods and saved meals are never pruned), and the two orders end byte for byte the same in the diary and the saved foods, meals and targets, not just with the same union: the bootstrap and the import share their rules (4.3), so whichever comes first brings the log and the second finds nothing new ("Nothing new: everything in this copy is already in Fuel, or was deleted here."). `tests/fuel-sync.js` run "rules" proves it on an account v2.8 filled: a starred food and a corrected food the phone also holds, an entry id on two days, and one removed from one of its two days in v2.8; sign in then paste, and paste then sign in, against Paste alone. What still differs is `moved` (per phone, not synced): it names whichever route came first.
 
 ### 4.5 `firestore.rules`
 
@@ -356,13 +405,16 @@ What `sync.js` needs from the page. F's shell must provide the same.
 | `setState(next)` | `sync.js:249`, `279`, `309`, `403` | Replace the state with `next` (always a copy of the current state with keys replaced, so `v` and other top-level fields ride along). Must: normalise; write to storage **without** sending the save event; set `saveFailed` synchronously if the write fails (the note is saved right after, `sync.js:249`); do nothing while unreadable; not redraw under a box being typed in |
 | `unreadable` (getter) | `sync.js:195`, `323` | True while the stored data could not be read: sync does nothing. On leaving that state the host calls `__overloadSync.pushNow()` (`app.js:2007`), and it must have removed the note when it found the data unreadable (`app.js:199`) |
 | `saveFailed` (getter) | `sync.js:86` | True while the last save failed: the note is not written |
-| `safetyCopy(kind)` | `sync.js:401` | Optional. Called with `'cloud'` before a first link replaces the phone's data. Must take the text at once |
+| `safetyCopy(kind)` | `sync.js:401` | Optional. Called with `'cloud'` before a first link replaces the phone's data. Must take the text at once. Fuel: `JSON.stringify(state)` in the call, stored as `before-cloud` in the background; `fuel/sync.js` calls it before `setState` and does not wait |
+| `startedWithData` (getter) | `fuel/sync.js` (`noteTrusted`) | Fuel only: whether the page started on saved data, as `load()` found it before anything could be tapped. The note is believed only when it is true. When the shell does not offer it (an older `fuel.js`), the module looks at `fuel.state.v1` itself |
 | `setSyncStatus(status, msg)` | `sync.js:162` | `off, error, syncing, offline, synced`. Called twice per upload: patch the pill and the status text only (`app.js:2430-2436`) |
 | `syncChanged()` | `sync.js:467` | Optional (falls back to `render()`). Signed in or out: redraw the pill and the card only |
 | event `overload:save` on `document` | `sync.js:470` | After every save by the app itself |
-| The note's key | `app.js:199`, `2043`, `377` | The host removes it on unreadable data and on Reset, Import, Restore while signed out; it may read "does it exist" while the module loads |
+| The note's key | `app.js:199`, `2043`, `377` | The host removes it on unreadable data and on Reset, Import, Restore while signed out; it may read "does it exist" while the module loads. 3.0's `overload.js` also removes it at start when `overload.state.v1` is missing or empty (S2) |
 
 And what the page gets: `window.__overloadSync` (1.9).
+
+**In Fuel 3.0** `window.__overload` has twelve members: `state`, `screen`, `saveFailed`, `save`, `render`, `lib` (for `food.js`) and `setState`, `unreadable` (also true while the app waits at Add to Home Screen), `safetyCopy`, `setSyncStatus`, `syncChanged`, `startedWithData` (for `fuel/sync.js`); `tests/fuel-shell.js` checks the list. `fuel.js` removes the note `fuel.sync.v1` in `load()` when `fuel.state.v1` holds nothing or cannot be read, and on Reset and Restore while signed out; not on an import, which only adds.
 
 ---
 
@@ -407,14 +459,14 @@ Not verified: whether the real `firebase-auth.js` and `firebase-firestore.js` pu
 5. **F's copy of `sync.js` pointing at `meta/state` or `workouts`.** One push would replace T's core with F's: `settings` shrinks to two keys, so every Overload phone takes them (`sync.js:138`), falls back to default training settings (`app.js:271`) and loses the connector link; a v2.8 phone also takes F's `food` whole. (Weigh-ins survive: they are merged by date.) *Precaution:* the table in 4.2; a test that every path F writes is `meta/fuel` or `fuelDays/…`, and that F reads `meta/state` and `foodDays` only in the bootstrap.
 6. **The connector secret.** `meta/state` holds `settings.connKey`. *Precaution:* F takes `units` and `theme` only (4.3).
 7. **v2.8's first link drops the phone's own saved meals and targets** (run). *Precaution:* F unions meals and keeps the phone's targets when the cloud has none (4.3).
-8. **Deletion records expire after 90 days; the legacy copies do not.** *Precaution:* F keeps its food deletion records (4.4, condition 3).
-9. **The account's legacy food can be behind the phone's.** T on 3.0 never uploads food; whatever v2.8 had not sent stays on the phone, and a phone that first signs in under 3.0 has no food days in the account at all. *Precaution:* show "Sign in to Fuel with the same email: your food log is already in your account" only when the note proves it: every day of `state.diary` has `known.days[date] === hash(JSON of that day)` and the note lists no other day (`hash` is private to `sync.js:57-66`, so `sync.js` should offer this as a getter on `window.__overloadSync`). Otherwise point to Copy or Save as a file, which carry the phone's full copy. F merges both routes without duplicates (4.4).
-10. **Entries without an id, day keys that are not dates.** The first collapse in a merge; the second can make a push throw after the note was saved (1.10 point 1). *Precaution:* F checks both on load, import and before upload.
+8. **Deletion records expire after 90 days; the legacy copies do not.** *Precaution:* F keeps its food deletion records (4.4, condition 3). *In Fuel 3.0:* done, for entries, saved foods and saved meals.
+9. **The account's legacy food can be behind the phone's.** T on 3.0 never uploads food; whatever v2.8 had not sent stays on the phone, and a phone that first signs in under 3.0 has no food days in the account at all. *Precaution:* show "Sign in to Fuel with the same email: your food log is already in your account" only when the note proves it: every day of `state.diary` has `known.days[date] === hash(JSON of that day)` and the note lists no other day (`hash` is private to `sync.js:57-66`, so `sync.js` should offer this as a getter on `window.__overloadSync`). Otherwise point to Copy or Save as a file, which carry the phone's full copy. F merges both routes without duplicates (4.4). *In 3.0 after the review (S4):* the card never says signing in is enough, even when `foodInCloud` is true (F reads Overload's account copy only at its first sign-in, so food logged by an older version after that only goes across by Copy or a file). It always says: "Using cloud sync? Copy the food log or save it as a file from here as well. Signing in to Fuel with the same email may bring some of it across, but not always all of it."
+10. **Entries without an id, day keys that are not dates.** The first collapse in a merge; the second can make a push throw after the note was saved (1.10 point 1). *Precaution:* F checks both on load, import and before upload. *In Fuel 3.0:* done (`normalize` in `fuel.js` at load, import and `setState`; `push` in `fuel/sync.js` sends no day whose name is not a date or that holds an entry without an id).
 11. **One browser profile, one Firebase app name.** *Precaution:* F uses a named app; T keeps the default (4.2).
 12. **A relative import in a sync module** breaks the start-up rescue for sync. *Precaution:* single-file modules (section 5).
 13. **The SDK is not stored on the first start** and is lost at every release until the next online start (section 6). *Precaution:* section 6, points 1 to 4. Never make the app's start depend on the module.
-14. **Wording.** In 3.0 the Reset question still says "and food log" and that the account's copy "is erased too" (`app.js:2238`, `2046-2049`). With the patch the account's food is not touched. *Precaution:* reword, so the owner is not told something false.
-15. **The guard at start.** The patch sends the core only after seeing the cloud's. If someone later "simplifies" that guard away, a start with no cached core sends the phone's food. *Precaution:* keep the "offline at start, nothing cached" case of 3.2 as a test.
+14. **Wording.** In 3.0 the Reset question still says "and food log" and that the account's copy "is erased too" (`app.js:2238`, `2046-2049`). With the patch the account's food is not touched. *Precaution:* reword, so the owner is not told something false. *Done in 3.0:* `cloudNote` (1.9) says the training data is erased or replaced, what a second signed-in phone sends back or deletes again, and that the food log in the account is not changed.
+15. **The guards at start.** 3.0 sends the core only after seeing the cloud's (`cloudFood`), and the first core of a session only after the server's own core was taken in (`serverSeen`, 1.4). If someone later "simplifies" the first away, a start with no cached core sends the phone's food; without the second, a phone opened after weeks sends its cached old core over what the other phones changed (S1). *Precaution:* keep both guards and their tests in `tests/train-sync.js` (the "offline at start, nothing cached" case of 3.2, "offline over a restart", and the phones that come back in returnRun). Keep `readServerCore` confirm-only (`takeCore(snap, true)`): letting it merge would let an older answer arrive after a newer listener snapshot and be sent. Keep `RECORD_DAYS` in `sync.js` in step with the 90 days of `normalize` in `overload.js`.
 16. **A core document has a size limit of 1 MiB** **(SDK)**. `food.foods` is never pruned. Far away today (59,400 characters in the heavy fixture), and moving food to `meta/fuel` makes both cores smaller. A refused write shows as a sync error and is retried every 60 s (`sync.js:231`).
 
 ---

@@ -634,7 +634,7 @@ textarea.input { display: block; min-height: 96px; padding: 12px; line-height: 1
 .notice .btn { flex: none; min-height: var(--tap); background: transparent; color: var(--ink); border-color: var(--edge); }   /* something still to do: an outlined key */
 .notice .btn:active { background: var(--key-2); }
 .notice .icon-btn { color: var(--ink-2); }
-/* Shown while saves to this phone fail. Pinned under the top bar; the screen starts below it (app.js sets the height). */
+/* Shown while saves to this phone fail. Pinned under the top bar; the screen starts below it (overload.js sets the height). */
 .save-warning { position: fixed; z-index: 30; top: calc(var(--topbar-h) + var(--safe-top) + 8px); left: 0; right: 0; max-width: 640px; margin: 0 auto; padding: 0 var(--gutter); }
 body.has-save-warning .screen { padding-top: calc(var(--topbar-h) + var(--safe-top) + 16px + var(--save-warning-h, 0px)); }
 

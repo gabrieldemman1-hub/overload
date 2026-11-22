@@ -439,32 +439,57 @@ function fromOverload(meta, days) {
   });
   return out;
 }
-// Overload's food log into this phone's state, exactly as an import does it (fuel.js): it only adds.
-// What the phone holds wins for an id both have; what was deleted on the phone stays deleted; targets and
-// body weight are taken only when the phone has none. Returns whether Overload's copy held any food.
-// The same entries arriving here and by Copy my food log, in either order, end as one copy: they carry
-// the same ids.
+// Overload's food log into this phone's state, by the rules of an import (planImport and applyImport in
+// fuel.js). The two must stay the same: the same log brought by sign-in and by Paste from Overload, in either
+// order, then ends byte for byte the same, and the second of the two finds nothing new. It only adds, with
+// one exception for saved foods:
+//   entries      by day and id: added when the phone does not hold that id on that day, at the end of the
+//                day as an import adds them. Before v2.5 an entry edited across midnight was kept on both
+//                days under one id, and v2.8 shows both. One deleted on the phone stays deleted (by id).
+//   saved foods  by id. One the phone holds stays, and takes Overload's star when it has none. When
+//                Overload's is one he corrected or typed in (src custom) and the phone's is the food list's
+//                own (src usda or off), Overload's whole food takes its place, with the phone's last use, last
+//                amount and star kept. A food made or corrected on the phone (src custom) keeps its numbers.
+//   saved meals  by id; the phone's stay
+//   targets, body weight   only when the phone has none
+//   deleted on the phone   stays deleted
+// Returns whether Overload's copy held any food.
 function addFromOverload(next, from) {
   const food = next.food, gone = next.deleted;
-  // A phone with no food of its own takes Overload's units and theme too, as an import at Welcome does.
+  // A phone with no food of its own takes Overload's units and theme too, as an import at Welcome does. (Not
+  // "at Welcome" itself: signing in from Welcome leaves it before the account has answered.)
   if (isEmpty(next)) {
     if (from.units === 'lb' || from.units === 'kg') next.settings.units = from.units;
     if (['system', 'dark', 'light'].includes(from.theme)) next.settings.theme = from.theme;
   }
   if (!hasTargets(food.targets) && hasTargets(from.targets)) ['kcal', 'protein', 'carbs', 'fat'].forEach((k) => { food.targets[k] = from.targets[k] === undefined ? null : from.targets[k]; });
-  ['foods', 'meals'].forEach((kind) => {
-    Object.keys(from[kind]).forEach((id) => { if (!has(food[kind], id) && !has(gone[kind], id)) food[kind][id] = from[kind][id]; });
+  Object.keys(from.foods).forEach((id) => {
+    const theirs = from.foods[id], mine = has(food.foods, id) ? food.foods[id] : null;
+    if (!isObj(theirs) || has(gone.foods, id)) return;   // not a food (fuel.js drops it); deleted here: it does not come back
+    if (!isObj(mine)) { food.foods[id] = theirs; return; }
+    if (theirs.src === 'custom' && (mine.src === 'usda' || mine.src === 'off')) {
+      const f = Object.assign({}, theirs);
+      delete f.used; delete f.last; delete f.fav;
+      if ('used' in mine) f.used = mine.used;
+      if ('last' in mine) f.last = mine.last;
+      if (mine.fav || theirs.fav) f.fav = true;
+      food.foods[id] = f;
+    } else if (!mine.fav && theirs.fav) mine.fav = true;
   });
-  const held = new Set();
-  Object.keys(next.diary).forEach((d) => next.diary[d].forEach((e) => held.add(e.id)));
+  Object.keys(from.meals).forEach((id) => { if (!has(food.meals, id) && !has(gone.meals, id)) food.meals[id] = from.meals[id]; });
+  const here = new Set(), held = new Set();   // day + id of every entry on the phone; the ids alone
+  Object.keys(next.diary).forEach((d) => next.diary[d].forEach((e) => { here.add(d + '#' + e.id); held.add(e.id); }));
   Object.keys(from.days).forEach((date) => {
-    // Not what the phone holds, not what was deleted on the phone, not what Overload itself recorded as deleted.
-    const add = from.days[date].filter((e) => !held.has(e.id) && !has(gone.food, e.id) && !has(from.gone, e.id));
-    add.forEach((e) => held.add(e.id));
-    if (add.length) next.diary[date] = mergeDay(next.diary[date], add, null);   // a day nothing is added to stays exactly as it is
+    const add = from.days[date].filter((e) => {
+      if (has(gone.food, e.id) || here.has(date + '#' + e.id)) return false;
+      here.add(date + '#' + e.id); held.add(e.id); return true;
+    });
+    if (add.length) next.diary[date] = (next.diary[date] || []).concat(add);   // a day nothing is added to stays exactly as it is
   });
   // Overload's deletion records come along, so that another copy of its log cannot bring those entries back
-  // later. Except for an entry this phone holds: that one stays, so it must not be marked as deleted.
+  // later. Except for an entry this phone holds: that one stays, so it must not be marked as deleted. They do
+  // not filter what is brought, as with Paste: an entry still in one of Overload's days is one v2.8 shows
+  // there (one copy of an entry kept on two days, whose other copy was removed in v2.8, is such an entry).
   Object.keys(from.gone).forEach((id) => { if (!held.has(id) && !has(gone.food, id)) gone.food[id] = from.gone[id]; });
   if (!next.bodyweight.length && from.weight) {
     next.bodyweight = [{ date: from.weight.date, weight: inUnits(from.weight.weight, unitsOf({ units: from.units }), unitsOf(next.settings)) }];
@@ -535,7 +560,9 @@ async function link() {
     if (overload) brought = addFromOverload(next, overload) || brought;
     applyDeleted(next);
     // What is on this phone is about to change: keep a copy of it first. (Not of a phone that holds nothing:
-    // that would replace an earlier copy, which may be the one he needs.)
+    // that would replace an earlier copy, which may be the one he needs.) Its text is taken in this call, from
+    // the state as it still is: everything above changed only `next`, a copy, and setState comes after. The
+    // copy is stored in the background; signing in does not wait for it.
     if (brought && !isEmpty(local) && h.safetyCopy) h.safetyCopy('cloud');
     known = fresh;
     h.setState(next);

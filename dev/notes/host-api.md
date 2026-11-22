@@ -388,6 +388,18 @@ The shell script must be a classic script that has run before food.js is evaluat
 | `lib.toast(msg)` | As `app.js:1955-1959`: `textContent`, replaces the one showing, cannot be tapped. |
 | `lib.markDeleted(kind, id)` | `state.deleted[kind][id] = Date.now()`. |
 
+**For `fuel/sync.js`** (as built in 3.0; `sync.md` section 5 gives each contract). `fuel/sync.js` also reads `state`, `saveFailed` and `render` (when `syncChanged` is missing), and needs:
+
+| Function | Behaviour |
+| --- | --- |
+| `setState(next)` | Replace the state with `next` (ignored unless `next.v === 1`, while unreadable, and while held at Add to Home Screen): `normalize`, write to `fuel.state.v1` without the save event, set `saveFailed` at once, end Welcome, redraw only when no box in `#app` has the keyboard. |
+| `get unreadable()` | True while the stored data could not be read, and while the app waits at an Add to Home Screen screen (it has no data of its own there). Sync does nothing then; leaving either calls `__overloadSync.pushNow()`. |
+| `safetyCopy(kind, force, text)` | Stores an automatic copy; for `'cloud'` the text is `JSON.stringify(state)` taken in the call. Resolves to whether it was stored (sync does not wait for it). |
+| `setSyncStatus(status, msg)`, `syncChanged()` | Patch the top-bar pill, the status text and the Cloud sync card only; the whole screen is drawn again only on Welcome, which says whether he is signed in. |
+| `get startedWithData()` | Whether the page started on saved data, as `load()` found it before anything could be tapped. Sync believes its note only then. `load()` itself removes the note (`fuel.sync.v1`) when nothing is stored or the stored data cannot be read. |
+
+So Fuel's `window.__overload` has twelve members: the six for `food.js` and these six. `tests/fuel-shell.js` checks that list.
+
 **Event routing** (bubbling listeners on `document`, as `app.js:2077-2083, 2240, 2251-2252, 2309-2311, 2316-2318`):
 
 - click: `.tab` → set the screen, `render()`, `window.scrollTo(0, 0)`; `[data-action]` not disabled → `food-…` to `__overloadFood.click(a, btn.dataset, btn)`; `sheet-close` → `closeSheet()`; the shell's own actions.
@@ -447,7 +459,7 @@ Not checked here, because it needs a real iPhone: the camera, whether Safari off
 7. **Missing containers in Fuel's state.** Without `deleted.food`, deleting an entry changes the diary in memory, then throws before saving (`food.js:671-674`); without `settings`, a stored body weight breaks the Settings card. Precaution: the shell's normalise guarantees every container in 8.1 after load, import and sync.
 8. **The same field names in two apps.** Fuel's state has `settings` and `bodyweight` like Overload's. If Fuel's sync ever wrote them into the document Overload reads, Overload's settings and weigh-ins would be replaced by Fuel's two-field versions. Precaution: Fuel writes only its own document and the food days; test that it never writes `meta/state`.
 9. **Wrong types from an import.** food.js adds entries up with `+` (`food.js:45-47`) and matches meals with `===` to a number (`food.js:354`). An entry whose `kcal` is text turns the day's total into a joined string; a `meal` of `"1"` shows in no meal but still counts. v2.8's normalise does not check these (`app.js:264`). Precaution: the importer makes `kcal`, `p`, `c`, `f`, `at` numbers and `meal` an integer 0 to 3, and drops what it cannot fix, after showing the count.
-10. **Importing the old copy again much later.** Deletion records last 90 days (`app.js:285-290`). The old copy stays in Overload for good, so a second paste months later brings back entries deleted in Fuel more than 90 days ago, and saved foods or meals deleted in Fuel at any time (those have no deletion records: `food.js:862, 1099, 1111`). Precaution: Fuel remembers that the hand-over was done and warns before a second one; or keeps food deletion records for good.
+10. **Importing the old copy again much later.** Deletion records last 90 days (`app.js:285-290`). The old copy stays in Overload for good, so a second paste months later brings back entries deleted in Fuel more than 90 days ago, and saved foods or meals deleted in Fuel at any time (those have no deletion records: `food.js:862, 1099, 1111`). Precaution: Fuel remembers that the hand-over was done and warns before a second one; or keeps food deletion records for good. (Fuel 3.0 keeps the records for good, for entries, saved foods and saved meals (food.js got three `markDeleted` calls for that), notes the hand-over in `moved`, and says so when a copy is not newer than the last one brought in.)
 11. **Redraws from sync while typing.** A shell that calls `render()` on every sync status change throws away the box being typed in on Settings. Precaution: patch the status elements only; redraw through the "wait while typing" rule.
 12. **Drag broken by the redesign** (not data): an inner scrolling box instead of the window, rows no longer direct children of `.f-meal`, a ghost that takes pointer events, or lost `user-select: none`. Precaution: keep the rules in 3.1 and 3.2; test a drag after the restyle.
 13. **Accent colour used as the warning colour** (not data): see 3.2. Precaution: a separate "over / danger" colour in the shared design tokens.

@@ -6,6 +6,8 @@ Claims marked **(run)** were checked by running v2.8 in Chromium (Playwright, se
 
 Owner labels: **TRAINING** (stays in Overload), **FOOD** (goes to Fuel), **SHARED** (both sides read it today).
 
+Line numbers are v2.8's (`app.js` there is `overload.js` in 3.0). Notes marked **In 3.0** say what 3.0 as released adds or changes (sections 1.1, 1.3, 4.3); everything else here is still true for 3.0's saved data. v2.8 reads and writes all of it (`tests/train-rollback.js`). Notes marked **In Fuel 3.0** (1.5, 6.3, hazards 11 and 16, questions 6 and 8) say what Fuel as released does.
+
 ---
 
 ## 1. Where data lives
@@ -27,6 +29,12 @@ There are exactly eight names (one of them a prefix). `food.js` and `programs.js
 
 Not found: `overload.lib` or any other `overload.*` key. No sessionStorage use anywhere.
 
+**In 3.0:**
+
+- `overload.sync.v1` has one more field, `parts`, written by 3.0's `sync.js`: `{ core: hash, keys: { settings, exercises, presc, program, active, bodyweight, sleep, templates: hash }, food: hash, del: { bw: { date: ms }, sleep: { date: ms }, workouts: { id: ms } } }`. So the whole shape is `{ uid, core, workouts, days, parts }`, and the note is no longer hashes only: `parts.del` holds the training deletion records of the noted core themselves (a few small entries). v2.8 keeps the field unchanged; 3.0 uses it only while `parts.core` equals `core` (`sync.md` 1.1). `load()` in `overload.js` also removes the note when `overload.state.v1` is missing or empty (review finding S2), and `forgetSyncedDays` (Remove the old food log) takes removed days off `days`, keeping every other field.
+- `overload.backup` also holds `split: { at, copied: { at, hash, days, entries }, filed: { at, hash }, removed: { at }, dismissed: hash }`, the hand-over bookkeeping of this phone (`SPEC.md` section 3, rule 4). v2.8 keeps it.
+- One sessionStorage key, `overload.timer`: `{ end: ms, total: s, kind: 'rest' | 'cardio', next: text, workout: id }`, the rest or cardio timer that is running, so that a reload in the same session (the "Update ready" pill, or any reload) starts it again (`keepTimer`, `resumeTimer`). It is removed when the timer stops and when it is read at start. Per session, not part of the saved data or any backup; v2.8 ignores it.
+
 After a first start of v2.8 the keys present are `overload.theme`, `overload.backup`, `overload.state.v1` **(run)**. `overload.conn.*` appear only when a connector address is set (`connector.json` has an empty `url`, and every write sits behind `url()`, connector.js:133, 159, 290). `overload.sync.v1` appears only after a first successful cloud link.
 
 Not written by the app's own code but in the same storage when cloud sync is used: the Firebase SDK's own records (sign-in session and Firestore offline cache, IndexedDB, possibly small localStorage keys). **Not verified**: the SDK loads from `www.gstatic.com`, which I did not contact.
@@ -39,7 +47,8 @@ Database `overload-copies`, version 1 (backup.js:10, 23), two stores keyed by `i
 
 - Cache `overload-v23` (sw.js:2): app files, `data/foods.json?db=5`, the barcode reader. No user data. `activate` deletes every cache whose name starts with `overload-` except its own (sw.js:57); the start-up rescue also looks at caches starting with `overload-` (index.html:70).
 - `navigator.storage.persist()` is requested at boot (app.js:2387).
-- In memory only, never saved: `ui` (app.js:731), `timer`, `fu` (food.js:34: the day on screen, search text, the Add trip), `cs` (connector.js:21), the loaded food list `db` (food.js:153).
+- In memory only, never saved: `ui` (app.js:731), `timer`, `fu` (food.js:34: the day on screen, search text, the Add trip), `cs` (connector.js:21), the loaded food list `db` (food.js:153). (**In 3.0** a running `timer` is also kept in sessionStorage, `overload.timer`, 1.1; `food.js` is Fuel's.)
+- **In 3.0** the training cache is `overload-v24` and holds no food list and no barcode reader. Files with `?v=` are answered from it for the whole release (`offline.md` section 10).
 
 ### 1.4 The cloud copy (when signed in)
 
@@ -54,6 +63,8 @@ Not uploaded: `v`, `libVersion`, and any top-level field not in `CORE_KEYS`. `fi
 ### 1.5 Same site, same storage
 
 The two apps will be on one origin. Installed to the iPhone Home Screen each has its own storage. In an ordinary browser tab (desktop, Android, Safari before installing) they **share** localStorage, IndexedDB and Cache Storage. So every name Fuel uses must differ from the ones above, and Fuel can read `overload.state.v1` directly there. `storageUsed()` counts every key of the origin, whoever wrote it (app.js:365-367).
+
+**In Fuel 3.0** Fuel's own names are: localStorage `fuel.state.v1` (the state, `fuel/README.md`), `fuel.state.v1.bak` (only while stored text cannot be read; removed once the copy `before-unreadable` holds the same text), `fuel.sync.v1` (cloud sync's note, `{ uid, core, days }`), `fuel.backup` (`{ since, lastExport, nagOff }`), `fuel.theme`; sessionStorage `fuel.here` ("Use it here anyway" in a Safari tab); IndexedDB `fuel-copies`; cache `fuel-vN`. `load()` removes `fuel.sync.v1` when `fuel.state.v1` holds nothing or cannot be read, and tells cloud sync whether the page started on saved data (`window.__overload.startedWithData`). Fuel never writes a name starting `overload`; it reads `overload.state.v1` only for "Bring it from Overload on this device" (on Welcome and in the import sheet) and, on an iPhone, to tell that it was opened inside the installed Overload.
 
 ---
 
@@ -348,6 +359,16 @@ Import **replaces, it never merges**. Checked **(run)**:
 - List and restore: Settings → Backup (app.js:400-430). `restoreCopy()` (app.js:432-441) applies the same check as Import (`v === 1` and an `exercises` array), asks with the two summary lines, keeps this phone's connector link (app.js:457), and calls `replaceState(parsed, 'restore', …)`, which first stores `before-restore`. A copy of kind `unreadable` gets Export, not Restore (app.js:405). A kind the list does not know shows as "Copy · date" with a Restore button that works (app.js:403) **(run, with a copy stored as `take('split', text)`)**.
 - The API is `window.__overloadBackup = { take, list, get, KEEP_DAYS }` (backup.js:109). `take(kind, text, force)` accepts any kind name.
 
+**In 3.0** (`backup.js` keeps its name and v2.8's API, plus `KEEP_REMOVALS`; v2.8 can run this file, `tests/train-backup.js`):
+
+| Kind | Id | When | Kept |
+| --- | --- | --- | --- |
+| `split` | `before-split` | first start of 3.0: the stored text exactly as the last version left it (`noteSplit`) | never pruned, never written over |
+| `foodremove` | `before-foodremove-<ms>` | before each "Remove the old food log"; it must be stored, or nothing is removed | one per removal, the newest 3 (`KEEP_REMOVALS`) |
+
+- The other kinds are as above (only the latest of each). Restoring the `split` or a `foodremove` copy while the phone holds food days again puts the two food logs together (`SPEC.md` section 3, rule 6).
+- A lost IndexedDB connection (an iPhone drops it for an app back from the background) is let go and opened again at the next call, and a failed transaction is tried once more on a fresh connection (review finding U6).
+
 ---
 
 ## 5. Storage limits and sizes
@@ -448,6 +469,8 @@ Do not thin `food.foods` (for example to foods that entries point at): foods tha
 - Text encoding: `amt` holds `×` (U+00D7) whenever the amount is not 1 (food.js:101), and typed names can hold anything. Base64 must be made from UTF-8 bytes, not with `btoa` on the string.
 - Use compact JSON; indenting nearly doubles it.
 
+**In Fuel 3.0** (`normalize`, `incomingFrom`, `planImport`, `applyImport` in `fuel/fuel.js`): what arrives is cleaned as listed above, and what cannot be fixed is said in the question: numbers that cannot be read count as 0, an entry with no valid meal goes under Snacks, a missing time becomes just after the entry before it, an entry without an id gets one made from its day and what it holds as it arrived (identical ones on a day are counted), entries that are not objects and days that are not dates are left out. It is then added by the rules of SPEC section 4: entries by day and id, saved foods by id with Overload's star and his corrected numbers (`src: 'custom'` over a list copy) taken, saved meals by id, targets and body weight only when Fuel has none, units and theme only at Welcome, nothing deleted in Fuel brought back. The copy "Before import" is stored first, or nothing is added. The cloud's legacy copy, read at Fuel's first sign-in, is added by the same rules (`sync.md` 4.3).
+
 ---
 
 ## 7. Hazards
@@ -462,12 +485,12 @@ Do not thin `food.foods` (for example to foods that entries point at): foods tha
 8. **Names shared on one origin.** In an ordinary browser both apps share storage. If Fuel loads `backup.js` as it is, the two apps write the same `day-YYYY-MM-DD` record in `overload-copies` and overwrite each other's daily copy, and each lists the other's copies under Restore. *Precaution:* the database name (backup.js:10) must differ per app; so must every localStorage key; Fuel's cache name must not start with `overload-` (sw.js:57).
 9. **Automatic copies are not a safety net for the upgrade.** The first 3.0 start saves the normalized state before the day copy is taken (app.js:2380, 2385); day copies last 7 opened days; today's copy misses food logged after it. *Precaution:* on the first 3.0 start, before the first save, store the raw text read from localStorage with `take('split', raw)`: it gets the id `before-split`, is never pruned, and v2.8 lists it as "Copy · date" with a working Restore (run).
 10. **The old food copy takes room.** For a heavy user it is about 0.7 M of the 2.5 M guess, and Overload reaches the 70% warning months sooner (section 5). The warning text and the storage-full banner say nothing about it. *Precaution:* show its size next to "Remove the old food copy".
-11. **A merge can bring deleted things back.** Entry deletions are remembered for 90 days only; deleted custom foods and saved meals are not remembered at all. Importing the old copy into Fuel again later puts back foods and meals deleted since, and entries deleted more than 90 days ago. *Precaution:* keep Fuel's deletion records longer, record food and meal deletions too, and warn when a payload's `madeAt` is not newer than the last one taken in.
+11. **A merge can bring deleted things back.** Entry deletions are remembered for 90 days only; deleted custom foods and saved meals are not remembered at all. Importing the old copy into Fuel again later puts back foods and meals deleted since, and entries deleted more than 90 days ago. *Precaution:* keep Fuel's deletion records longer, record food and meal deletions too, and warn when a payload's `madeAt` is not newer than the last one taken in. *In Fuel 3.0:* all three are done; records are never pruned.
 12. **`settings.connKey` is a secret inside every export and in the cloud copy.** *Precaution:* never copy `settings` whole into Fuel or into the payload.
 13. **The food reminder.** Its "done today" comes from `diary[today]` (connector.js:285). With the diary frozen it is never done, so a reminder that is on would fire every evening. The connector is not deployed today. *Precaution:* 3.0 sends `food.on = false` and drops the row (connector.js:20).
 14. **food.js throws on a state without the shared pieces**: `deleted.food`, `diary`, `food.targets / foods / meals`, and `settings` once a body weight exists. *Precaution:* Fuel's own normalize guarantees them.
 15. **Overload 3.0 still counts food days** in the import and restore questions, the copy list, the export reminder and the Reset question (app.js:451, 404, 381, 2238; backup.js:61). *Precaution:* reword them, or the owner reads "180 food days" in an app with no food.
-16. **`overload.state.v1.bak`** is a second full copy in localStorage for as long as it exists. With a large state it can itself fill the storage. Fuel's shell should keep the same order: IndexedDB copy first, `.bak` removed once confirmed.
+16. **`overload.state.v1.bak`** is a second full copy in localStorage for as long as it exists. With a large state it can itself fill the storage. Fuel's shell should keep the same order: IndexedDB copy first, `.bak` removed once confirmed. *In Fuel 3.0:* it does (`leaveUnreadable`).
 
 ---
 
@@ -478,6 +501,6 @@ Do not thin `food.foods` (for example to foods that entries point at): foods tha
 3. The iPhone's real localStorage limit for a Home Screen app. `STORE_LIMIT` is a guess (app.js:14).
 4. Which storage names the Firebase SDK uses (sign-in session, offline cache) and whether two apps on one origin collide there. I did not load the SDK.
 5. Did the owner ever set a connector address or pair it (`settings.connUrl`, `connKey`, `reminders`)? If not, hazard 13 and the secret in hazard 12 do not apply to their data.
-6. `settings.units` has no control in v2.8. The owner is presumably on `'lb'`; Fuel needs a place to set it if it keeps the protein hint.
+6. `settings.units` has no control in v2.8. The owner is presumably on `'lb'`; Fuel needs a place to set it if it keeps the protein hint. *In Fuel 3.0:* Settings > You has a Units switch, which converts the stored body weight.
 7. How much text the iPhone clipboard and a paste into a web page take without trouble (215,000 to 930,000 characters for a heavy user). Not testable here.
-8. Should a second import into Fuel be allowed at all once Fuel has its own entries, given hazard 11?
+8. Should a second import into Fuel be allowed at all once Fuel has its own entries, given hazard 11? *In Fuel 3.0:* yes. It adds only what is missing (with the star and his corrected numbers for saved foods both hold), brings nothing deleted in Fuel back, and says first when the copy is not newer than the last one brought in.

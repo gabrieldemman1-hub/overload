@@ -479,7 +479,7 @@
     // The copies taken at the split and before a removal are where the old food log was kept. Restored while the
     // phone holds food days again (an older version of the app ran and logged food), the two logs are put together.
     const merge = !ui.unreadable && (rec.kind === 'foodremove' || rec.kind === 'split') && foodFacts().days > 0 && fileFood(parsed).days > 0;
-    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy', merge) + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced');
+    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy', merge) + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced', 'the copy');
     if (!confirm(replaceQuestion(what) + '\n\n' + dataSummary(parsed, 'The copy') + here)) return;
     replaceState(parsed, 'restore', 'Copy restored', merge);
   }
@@ -2266,11 +2266,17 @@
   // A Reset writes no deletion records, so another phone signed in to the account keeps its weigh-ins and nights
   // and sends them back (they are merged by date), and so does a phone signed out meanwhile that keeps its data
   // and signs in again. The question says so, and how to erase them as well.
-  function cloudNote(verb) {
+  // Import and Restore (what: 'the backup' or 'the copy') the same, for the dates the file or copy has none for
+  // (for a date it has, its entry stays). That phone also sends back its deletion records (sync.js merges them),
+  // so a workout, weigh-in or night deleted in the last 90 days is deleted again although the file holds it.
+  // The advice is the same as Reset's; tests/train-cloud.js runs each part on the fake cloud.
+  function cloudNote(verb, what) {
     const sync = window.__overloadSync;
     if (!(sync && sync.user)) return '';
-    return '\n\nYou are signed in to cloud sync, so the training data in your account (' + sync.user.email + ') is ' + verb + ' too.'
-      + (verb === 'erased' ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.' : '')
+    const other = verb === 'erased'
+      ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.'
+      : ' Weigh-ins and nights on another phone signed in to it come back from that phone for dates ' + what + ' does not have. That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.';
+    return '\n\nYou are signed in to cloud sync, so the training data in your account (' + sync.user.email + ') is ' + verb + ' too.' + other
       + ' The food log in your account is not changed.';
   }
   // Reset all data: the training data goes back to a new install. The old food log is not part of it: it leaves
@@ -2292,7 +2298,7 @@
         if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
         if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
         if (!confirm(replaceQuestion('the backup') + '\n\n' + dataSummary(parsed, 'The backup') + '\n' + dataSummary(state, 'This phone now')
-          + activeLine(parsed, 'the backup') + foodLine(parsed, 'the backup') + cloudNote('replaced'))) return;
+          + activeLine(parsed, 'the backup') + foodLine(parsed, 'the backup') + cloudNote('replaced', 'the backup'))) return;
         // A backup carries the WHOOP connector link. Take it from the file only when he says so;
         // a backup without one (made before pairing) keeps this phone's link.
         const cur = state.settings, inc = isObj(parsed.settings) ? parsed.settings : (parsed.settings = {});

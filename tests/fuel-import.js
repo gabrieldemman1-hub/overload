@@ -730,6 +730,33 @@ async function checkImported(label, phone, page, from, old) {
       F.assertClean(p10);
       return q.split('\n').filter((l) => /updated from/.test(l)).join(' | ');
     });
+    // Settings > Backup > Import JSON takes a Fuel backup too, which can give a saved food a star or numbers
+    // corrected on another phone. The card's line about Import says so (it said "It never replaces ... anything").
+    await ownFoods('Settings > Backup says what Import changes, and Import JSON of a Fuel backup does just that', async () => {
+      await F.closeSheet(page10);
+      await lib.openTab(page10, 'settings');
+      const card = await page10.evaluate(() => document.querySelector('#last-export').closest('.card').textContent.replace(/\s+/g, ' '));
+      const line = 'Import adds only what is missing here, with the favorite stars and the numbers you corrected there. Nothing else is replaced or removed.';
+      need(card.includes(line) && !/never replaces/.test(card), 'the Backup card says: ' + card.slice(0, 400));
+      // Only the latest copy of each kind is kept (one id per kind in fuel/backup.js), not one for every import.
+      need(card.includes('and one each from before the last import, reset, restore and cloud sign-in.') && !/before each import/.test(card), 'the Backup card says: ' + card.slice(card.indexOf('Automatic copies'), card.indexOf('Automatic copies') + 300));
+      // Another phone's backup: the cookie starred there, the egg corrected there (src custom, other numbers).
+      const before = await F.stored(page10), other = JSON.parse(JSON.stringify(before));
+      other.food.foods[COOKIE].fav = true;
+      Object.assign(other.food.foods[EGG], { src: 'custom', n: { kcal: 150, p: 12.5, c: 1, f: 10.5 }, used: NOW - 600000 });
+      delete other.food.foods[EGG].usda;
+      await page10.evaluate(() => { document.querySelector('#toast').hidden = true; });
+      await F.chooseFile(page10, '[data-action="import"]', tmp.file('fuel-backup-other.json', JSON.stringify(other)));
+      const t = await F.toast(page10, /Updated/), q = lastQuestion(page10), st = await F.stored(page10);
+      need(t === 'Updated 2 saved foods.' && q.includes('2 saved foods updated from the backup: the favorite star, your corrected numbers.'), 'the toast says "' + t + '"; the question: ' + q.replace(/\n/g, ' | '));
+      const egg = Object.assign({}, other.food.foods[EGG], { used: before.food.foods[EGG].used, fav: true });
+      if ('last' in before.food.foods[EGG]) egg.last = before.food.foods[EGG].last;
+      same(st.food.foods[EGG], egg, 'the egg');
+      before.food.foods[COOKIE].fav = true; before.food.foods[EGG] = egg;
+      same(st.food, before.food, 'the saved foods, meals and targets'); same(st.diary, before.diary, 'the diary'); same(st.deleted, before.deleted, 'the deletion records');
+      F.assertClean(p10);
+      return t;
+    });
     await p10.close();
 
     // ---------------------------------------------------------------- one entry id on two days (H4)

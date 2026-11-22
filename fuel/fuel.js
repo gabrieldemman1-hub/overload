@@ -403,10 +403,10 @@
     return '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your food log lives.</p>'
       + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">' + icon('export') + 'Export JSON</button><button class="btn ghost" data-action="import">' + icon('import') + 'Import JSON</button></div>'
       + '<p class="small muted mt8" id="last-export">' + lastExportText() + '</p>'
-      + '<p class="small muted mt8">Import adds what a file holds and you do not have here. It never replaces or removes anything.</p>'
+      + '<p class="small muted mt8">Import adds only what is missing here, with the favorite stars and the numbers you corrected there. Nothing else is replaced or removed.</p>'
       + '<div class="toggle-row"><div><div>Storage used</div><div class="small muted">' + used.toLocaleString() + ' of about ' + STORE_LIMIT.toLocaleString() + ' characters the app can safely use. Today warns at 70%.</div>'
       + '<span class="vol-bar store-bar"><span class="vol-fill ' + cls + '" style="width:' + Math.min(100, pct) + '%"></span></span></div><span class="vol-n ' + cls + '">' + pct + '%</span></div>'
-      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days (brought up to date when you leave the app), and one taken before each import, reset, restore or cloud sign-in.</p>'
+      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days (brought up to date when you leave the app), and one each from before the last import, reset, restore and cloud sign-in.</p>'
       + '<div id="safety-copies">' + (ui.copiesHtml || '<p class="small muted">Looking for copies…</p>') + '</div></div>';
   }
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
@@ -995,6 +995,9 @@
   //   units, theme   only at Welcome, when Fuel has nothing of its own yet
   //   deleted here   stays deleted (the deletion records)
   // From Overload's settings only units and theme are ever read, by name: its connector key is a secret.
+  // The first cloud sign-in to an account Fuel has never written to brings Overload's copy by the same rules
+  // (addFromOverload in sync.js): a change to one is a change to both, or the two ways in stop agreeing
+  // (tests/fuel-sync.js, run "rules").
   // ---------------------------------------------------------------------------
   const NOT_FOOD = 'That is not a food log from Overload or a ' + APP_NAME + ' backup.';
   const CUT_OFF = 'The text is cut off or damaged, so it cannot be read. Copy it again in Overload, or use Save as a file there and choose that file here.';

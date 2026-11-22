@@ -18,8 +18,9 @@
  * A Fuel-style file ({ v: 1, app: 'fuel', … }) and a hand-over payload file, each with and without an
  * exercises field, are refused with "This is a Fuel file. Open it in Fuel." and change nothing; so is a copy
  * of that shape under Restore.
- * Signed in to cloud sync (stand-in), the questions say the training data in the account is replaced and
- * the account's food log is not changed.
+ * Signed in to cloud sync (stand-in), the questions say the training data in the account is replaced (Reset:
+ * erased), what another phone signed in to it sends back and how to stop that, and that the account's food log
+ * is not changed. (tests/train-cloud.js runs Reset and Restore with two phones on the fake cloud.)
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -353,15 +354,16 @@ async function signedIn(browser, server) {
     await lib.sleep(300);
     const q = page.dialogs.map(plain);
     same(q.length, 3, 'the number of questions');
-    const tail = (verb) => '\n\nYou are signed in to cloud sync, so the training data in your account (me@example.com) is ' + verb + ' too.'
-      + (verb === 'erased' ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.' : '')
+    const tail = (verb, what) => '\n\nYou are signed in to cloud sync, so the training data in your account (me@example.com) is ' + verb + ' too.'
+      + (verb === 'erased' ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.'
+        : ' Weigh-ins and nights on another phone signed in to it come back from that phone for dates ' + what + ' does not have. That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.')
       + ' The food log in your account is not changed.';
     need(q[0].endsWith('It stays on this phone until you remove it in Settings > Food.' + tail('erased')), 'Reset asks: ' + q[0]);
-    need(q[1].endsWith('Food in the backup is not used.' + tail('replaced')), 'Import asks: ' + q[1]);
-    need(q[2].endsWith('A copy of what is on the phone now is kept first.' + tail('replaced')), 'Restore asks: ' + q[2]);
+    need(q[1].endsWith('Food in the backup is not used.' + tail('replaced', 'the backup')), 'Import asks: ' + q[1]);
+    need(q[2].endsWith('A copy of what is on the phone now is kept first.' + tail('replaced', 'the copy')), 'Restore asks: ' + q[2]);
     need(!q.some((t) => /the copy in your account/.test(t)), 'a question still says the whole copy in the account is replaced');
     need((await text(page)) === fx.text, 'saying no changed the data');
-    return tail('replaced').trim();
+    return tail('replaced', 'the backup').trim();
   });
   errors(name, phone); await phone.close();
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Fuel 3.0: cloud sync (fuel/sync.js) against the fake Firebase in tests/fake-firebase/.
  *
- *   node tests/fuel-sync.js [--only=account|clipboard|solo] [--app=<folder>] [--port=8430]
+ *   node tests/fuel-sync.js [--only=account|clipboard|solo|rules] [--app=<folder>] [--port=8430]
  *
  * What must hold (SPEC section 6; dev/notes/sync.md sections 4 and 7):
  *   - Fuel writes only users/{uid}/meta/fuel and users/{uid}/fuelDays/{date}. It never writes or deletes
@@ -13,6 +13,11 @@
  *     connector's key is in those settings).
  *   - The same first sign-in on a phone that already brought the food log across by Copy my food log, and
  *     went on from there: nothing is duplicated, nothing deleted in Fuel comes back.
+ *   - That first sign-in brings the log by the rules of Paste from Overload (fuel.js planImport, review
+ *     findings H1 and H4): a saved food both hold takes Overload's star, a list copy takes his corrected one,
+ *     one he corrected in Fuel or deleted there stays as it is; an entry counts as already here only on the
+ *     same day. Signing in and then pasting gives exactly what Paste alone gives, the paste finds nothing new,
+ *     and pasting first and then signing in ends byte for byte the same (run "rules").
  *   - A second Fuel phone: an added, an edited and a deleted entry, a deleted saved food and saved meal, a
  *     changed target and a day that lost its last entry travel both ways, and nothing deleted comes back,
  *     also not when a phone that was offline sends its old copies later.
@@ -574,7 +579,7 @@ async function accountRun(browser, v28, setUpOnly) {
 
   // ---- the first server read fails ----
   const fail = (title, fn) => step('first read fails', title, fn);
-  let bBefore = null;
+  let bBefore = null, bBeforeText = null;
   await fail('a phone without its note starts with no connection: nothing is uploaded, not even queued', async () => {
     // What a Restore or Reset while signed out leaves behind: the sign-in is remembered, the note is gone.
     await b.evaluate((k) => localStorage.removeItem(k), NOTE);
@@ -597,7 +602,7 @@ async function accountRun(browser, v28, setUpOnly) {
     const err = await b.evaluate(() => window.__overloadSync.error);
     need(/Nothing was uploaded/.test(err), 'the status says "' + err + '"');
     need((await noteOf(b)) === null, 'a note was written');
-    bBefore = await F.live(b);
+    bBefore = await F.live(b); bBeforeText = await F.storedText(b);
     return rs.length + ' server reads failed; status: "' + err + '"';
   });
   await fail('with a connection the read works: the phone\'s new entry goes up, its deletion holds, nothing else changes', async () => {
@@ -613,7 +618,9 @@ async function accountRun(browser, v28, setUpOnly) {
     same(travels(sa), travels(sb), 'A against B');
     same(travels(sb), travels(bBefore), 'B after the link against B before it');
     need((await noteOf(b)).uid === 'U1', 'no note after the link');
-    need((await F.copy(b, 'before-cloud')) !== null, 'no "before cloud" copy of the phone\'s data was kept');
+    // The copy holds the phone's data as it was before the account's was merged in (its text is taken before setState).
+    const copy = await F.copy(b, 'before-cloud', (c) => c.text === bBeforeText);
+    need(copy && copy.text === bBeforeText, copy ? 'the "before cloud" copy is not the phone\'s data from before the link' : 'no "before cloud" copy of the phone\'s data was kept');
     return 'writes: ' + brief(cloud.writes({ from: mark }));
   });
 
@@ -1170,6 +1177,194 @@ async function soloRun(browser) {
 }
 
 // ---------------------------------------------------------------------------
+// 5. Sign-in brings Overload's food log by the rules of Paste from Overload (planImport in fuel.js, made for
+//    review findings H1 and H4): an account holding a starred food and a corrected food that Fuel also holds,
+//    and entry ids on two days. Three phones start from the same saved Fuel: one only pastes (what Paste
+//    alone gives), one signs in and then pastes, one pastes and then signs in.
+// ---------------------------------------------------------------------------
+// Settings > Bring food from Overload > the box, the text typed in, Bring it in. Returns what it said:
+// { toast } when something was brought in, { msg } when the sheet answered (Nothing new, an error).
+async function pasteInSettings(page, text) {
+  await F.closeSheet(page);
+  await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
+  await lib.openTab(page, 'settings');
+  await page.click('[data-action="fuel-import"]');
+  await page.click('[data-action="fuel-paste-box"]');
+  await page.fill('#fuel-paste', text);
+  await page.click('#fuel-paste-form button[type="submit"]');
+  await page.waitForFunction(() => { const t = document.querySelector('#toast'); return !!document.querySelector('#fuel-import-msg') || (!t.hidden && /Brought in|Updated/.test(t.textContent)); }, null, { timeout: 8000 });
+  const said = await page.evaluate(() => { const m = document.querySelector('#fuel-import-msg'); return m ? { msg: m.textContent.replace(/\s+/g, ' ').trim() } : { toast: document.querySelector('#toast').textContent }; });
+  await F.closeSheet(page);
+  return said;
+}
+async function sameRulesRun(browser, v28) {
+  const world = { browser, cloud: createCloud(), phones: [] };
+  const { cloud } = world;
+  const step = (title, fn) => run.step('sign-in and paste', title, fn);
+
+  // ---- the account: v2.8 with the main fixture and two entries kept on two days (as v1.6 to v2.4 wrote one
+  // edited across midnight), uploaded by v2.8 itself; then one of them removed from one of its days there ----
+  const DAY_A = '2026-11-17', DAY_B = '2026-11-18', DAY_C = '2026-11-14', DAY_D = '2026-11-15';
+  const old = JSON.parse(fx.text);
+  const twin = (from, to) => { const e = old.diary[from][old.diary[from].length - 1]; old.diary[to].push(Object.assign({}, e, { qty: (e.qty || 1) * 2, kcal: e.kcal * 2, p: e.p * 2, c: e.c * 2, f: e.f * 2 })); return e.id; };
+  const X = twin(DAY_A, DAY_B), Y = twin(DAY_C, DAY_D);
+  const V = await makePhone(world, 'V', v28, { seed: (context) => lib.seedV28(context, old) });
+  let text = null, docs = null;
+  const ok = await step('v2.8 uploads it, then removes one of the two copies of an entry: the account and v2.8 hold the same log', async () => {
+    await openOverload(V);
+    await V.app.evaluate(([e, p]) => window.__overloadSync.createAccount(e, p), [EMAIL, PASSWORD]);
+    await rest(world);
+    await V.app.evaluate(([d, id]) => { const O = window.__overload, s = O.state; s.diary[d] = s.diary[d].filter((e) => e.id !== id); O.lib.markDeleted('food', id); O.save(); }, [DAY_D, Y]);
+    await rest(world);
+    const st = JSON.parse(await lib.readStorageText(V.app, lib.STATE_KEY)), core = JSON.parse(cloud.get(OLD_META).core);
+    for (const [d, id, here] of [[DAY_A, X, true], [DAY_B, X, true], [DAY_C, Y, true], [DAY_D, Y, false]]) {
+      need(ids(st.diary[d]).includes(id) === here && ids(JSON.parse(cloud.get(OLD_DAYS + '/' + d).data)).includes(id) === here, d + ' in v2.8 or in the account does not hold ' + id + ' as this run needs');
+    }
+    need(st.deleted.food[Y] > 0 && core.deleted.food[Y] > 0, 'the removal is not recorded');
+    same(core.food, st.food, 'the account\'s saved foods, meals and targets against v2.8\'s');
+    need(st.food.foods.u1903553.src === 'custom' && st.food.foods.u1903553.fav && st.food.foods.u173904.fav, 'the bar or the oats are not as the run needs');
+    text = F.foodText(F.payloadFrom(st, NOW - 60000), true);   // Copy my food log of that same log
+    docs = cloud.snapshot('users/U1');
+    return 'X ' + X + ' on ' + DAY_A + ' and ' + DAY_B + '; Y ' + Y + ' on ' + DAY_C + ', removed from ' + DAY_D;
+  });
+  await V.close();
+  if (!ok) return;
+  const overload0 = overloadDocs(cloud);
+
+  // ---- the same saved Fuel on three phones: started fresh, then used for a while ----
+  const T0 = NOW - 3 * 864e5, OL = fx.state.food.foods;
+  const BAR = 'u1903553', OATS = 'u173904', WHEY = 'u173180', COOKIE = 'b0850031234567', EGG = 'u172187', GONE = 'cv6244zzsrdxu';
+  const unstarred = (f) => { const c = Object.assign({}, f); delete c.fav; return c; };
+  const E_DEL = fx.state.diary[YESTERDAY][0].id, M = fx.state.diary[TODAY][1], XA = fx.state.diary[DAY_A].slice(-1)[0];
+  const OWN = F.fuelStateFrom(fx.state, {
+    food: { targets: { kcal: null, protein: null, carbs: null, fat: null }, meals: {}, foods: {
+      [OATS]: Object.assign(unstarred(OL[OATS]), { used: T0 }),   // logged from the food list; a favourite in Overload
+      // the food list's own copy; in Overload a favourite, its label numbers corrected there (src custom)
+      [BAR]: Object.assign(unstarred(OL[BAR]), { src: 'usda', barcode: '793573238467', n: { kcal: 300, p: 30, c: 37.5, f: 11.7 }, used: T0, last: { qty: 2, unit: 'srv' } }),
+      // corrected in Fuel (src custom); a plain list copy and a favourite in Overload
+      [WHEY]: { id: WHEY, src: 'custom', name: 'Whey, my scoop', brand: '', n: { kcal: 400, p: 80, c: 8, f: 5 }, serving: { label: '1 scoop', g: 30, n: null }, servings: [], used: T0 },
+      // scanned in Fuel (Open Food Facts); typed in from the label in Overload
+      [COOKIE]: { id: COOKIE, src: 'off', name: 'Protein Cookie Double Chocolate', brand: 'Bakehouse', barcode: '0850031234567', n: { kcal: 350, p: 20, c: 45, f: 12 }, serving: { label: '1 cookie (70 g)', g: 70, n: null }, servings: [], used: T0, last: { qty: 2, unit: 'srv' } },
+      [EGG]: Object.assign({}, OL[EGG], { used: T0 })   // the same list copy on both sides
+    } },
+    diary: {
+      [TODAY]: [{ id: 'own0entry001', food: null, meal: 1, qty: null, unit: null, amt: '', name: 'Own lunch', brand: '', kcal: 555, p: 30, c: 40, f: 20, at: NOW - 7200000 }, Object.assign({}, M, { kcal: M.kcal + 100 })],
+      [DAY_A]: [XA]   // X on its first day only
+    },
+    deleted: { food: { [E_DEL]: T0 }, foods: { [GONE]: T0 }, meals: {} }, bodyweight: [], moved: null
+  });
+  const seed = (context) => lib.seedStorage(context, { 'fuel.state.v1': JSON.stringify(OWN), 'fuel.theme': 'dark' });
+  const travelsOf = (st) => ({ diary: JSON.stringify(st.diary), food: JSON.stringify(st.food) });
+  // Nothing twice: every day holds each id once; X on both its days, Y on the one v2.8 still shows.
+  const once = (st) => {
+    const twice = Object.keys(st.diary).filter((d) => new Set(ids(st.diary[d])).size !== st.diary[d].length);
+    need(!twice.length, 'an id twice on ' + twice.join(', '));
+    const where = (id) => Object.keys(st.diary).filter((d) => ids(st.diary[d]).includes(id)).sort().join(' ');
+    need(where(X) === DAY_A + ' ' + DAY_B && where(Y) === DAY_C && where(E_DEL) === '', 'X is on ' + where(X) + ', Y on ' + where(Y) + ', the entry deleted in Fuel on ' + (where(E_DEL) || 'no day'));
+  };
+
+  // ---- Paste alone ----
+  const P = await makePhone(world, 'P', TREE, { seed });
+  let ref = null, refSaid = null, start = null;
+  if (!await step('Paste alone (no cloud): what an import of this log gives', async () => {
+    const p = await openFuel(P);
+    need((await F.screen(p)) === 'food', 'Fuel did not start on its saved data');
+    start = await F.storedText(p);
+    const said = await pasteInSettings(p, text);
+    need(/^Brought in .*Updated 4 saved foods\.$/.test(said.toast || ''), 'the paste said ' + JSON.stringify(said));
+    refSaid = said.toast;
+    ref = await F.stored(p);
+    const fo = ref.food.foods, mine = OWN.food.foods;
+    same(fo[OATS], Object.assign({}, mine[OATS], { fav: true }), 'the oats');
+    same(fo[BAR], Object.assign({}, OL[BAR], { used: T0, last: mine[BAR].last, fav: true }), 'the bar');
+    same(fo[WHEY], Object.assign({}, mine[WHEY], { fav: true }), 'the whey he corrected in Fuel');
+    same(fo[COOKIE], Object.assign({}, OL[COOKIE], { used: T0, last: mine[COOKIE].last }), 'the cookie');
+    same(fo[EGG], mine[EGG], 'the egg');
+    need(!fo[GONE] && ref.deleted.foods[GONE] === T0, 'the food deleted in Fuel came back');
+    once(ref);
+    need(ref.diary[TODAY].find((e) => e.id === M.id).kcal === M.kcal + 100 && !ref.deleted.food[Y], 'the entry edited in Fuel, or the record of Y');
+    need(cloud.writes({ who: 'P' }).length === 0 && cloud.reads({ who: 'P' }).length === 0, 'the phone talked to the cloud');
+    return said.toast;
+  })) return;
+
+  // ---- Sign in, then paste ----
+  const Q = await makePhone(world, 'Q', TREE, { seed });
+  let q = null, qSt = null;
+  await step('sign in first (Settings): Overload\'s copy is read once, and the phone then holds exactly what Paste alone gives', async () => {
+    q = await openFuel(Q);
+    const before = await F.storedText(q);
+    need(before === start, 'the two phones did not start from the same saved data');
+    await signInInSettings(q);
+    await rest(world);
+    const rs = cloud.reads({ who: 'Q' }).filter((x) => OVERLOAD_PATH.test(x.path));
+    need(rs.length === 2 && rs.every((x) => x.via === 'get'), 'reads of Overload\'s documents: ' + rs.map((x) => x.type + ' ' + x.path + ' via ' + x.via).join(', '));
+    qSt = await F.stored(q);
+    const got = travelsOf(qSt), want = travelsOf(ref);
+    need(got.diary === want.diary, 'the diary differs from Paste alone at ' + (F.diff(qSt.diary, ref.diary) || 'the order of keys'));
+    need(got.food === want.food, 'the saved foods, meals or targets differ from Paste alone at ' + (F.diff(qSt.food, ref.food) || 'the order of keys'));
+    same(qSt.deleted, ref.deleted, 'the deletion records'); same(qSt.bodyweight, ref.bodyweight, 'the body weight'); same(qSt.settings, ref.settings, 'settings');
+    once(qSt);
+    const copy = await F.copy(q, 'before-cloud', (c) => c.text === before);
+    need(copy && copy.text === before, copy ? 'the copy "before cloud" is not the state from before the sign-in' : 'there is no copy "before cloud"');
+    return Object.keys(qSt.diary).length + ' days, ' + allIds(qSt.diary).length.toLocaleString() + ' entries, byte for byte as after Paste alone';
+  });
+  await step('then Paste the same log: "Nothing new", nothing changes and nothing is written', async () => {
+    const had = await F.storedText(q), mark = cloud.mark();
+    const said = await pasteInSettings(q, text);
+    need(/^Nothing new/.test(said.msg || ''), 'the paste said ' + JSON.stringify(said));
+    await rest(world);
+    need((await F.storedText(q)) === had && cloud.writes({ from: mark }).length === 0, 'something changed or was written: ' + brief(cloud.writes({ from: mark })));
+    return said.msg;
+  });
+  await step('the account holds exactly the phone\'s food log in meta/fuel and fuelDays; Overload\'s documents are untouched', async () => {
+    const st = await F.stored(q), ws = cloud.writes({ who: 'Q' });
+    need(ws.length === Object.keys(st.diary).length + 1 && ws.every((w) => w.app === 'fuel' && w.type === 'set' && w.state === 'applied' && FUEL_PATH.test(w.path)), 'writes: ' + brief(ws));
+    for (const date of Object.keys(st.diary)) need(cloud.text(FUEL_DAYS + '/' + date) && cloud.get(FUEL_DAYS + '/' + date).data === JSON.stringify(st.diary[date]), 'fuelDays/' + date + ' is not the phone\'s day');
+    same(coreOfCloud(cloud).food, st.food, 'the saved foods, meals and targets in meta/fuel');
+    need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
+    onlyFuelPaths(cloud);
+    return ws.length + ' sets';
+  });
+
+  // ---- Paste, then sign in (an account of its own, holding the same documents v2.8 uploaded) ----
+  const world2 = { browser, cloud: createCloud(), phones: [] }, cloud2 = world2.cloud;
+  cloud2.addAccount(EMAIL, PASSWORD);
+  Object.keys(docs).forEach((p) => cloud2.docs.set(p, docs[p]));
+  const R = await makePhone(world2, 'R', TREE, { seed });
+  let r = null;
+  await step('paste first, then sign in: the sign-in changes nothing on the phone, not one character', async () => {
+    r = await openFuel(R);
+    need((await F.storedText(r)) === start, 'this phone did not start from the same saved data');
+    const said = await pasteInSettings(r, text);
+    need(said.toast === refSaid, 'the paste said ' + JSON.stringify(said) + ', on the phone that only pasted "' + refSaid + '"');
+    const pasted = await F.storedText(r);
+    need(travelsOf(JSON.parse(pasted)).diary === travelsOf(ref).diary && travelsOf(JSON.parse(pasted)).food === travelsOf(ref).food, 'the paste here did not give what it gave on the first phone');
+    await signInInSettings(r);
+    await rest(world2);
+    need(cloud2.reads({ who: 'R' }).filter((x) => OVERLOAD_PATH.test(x.path)).length === 2, 'Overload\'s copy was not read at the sign-in');
+    const after = await F.storedText(r);
+    need(after === pasted, 'the sign-in changed the saved data at ' + F.diff(JSON.parse(after), JSON.parse(pasted)));
+    const copy = await F.copy(r, 'before-cloud', (c) => c.text === pasted);
+    need(copy && copy.text === pasted, copy ? 'the copy "before cloud" is not the state from before the sign-in' : 'there is no copy "before cloud"');
+    const again = await pasteInSettings(r, text);
+    need(/^Nothing new/.test(again.msg || '') && (await F.storedText(r)) === pasted, 'a second paste said ' + JSON.stringify(again) + ', or the saved data changed');
+    need(overloadDocs(cloud2) === overload0, 'meta/state, workouts or foodDays changed');
+    onlyFuelPaths(cloud2);
+    return 'the same ' + after.length.toLocaleString() + ' characters; a second paste: ' + again.msg;
+  });
+  await step('both orders end byte for byte the same in the diary and the saved foods, meals and targets; no page error', async () => {
+    const a = await F.stored(q), b = await F.stored(r);
+    need(travelsOf(a).diary === travelsOf(b).diary, 'the diaries differ at ' + (F.diff(a.diary, b.diary) || 'the order of keys'));
+    need(travelsOf(a).food === travelsOf(b).food, 'the foods differ at ' + (F.diff(a.food, b.food) || 'the order of keys'));
+    same(a.deleted, b.deleted, 'the deletion records'); same(a.bodyweight, b.bodyweight, 'the body weight');
+    once(a); once(b);
+    for (const p of [P, Q, R]) F.assertClean(p, 'phone ' + p.name);
+    return JSON.stringify(a.diary).length.toLocaleString() + ' characters of diary, ' + JSON.stringify(a.food).length.toLocaleString() + ' of food, on both';
+  });
+  for (const p of world.phones.concat(world2.phones)) await p.close();
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   console.log('# Fuel and the root app from ' + TREE + (TREE === lib.REPO ? ' (the working tree)' : ' (a copy)') + '; v2.8 from git ' + V28_COMMIT);
   const v28 = extractV28();
@@ -1177,14 +1372,16 @@ async function soloRun(browser) {
   let docs = null;
   try {
     // The second run starts from the documents v2.8 uploaded in the first.
-    const made = args.only === 'solo' ? null : await accountRun(browser, v28, args.only === 'clipboard').catch((e) => { run.say(false, 'account', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); return null; });
+    const made = args.only === 'solo' || args.only === 'rules' ? null : await accountRun(browser, v28, args.only === 'clipboard').catch((e) => { run.say(false, 'account', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); return null; });
     docs = made && made.docs;
-    if (args.only !== 'account' && args.only !== 'solo') {
+    if (args.only !== 'account' && args.only !== 'solo' && args.only !== 'rules') {
       if (!docs) run.say(false, 'clipboard first', 'needs the account v2.8 fills in the first run', 'not run');
       else await clipboardRun(browser, docs).catch((e) => run.say(false, 'clipboard first', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
     }
     if (docs && (!args.only || args.only === 'clipboard')) await noDaysRun(browser, docs).catch((e) => run.say(false, 'account without food days', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
     if (!args.only || args.only === 'solo') await soloRun(browser).catch((e) => run.say(false, 'one phone', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
+    // Sign-in and Paste from Overload, in both orders: an account of its own, which v2.8 fills.
+    if (!args.only || args.only === 'rules') await sameRulesRun(browser, v28).catch((e) => run.say(false, 'sign-in and paste', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
   } finally {
     await browser.close();
   }

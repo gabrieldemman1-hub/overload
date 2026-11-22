@@ -4,6 +4,10 @@ What this note covers: how the offline copy and the update work in v2.8, and wha
 (Overload at `/overload/`, Fuel at `/overload/fuel/`) needs from the service workers, the manifests, `bump.sh`
 and the GitHub workflows. Line references are to v2.8 (`3b17963`).
 
+This note was written before 3.0 was built. Section 10 ("Since the fixes") says how 3.0 works as released,
+after the review (`review-findings.md` U1, U2, O1, O4, T2). Where section 10 and the earlier sections disagree
+about 3.0, section 10 and the code are right. The main script of 3.0 is `overload.js`; `app.js` below is v2.8's.
+
 Three kinds of statement are kept apart:
 
 - **Code**: read from the source, with file:line.
@@ -29,7 +33,8 @@ Three kinds of statement are kept apart:
 5. The first start of 3.0 on the phone is served by the old v2.8 worker. With good signal the new page runs
    once, the new worker installs, and the page reloads itself within seconds. With a slow page (over 3 s) or
    no signal the phone starts **v2.8 from its cache, Food tab included**, until the new worker has installed.
-   v2.8 can therefore still run, and change food data, after 3.0 has run.
+   v2.8 can therefore still run, and change food data, after 3.0 has run. In 3.0 as released that start is
+   pure v2.8 (section 10): 3.0's main script and stylesheets have names v2.8's page never asks for.
 6. The Home Screen icon already on the phone keeps working and keeps its data only if `start_url`
    (`./index.html`), `scope` (`./`) and the worker's address (`/overload/sw.js`) stay as they are. Its picture
    and name will not change. Deleting and re-adding the icon deletes that app's data.
@@ -365,8 +370,20 @@ the Food tab and `food.js`**. The 3.0 page that arrives late is not stored. The 
 like any other start, the 3.0 worker installs when the network allows, and the page reloads into 3.0. With no
 network at all, v2.8 keeps starting until there is one.
 
+(Corrected after the review, U2 and O1.) T8 ran with a stand-in 3.0 that kept v2.8's file names. With those
+names the v2.8 page, which asks the server first, got 3.0's `app.js` (and the rest) under `?v=2.8`, ran it and
+stored it under v2.8's names, because GitHub Pages ignores the query: "v2.8 starts" was then a mix. In 3.0 as
+released the main script is `overload.js` and the stylesheets are `shared/ui.css` and `train.css`; `app.js`,
+`styles.css` and `food.js` do not exist on the server (`bump.sh` fails if one does). The v2.8 page's requests for
+them get a 404, and v2.8's worker answers with its own stored copies, so the page that starts is pure v2.8.
+`sync.js`, `connector.js`, `programs.js` and `backup.js` kept their names, so that page can still get 3.0's
+copies of those: `tests/train-sync.js --base=v28` and `tests/train-backup.js` run that combination, and
+`tests/train-mixed.js` lists it.
+
 **The page arrives but a 3.0 file does not (T9).** The worker's install fails and nothing changes. In the
-page, the rescue of section 1.7 runs v2.8 files.
+page, the rescue of section 1.7 ran v2.8 files in T9. 3.0's rescue no longer does that: it falls back only to
+an older release with the same first number, so a 3.0 page without its main script says "Overload did not
+finish starting." From 3.1 on it starts the stored 3.0 (section 10).
 
 **Old page still served with the new worker file (T10).** Install fails, v2.8 keeps running, the next check
 succeeds.
@@ -630,6 +647,9 @@ Proposal:
    compare the full path of the main script, not `/app.js`, and compare the part before the first dot of `v=`.
    Calling the diet shell something other than `app.js` removes the T9.2 case as well.
 
+Built as proposed, with the training app's main script renamed `overload.js`, and extended after the review
+(T2): see section 10.
+
 Roll-back: publishing the v2.8 files again works for the training app. Its `sw.js` differs from 3.0's, so it
 installs, recreates `overload-v23` and deletes `overload-v24`. It leaves `fuel-…` caches alone (prefix test,
 v2.5 and later). A storage where a diet worker is active keeps running the diet app from its cache; the diet
@@ -675,9 +695,9 @@ Other facts:
 | H2 | A cache named `overload-…` is deleted at the next training release (`sw.js:57`; T4) | Diet cache `fuel-vN`. Diet worker deletes only `fuel-…` |
 | H3 | The owner deletes the old icon to get the new picture or name. iOS deletes that app's data | Say so in the release note and in the app. The new icon cannot reach the existing Home Screen icon |
 | H4 | Fuel is used in the wrong storage: opened by a link inside the installed Overload (in scope, section 4), or in a Safari tab before it is added to the Home Screen. What is logged there is not in the Fuel app | In Fuel, on an iPhone and not standalone: show how to add it and take no data. Standalone with `overload.state.v1` present and no Fuel data: it is running inside Overload, show the same. Do not register `fuel/sw.js` in those cases |
-| H5 | v2.8 runs again after 3.0 has run (slow start, no signal, rescue), until the 3.0 worker is installed (T8, T9). It shows the Food tab, changes food data, and syncs `foodDays` | State written by 3.0 must load in v2.8. The transfer to Fuel must cope with food changed after the copy was made (merge by id; offer the copy again when the food part changed). The sync split must cope with a v2.8 client |
+| H5 | v2.8 runs again after 3.0 has run (slow start, no signal), until the 3.0 worker is installed (T8). It shows the Food tab, changes food data, and syncs `foodDays`. In 3.0 as released it is pure v2.8 (`app.js`, `styles.css`, `food.js` are not on the server; section 10), and 3.0's rescue no longer starts v2.8 (T9) | State written by 3.0 must load in v2.8. The transfer to Fuel must cope with food changed after the copy was made (merge by id; offer the copy again when the food part changed). The sync split must cope with a v2.8 client. Remove refuses beside a sync module of another release |
 | H6 | The page reloads by itself seconds after 3.0 first starts (T7, T11). A first-run sheet or a copy in progress is lost. A diet page first opened under a root worker is reloaded when its own worker takes over (2.1) | Hold the reload while a sheet is open as well. Keep first-run state in storage, not in memory. In the diet page, treat only the diet worker as "had a controller" |
-| H7 | The rescue runs older files against a newer page. Across the redesign that is v2.8 code on 3.0 HTML. A stray `fuel/app.js` entry in a training cache makes it pick the wrong release (T9.2) | Same app and same major release only; match the full path; do not name the diet shell `app.js`, or keep one release number (T9.3) |
+| H7 | The rescue runs older files against a newer page. Across the redesign that is v2.8 code on 3.0 HTML. A stray `fuel/app.js` entry in a training cache makes it pick the wrong release (T9.2) | Same app and same major release only; match the full path; do not name the diet shell `app.js`, or keep one release number (T9.3). Done in 3.0: same first number only, full path of `./overload.js` (and `./fuel.js` in Fuel), one release number |
 | H8 | `food.js` under `fuel/` asks for `fuel/data/foods.json` and `fuel/vendor/…` (2.7): no food search, no scanner. A `?db=` mismatch breaks search offline only, which is easy to miss | `../` in three places. `bump.sh` checks `?db=`. Test the diet app with no network |
 | H9 | `bump.sh` forgets `fuel/`: the diet app never updates, or its page and worker disagree and every install fails | Extend `bump.sh` with the checks of section 6 |
 | H10 | Root `start_url`, `scope` or `id` changed, or `sw.js` moved | Keep them (section 5, 2). A relative `id` points at the site root (T13) |
@@ -703,3 +723,69 @@ Other facts:
 8. Should the diet page refuse to run when not standalone on an iPhone (H4), or only warn? A product decision.
 9. Do the `food-data` and `food-raw` branches hold anything that conflicts with moving `food.js`? Not in this
    clone.
+
+## 10. Since the fixes (3.0 as released)
+
+Read from `sw.js`, `fuel/sw.js`, `index.html`, `overload.js`, `sync.js` and `bump.sh` of 3.0, and run by
+`tests/train-sw.js`, `tests/train-mixed.js`, `tests/train-rescue.js`, `tests/train-timer.js`,
+`tests/train-bump.js` and `tests/fuel-sw.js` (Chromium, real workers, a local server that ignores the query as
+GitHub Pages does).
+
+**Names.** The training app's main script is `overload.js` (it was `app.js`); its stylesheets are
+`shared/ui.css` and `train.css` (v2.8 had `styles.css`); `food.js` lives in `fuel/`. Those three v2.8 names stay
+unused at the root, and `bump.sh` fails when one exists: v2.8's stored page asks the server for them, and with
+nothing there v2.8's worker answers from its own copies, so a v2.8 page never runs 3.0's main script (U1, U2,
+section 2.6). `sync.js`, `connector.js`, `programs.js` and `backup.js` kept their names (a v2.8 page can get
+3.0's copies of them; that combination is tested).
+
+**Fetch: `?v=` files cache-first.** A same-site address with `?v=` (not a page) is answered from this worker's
+own cache (`caches.open(CACHE)`, not every cache of the origin); the network is asked only when the entry is
+missing, and its answer is then stored as before. The copies the install stored are therefore the release's
+files for the whole release: the server, which ignores `?v=`, cannot replace them with the next release's once
+that is published (O1). Pages, files without `?v=`, the food list under `?db=` (Fuel) and the Firebase SDK stay
+network-first, with the stored copy after `NET_WAIT` (3 s) or on an error, as in section 1.5. Consequence: a
+change pushed without a new release number never reaches a phone that has the release.
+
+**Install.** Still all or nothing (1.3). Beside `pageFits` for the two page entries, it reads the release marker
+of the main script and refuses the install unless the marker is there exactly once and names this release:
+`const VERSION = '<release>'` in `overload.js` (root) and in `fuel.js` (Fuel), and, in the root worker,
+`release: '<release>'` in `sync.js`. A main script or sync module left over from the previous release (a server
+can still hand one out for minutes after a release) therefore fails the install, and the phone stays on the
+release it has.
+
+**At run time: the 409.** When the network is asked for a main script or (root) `sync.js` under a `?v=` and its
+marker names another release (or more than one), the worker answers `409 Another release` instead, and stores
+nothing. A page whose main script got the 409 does not start it: the start-up rescue takes over. A `sync.js`
+that got it is not run, and the app runs without cloud sync until the update has arrived. A file without a
+marker (v2.8's `sync.js`) is accepted, so a roll-back to v2.8 is not affected.
+
+**Start-up rescue.** The main script is found by its full path (`./overload.js`; Fuel: `./fuel.js`), only
+caches of the app's own prefix are read, and only an older release with the same first number is used (3.0 for
+a 3.1 page, never 2.8 for a 3.0 page). Every script and stylesheet is swapped to that release. Without such a
+release the page says "Overload did not finish starting." For the first update from v2.8 the rescue therefore
+never runs v2.8 code on the 3.0 page; v2.8 itself starts instead when its worker answers with its stored page
+(T8). `bump.sh` needs `--major` for a new first number, because the rescue has nothing to fall back to then.
+
+**bump.sh** (T2): a release number is two whole numbers with a dot, no leading zero, higher than the current
+one compared number by number; `--major` for a new first number. It sets `?v=` in the four files, `VERSION` in
+`overload.js` and `fuel/fuel.js`, `release` in `sync.js`, and both cache names. `--check` (and every bump) fails
+when a `?v=`, `VERSION` or `release` differs, when a release marker is there more than once (a comment counts),
+when `app.js`, `styles.css` or `food.js` is at the root, when an install list names a file that is not on disk,
+when a page loads a versioned file its worker does not list, and when `?db=` differs between `fuel/food.js` and
+`fuel/sw.js`.
+
+**Reload during a workout** (O4). The page still holds the update's reload during a workout, while typing and
+while a sheet is open ("Update ready" instead). A running rest or cardio timer is kept in `sessionStorage`
+(`overload.timer`) and started again after the reload; a cardio timer that ran out meanwhile logs the cardio.
+This helps from 3.0 on: v2.8 kept the timer in memory only, so the update from v2.8 itself drops it.
+
+**Seen with real workers** (`tests/train-mixed.js`): v2.8 installed, then this tree on the server, with the page
+slow, the scripts fast, every script slow, the page fast, and no signal: the page that runs is pure v2.8 or pure
+3.0, never a mix, and v2.8's stored page, `app.js`, `styles.css` and `food.js` keep v2.8's bytes. A rehearsed 3.1
+(made by `bump.sh` in a copy): with the page slow the stored 3.0 runs only 3.0's files, also with no signal, and
+its stored copies are not overwritten; with the page fast 3.1 runs whole; when 3.1's main script does not arrive
+the rescue runs the stored 3.0 whole; an install whose main script or sync module is not 3.1's is refused.
+
+Not covered here, as before: Safari and iOS, and how GitHub Pages' CDN behaves. A stale edge that serves one
+file without a marker (a stylesheet, `programs.js`) under a new `?v=` during an install would be kept for the
+whole release.
