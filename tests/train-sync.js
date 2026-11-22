@@ -12,7 +12,14 @@
  *   - A second phone that still runs v2.8 on the same account keeps its food, and settings and workouts
  *     travel both ways.
  *   - One phone flipping v2.8 -> 3.0 -> v2.8 (a half-arrived update, a roll-back) issues no food write or delete.
- *   - The core is not sent before the cloud's core was seen in the session.
+ *   - The core is not sent before the cloud's core was seen in the session, and the first core of a session not
+ *     before the server's own core was taken in (a cached copy is not enough: review finding S1).
+ *   - What is no change of the data does not count as one (review findings S1, S5): a phone opened more than 90 days
+ *     later with nothing changed sends nothing (the app drops deletion records past 90 days at every start), with or
+ *     without its offline cache; a 3.0 phone's old food copy does not make its old weigh-in win over a correction
+ *     made on another phone. A change made without signal still goes up, merged with what the others changed.
+ *   - The note keeps every field v2.8 wrote, byte for byte; 3.0 adds `parts`, which v2.8 keeps and 3.0 uses only
+ *     for the core it was worked out from.
  *
  * How: every phone is a browser context with its own storage. The app's files are answered from a folder on
  * disk by a Playwright route (nothing listens on the port), so one phone can be switched between v2.8 (taken
@@ -270,7 +277,10 @@ async function accountRun(browser, trees, fx, other) {
   if (trees.strict) c(ws.length === 0, 'the 3.0 start writes nothing at all (v2.8 app files with the new sync.js)', 'writes: ' + brief(ws));
   c(cloud.reads({ who: 'A', from: mark, path: FOOD_PATH }).length === 0, '3.0 does not read foodDays and does not listen there');
   c(cloud.reads({ who: 'A', from: mark, path: /meta\/state$/ }).length > 0 && cloud.reads({ who: 'A', from: mark, path: /\/workouts$/ }).length > 0, '3.0 listens to meta/state and workouts');
-  c((await lib.readStorageText(A.page, NOTE)) === note0, 'the note overload.sync.v1 is exactly as v2.8 left it (food days included)');
+  // One field is added to it: parts, worked out from the core the note names (the cached core is that one).
+  const note1 = await lib.readStorageText(A.page, NOTE), parts1 = (JSON.parse(note1) || {}).parts;
+  c(!!parts1 && note1 === note0.slice(0, -1) + ',"parts":' + JSON.stringify(parts1) + '}' && parts1.core === JSON.parse(note0).core,
+    'the note overload.sync.v1 is exactly as v2.8 left it (food days included), with one field added: parts, for the core it names', String(note1).slice(0, 120));
   c(sameFood(await storedFood(A), fixtureFood), 'A\'s old food copy (food, diary, deleted.food) is the fixture\'s, byte for byte');
   c(cloudFood(run) === food0 && JSON.stringify(cloud.snapshot(DAYS)) === days0, 'cloud: food part of meta/state and all food days unchanged by the 3.0 start');
   c((await A.ev(() => window.__overloadSync.foodInCloud)) === true, 'foodInCloud is true: the note proves the account holds this phone\'s food log');
@@ -488,17 +498,23 @@ async function accountRun(browser, trees, fx, other) {
   c(!!cloud.get(WORKOUTS + '/testworkoutC1'), 'the queued workout arrived');
 
   // ---- offline over a restart: the core this phone queued shows the food part to carry ----
+  // The first change is made in a session that has seen the server's core, so it is queued. The second is made after
+  // a restart without signal: that session has seen only the cached core, so the core waits for the server's own.
   await C.device.setOffline(true);
   mark = cloud.mark();
   await changeRest(C, rest3 + 90); await settle(run, [C]);
   await C.restart(); await settle(run, [C]);
   await changeRest(C, rest3 + 105); await settle(run, [C]);
   ws = cloud.writes({ who: 'C', from: mark });
-  c(ws.length === 2 && ws.every((w) => w.path === META && w.state === 'queued'), 'offline, with the app closed and opened in between: both setting changes are queued as cores', 'C\'s writes: ' + brief(ws));
-  c(ws.length === 2 && ws.every((w) => writtenFood(w) === foodB), 'both queued cores carry the cloud\'s food part, byte for byte');
+  c(ws.length === 1 && ws[0].path === META && ws[0].state === 'queued', 'offline, with the app closed and opened in between: the change made before the restart is queued as a core; the one after it waits (the server\'s core not seen in that session)', 'C\'s writes: ' + brief(ws));
+  c(ws.length === 1 && writtenFood(ws[0]) === foodB, 'the queued core carries the cloud\'s food part, byte for byte');
   await C.device.setOffline(false);
   c(await settle(run), 'C is online again; the phones come to rest');
-  c(cloudCore(run).settings.restSec === rest3 + 105 && cloudFood(run) === foodB && JSON.stringify(cloud.snapshot(DAYS)) === daysB, 'the queued cores arrived; the food part and the food days are byte-identical');
+  ws = cloud.writes({ who: 'C', from: mark }).filter((w) => w.path === META);
+  const readC = cloud.reads({ who: 'C', from: mark, path: /meta\/state$/ }).filter((r) => r.type === 'get' && r.ok).map((r) => r.n);
+  c(ws.length === 2 && ws.every((w) => w.state === 'applied') && readC.length > 0 && Math.min(...readC) < ws[1].n && writtenFood(ws[1]) === foodB,
+    'online again: the waiting core goes after C read the account\'s core from the server, with the cloud\'s food part', 'C\'s cores: ' + brief(ws) + '; server reads of meta/state at ' + readC.join(', '));
+  c(cloudCore(run).settings.restSec === rest3 + 105 && cloudFood(run) === foodB && JSON.stringify(cloud.snapshot(DAYS)) === daysB, 'both changes arrived; the food part and the food days are byte-identical');
 
   // ---- the whole run ----
   const by30 = cloud.writes().filter((w) => run.phones.some((p) => p.name === w.who && p.eras.some((e) => e.version === 'v30' && w.n >= e.from && w.n < e.to)));
@@ -546,6 +562,11 @@ async function flipRun(browser, trees, fx) {
     c(ws.length === 1 && ws[0].path === META, name + ': a changed setting is the only write', 'writes: ' + brief(ws));
     c(cloudFood(run) === food0 && JSON.stringify(cloud.snapshot(DAYS)) === days0, name + ': the cloud\'s food part and all ' + nDays + ' food days byte-identical');
     c(sameFood(await storedFood(P), fixtureFood), name + ': the phone\'s food and diary are the fixture\'s, byte for byte');
+    // The note's parts: 3.0 keeps them for the core the note names. v2.8 keeps the field as it is when it sends a
+    // core, so it then names an older core, and 3.0 does not use it.
+    const n = await noteOf(P);
+    if (v === 'v30') c(!!n.parts && n.parts.core === n.core, name + ': the note\'s parts are for the core it names');
+    else c(!!n.parts && n.parts.core !== n.core, name + ': v2.8 kept the note\'s parts as they were (now for an older core, so not used)', n.parts ? 'parts for ' + n.parts.core + ', core ' + n.core : 'no parts');
   }
   c(!cloud.writes().some((w) => (w.type === 'delete' && FOOD_PATH.test(w.path))) && cloud.writes({ path: FOOD_PATH }).length === nDays, 'over all the flips: the only food writes ever issued are v2.8\'s first upload of ' + nDays + ' days; no delete');
 
@@ -596,6 +617,137 @@ async function flipRun(browser, trees, fx) {
 }
 
 // ---------------------------------------------------------------------------
+// Phones that come back (review findings S1 and S5): what is no change of the data must not count as one
+// ---------------------------------------------------------------------------
+// S5: a 3.0 phone's old food copy always differs from the account's food part once a phone on v2.8 has logged food;
+// that must not make its old weigh-in win over a correction made on another phone.
+// S1: the app drops deletion records older than 90 days at every start. A phone opened after more than 90 days,
+// with nothing changed on it, must send nothing; and a phone that did change something without signal sends its
+// core only once the server's own core was taken in, so what the other phones changed meanwhile stays.
+async function returnRun(browser, trees, fx) {
+  const T = fx.name + ' return: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const DAY = 864e5;
+  const core = () => cloudCore(run);
+  const bwOf = (list, date) => { const x = (list || []).find((b) => b.date === date); return x ? x.weight : undefined; };
+  const signIn = (phone) => phone.ev(([e, p]) => window.__overloadSync.signIn(e, p), [EMAIL, PASSWORD]);
+  const setClock = (phone, ms) => phone.context.clock.setSystemTime(new Date(ms));
+  const deleteWeighIn = (phone) => phone.ev(() => { const s = window.__overload.state, b = s.bodyweight[0]; s.bodyweight = s.bodyweight.slice(1); s.deleted.bw[b.date] = Date.now(); window.__overload.save(); return b.date; });
+  const restAndDay = (s) => 'restSec ' + s.settings.restSec + ', day 1 "' + s.program.days[0].name + '"';
+
+  // ---- the account: A (the daily phone) on 3.0, B on v2.8, R and Q (phones that are put away) on 3.0 ----
+  const A = await makePhone(run, 'A', fx, 'v28');
+  await A.open();
+  await A.ev(([e, p]) => window.__overloadSync.createAccount(e, p), [EMAIL, PASSWORD]);
+  await settle(run);
+  await A.restart('v30');
+  const B = await makePhone(run, 'B', null, 'v28'), R = await makePhone(run, 'R', null, 'v30'), Q = await makePhone(run, 'Q', null, 'v30');
+  for (const p of [B, R, Q]) { await p.open(); await signIn(p); await settle(run); }
+  c(await settle(run), 'set-up: A, R and Q on 3.0 and B on v2.8 share the account and come to rest');
+
+  // ---- S5: B changes the food part while A is open, then corrects a weigh-in while A is closed ----
+  await B.ev(() => { const s = window.__overload.state; s.food.targets.kcal = 2345; window.__overload.save(); });
+  c(await settle(run), 'B (v2.8) changes a food target while A is open; the phones come to rest');
+  await A.page.close();
+  const last = fx.state.bodyweight.slice().sort((x, y) => (x.date < y.date ? -1 : 1)).pop();
+  const corrected = Math.round((last.weight - 1.4) * 10) / 10;
+  await B.ev(([d, w]) => { const s = window.__overload.state; s.bodyweight.find((x) => x.date === d).weight = w; window.__overload.save(); }, [last.date, corrected]);
+  await settle(run);
+  c(bwOf(core().bodyweight, last.date) === corrected, 'B corrects the weigh-in of ' + last.date + ' from ' + last.weight + ' to ' + corrected + ' while A is closed');
+  A.device.clearCache();
+  let mark = cloud.mark();
+  await A.open();
+  c(await settle(run), 'A opens with nothing in its offline cache (its first core comes from the server); the phones come to rest');
+  const v = [bwOf(core().bodyweight, last.date), bwOf((await memState(A)).bodyweight, last.date), bwOf((await memState(B)).bodyweight, last.date)];
+  c(v.every((x) => x === corrected), 'A\'s old weigh-in does not overwrite the correction (its old food copy is no change): account, A and B hold ' + corrected,
+    'account ' + v[0] + ', A ' + v[1] + ', B ' + v[2] + '; writes: ' + brief(cloud.writes({ from: mark })));
+  await B.page.close();   // v2.8 cannot be kept from sending its whole core after 90 days: not this test's business
+
+  // ---- S1: R and Q delete a weigh-in each, and are put away for 91 days ----
+  await deleteWeighIn(R); await settle(run);
+  await deleteWeighIn(Q); await settle(run);
+  c(Object.keys(core().deleted.bw).length >= 2, 'R and Q each delete a weigh-in (a deletion record each); the account has the records', JSON.stringify(core().deleted.bw));
+  await R.page.close(); await Q.page.close();
+  const later = run.meta.now + 91 * DAY;
+  for (const p of [A, R, Q]) await setClock(p, later);
+  await A.restart();
+  const rest = core().settings.restSec + 30, dayName = 'Renamed on A', fixed = Math.round((corrected - 0.6) * 10) / 10;
+  await A.ev(([r, n, d, w]) => { const s = window.__overload.state; s.settings.restSec = r; s.program.days[0].name = n; s.bodyweight.find((x) => x.date === d).weight = w; window.__overload.save(); }, [rest, dayName, last.date, fixed]);
+  c(await settle(run), '91 days later A changes the rest time, renames a program day and corrects the weigh-in of ' + last.date + ' to ' + fixed + '; the phones come to rest');
+  c(core().settings.restSec === rest && core().program.days[0].name === dayName && bwOf(core().bodyweight, last.date) === fixed, 'the account holds A\'s changes', restAndDay(core()) + ', ' + last.date + ' ' + bwOf(core().bodyweight, last.date));
+
+  // R: opened without signal, nothing touched, then the signal comes back.
+  await setClock(R, later + 3600e3);
+  await R.device.setOffline(true);
+  mark = cloud.mark();
+  await R.open();
+  await settle(run, [R]);
+  let ws = cloud.writes({ who: 'R', from: mark });
+  c(ws.length === 0 && R.device.queued().length === 0, 'R, opened without signal 91 days later and not touched: nothing sent or queued (a deletion record past 90 days is no change)', 'R\'s writes: ' + brief(ws) + '; queued: ' + JSON.stringify(R.device.queued()));
+  await R.device.setOffline(false);
+  c(await settle(run), 'the signal is back on R; the phones come to rest');
+  ws = cloud.writes({ who: 'R', from: mark });
+  let a = await memState(A), r = await memState(R);
+  c(ws.length === 0, 'R sent nothing when it came back', 'R\'s writes: ' + brief(ws));
+  c(core().settings.restSec === rest && core().program.days[0].name === dayName && a.settings.restSec === rest && a.program.days[0].name === dayName,
+    'A\'s rest time and program stand in the account and on A', 'account: ' + restAndDay(core()) + ' | A: ' + restAndDay(a));
+  const bw3 = () => [bwOf(core().bodyweight, last.date), bwOf(a.bodyweight, last.date), bwOf(r.bodyweight, last.date)];
+  c(bw3().every((x) => x === fixed), 'A\'s corrected weigh-in stands in the account and on A (R\'s old one did not win)', 'account, A, R: ' + bw3().join(', ') + ' (A set ' + fixed + ', R had ' + corrected + ')');
+  c(r.settings.restSec === rest && r.program.days[0].name === dayName, 'R took them', 'R: ' + restAndDay(r));
+
+  // Q: the same with nothing in its offline cache (its note alone must tell it that nothing changed).
+  await setClock(Q, later + 7200e3);
+  Q.device.clearCache();
+  await Q.device.setOffline(true);
+  mark = cloud.mark();
+  await Q.open();
+  await settle(run, [Q]);
+  await Q.device.setOffline(false);
+  c(await settle(run), 'Q, the same with nothing in its offline cache: opened without signal, then the signal is back; the phones come to rest');
+  ws = cloud.writes({ who: 'Q', from: mark });
+  a = await memState(A);
+  const q = await memState(Q);
+  c(ws.length === 0 && core().settings.restSec === rest && core().program.days[0].name === dayName && a.settings.restSec === rest && q.settings.restSec === rest && q.program.days[0].name === dayName
+    && [core(), a, q].every((s) => bwOf(s.bodyweight, last.date) === fixed),
+    'Q sent nothing; A\'s changes (rest time, program, weigh-in) stand in the account, on A and on Q', 'Q\'s writes: ' + brief(ws) + '; account: ' + restAndDay(core()) + ' | Q: ' + restAndDay(q) + ', ' + last.date + ' ' + bwOf(q.bodyweight, last.date));
+
+  // ---- S1 with a real change: R logs a weigh-in without signal while A changed the rest time again ----
+  await R.page.close();
+  const rest2 = rest + 15;
+  await changeRest(A, rest2);
+  c(await settle(run), 'A changes the rest time again while R is closed');
+  await R.device.setOffline(true);
+  mark = cloud.mark();
+  await R.open(); await settle(run, [R]);
+  const today = await R.ev(() => window.__overload.lib.todayKey());
+  await R.ev((d) => { const s = window.__overload.state; s.bodyweight = s.bodyweight.filter((b) => b.date !== d).concat([{ date: d, weight: 175.5 }]); window.__overload.save(); }, today);
+  await settle(run, [R]);
+  ws = cloud.writes({ who: 'R', from: mark });
+  c(!ws.some((w) => w.path === META) && !R.device.queued().some((w) => w.path === META), 'R logs a weigh-in without signal: its core is not queued, the cached core is not the server\'s', 'R\'s writes: ' + brief(ws));
+  await R.device.setOffline(false);
+  c(await settle(run), 'the signal is back on R; the phones come to rest');
+  ws = cloud.writes({ who: 'R', from: mark }).filter((w) => w.path === META);
+  const seen = cloud.reads({ who: 'R', from: mark, path: /meta\/state$/ }).filter((x) => x.type === 'get' && x.ok).map((x) => x.n);
+  c(ws.length >= 1 && ws.every((w) => w.state === 'applied') && seen.length > 0 && Math.min(...seen) < ws[0].n,
+    'R\'s core went once the signal was back, after R had read the account\'s core from the server', 'R\'s cores: ' + brief(ws) + '; server reads of meta/state at ' + seen.join(', '));
+  a = await memState(A); r = await memState(R);
+  c(core().settings.restSec === rest2 && a.settings.restSec === rest2 && r.settings.restSec === rest2, 'A\'s new rest time stands everywhere (R did not send its old one over it)',
+    'account ' + core().settings.restSec + ', A ' + a.settings.restSec + ', R ' + r.settings.restSec + ' (A set ' + rest2 + ')');
+  c(bwOf(core().bodyweight, today) === 175.5 && bwOf(a.bodyweight, today) === 175.5 && bwOf(r.bodyweight, today) === 175.5, 'R\'s weigh-in reached the account and A',
+    'account ' + bwOf(core().bodyweight, today) + ', A ' + bwOf(a.bodyweight, today));
+
+  // ---- the whole run ----
+  const by30 = cloud.writes().filter((w) => run.phones.some((p) => p.name === w.who && p.eras.some((e) => e.version === 'v30' && w.n >= e.from && w.n < e.to)));
+  c(by30.every((w) => TRAINING_PATH.test(w.path)), 'every write issued on 3.0 went to meta/state or workouts', by30.length + ' writes');
+  c(foodChangedBy30(run).length === 0, 'every core written on 3.0 carried the food part the cloud held just before it, byte for byte');
+  const errors = run.phones.reduce((all, p) => all.concat(p.pageErrors.map((t) => p.name + ': ' + t.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   const v28 = extractV28();
   const from = args.app ? path.resolve(String(args.app)) : lib.REPO;
@@ -604,11 +756,11 @@ async function flipRun(browser, trees, fx) {
   const small = lib.loadFixture('v28-state-small'), main = lib.loadFixture('v28-state');
   const browser = await lib.launch();
   const plan = [];
-  if (!args.only || args.only === 'small') plan.push(['account', small, main], ['flip', small]);
-  if (!args.only || args.only === 'main') plan.push(['account', main, small], ['flip', main]);
+  if (!args.only || args.only === 'small') plan.push(['account', small, main], ['flip', small], ['return', small]);
+  if (!args.only || args.only === 'main') plan.push(['account', main, small], ['flip', main], ['return', main]);
   for (const [kind, fx, other] of plan) {
-    try { if (kind === 'account') await accountRun(browser, trees, fx, other); else await flipRun(browser, trees, fx); }
-    catch (e) { check(false, fx.name + (kind === 'flip' ? ' flip' : '') + ': the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); }
+    try { if (kind === 'account') await accountRun(browser, trees, fx, other); else if (kind === 'flip') await flipRun(browser, trees, fx); else await returnRun(browser, trees, fx); }
+    catch (e) { check(false, fx.name + (kind === 'account' ? '' : ' ' + kind) + ': the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); }
   }
   await browser.close();
   console.log('# ' + passed + ' passed, ' + failed + ' failed');

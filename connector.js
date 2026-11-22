@@ -1,6 +1,6 @@
 /* Overload ↔ connector (connector/worker.js on Cloudflare): WHOOP sleep sync and push reminders.
  *
- * Loaded after app.js; plugs in through window.__overloadConn (Settings cards, actions)
+ * Loaded after overload.js; plugs in through window.__overloadConn (Settings cards, actions)
  * and reads/writes state through window.__overload.
  *
  * Saved data (in state.settings, so it follows the cloud sync to other phones):
@@ -348,7 +348,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Hooks for app.js
+  // Hooks for overload.js
   // ---------------------------------------------------------------------------
   window.__overloadConn = {
     settingsCard() {

@@ -23,7 +23,15 @@
  *   - one file of the install list failing leaves no cache behind, and the next try completes; the install
  *     does not need the Firebase files at all, and nothing waits for them when they hang;
  *   - a release made with bump.sh (in a temporary copy of the tree) arrives: fuel-v2, the page on the new
- *     number after one reload.
+ *     number after one reload;
+ *   - the next release on weak signal (the server ignores ?v=, so it answers 3.0's addresses with 3.1's files):
+ *     the stored 3.0 page runs 3.0's files from fuel-v1 and they are not overwritten, also with no network;
+ *     the food list (?db=) and the barcode reader (no ?v=) are still refreshed from the server; an install of
+ *     3.1 that gets 3.0's fuel.js is refused; then 3.1 takes over whole (review finding O1).
+ *   - the next release on weak signal (the server ignores ?v=, so it answers 3.0's addresses with 3.1's files):
+ *     the stored 3.0 page runs 3.0's files from fuel-v1 and they are not overwritten, also with no network;
+ *     the food list (?db=) and the barcode reader (no ?v=) are still refreshed from the server; an install of
+ *     3.1 that gets 3.0's fuel.js is refused; then 3.1 takes over whole (review finding O1).
  *
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree).
  *
@@ -216,7 +224,7 @@ async function openPage(phone, url, ready) {
       need(loaded.length > 0 && unlisted.length === 0, 'the page loads, but the list does not name: ' + unlisted.join(', '));
       for (const a of ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png']) need(now.assets.includes(a), a + ' is not in the list');
       need(new Set(now.assets).size === now.assets.length, 'an address is listed twice');
-      need(!now.assets.some((a) => /^\.\.\/(index\.html|app\.js|programs\.js|connector\.js|sync\.js|sw\.js)/.test(a) || a === '../'), 'a file of the training app is in the list');
+      need(!now.assets.some((a) => /^\.\.\/(index\.html|overload\.js|app\.js|programs\.js|connector\.js|sync\.js|sw\.js|train\.css)/.test(a) || a === '../'), 'a file of the training app is in the list');
       return now.assets.length + ' addresses, ' + loaded.length + ' of them versioned files of the page';
     });
     await file('the food list and the barcode reader are listed under the addresses food.js asks for', async () => {
@@ -323,12 +331,16 @@ async function openPage(phone, url, ready) {
       await one('a newer release\'s page that arrives before its worker is shown, but not stored over this release\'s page', async () => {
         const html = read(TREE, 'fuel/index.html').replace(/\?v=3\.0/g, '?v=9.9');
         site.pages['fuel/index.html'] = { body: html };
-        await page.reload(); await page.waitForFunction(fuelStarted);
-        need((await page.evaluate(() => document.querySelector('script[src*="fuel.js"]').getAttribute('src'))) === './fuel.js?v=9.9', 'the newer page did not arrive');
-        await sleep(700);   // the worker stores after it has answered
-        const kept = await page.evaluate(async (name) => { const c = await caches.open(name); return { page: await (await c.match('/overload/fuel/index.html')).text(), folder: await (await c.match('/overload/fuel/')).text() }; }, now.cache);
+        // The newer release's main script says so: the worker runs no main script that names another release.
+        site.pages['fuel/fuel.js'] = { type: TYPES['.js'], body: read(TREE, 'fuel/fuel.js').replace(/const VERSION = '[^']*'/, "const VERSION = '9.9'") };
+        let kept;
+        try {
+          await page.reload(); await page.waitForFunction(fuelStarted);
+          need((await page.evaluate(() => document.querySelector('script[src*="fuel.js"]').getAttribute('src'))) === './fuel.js?v=9.9', 'the newer page did not arrive');
+          await sleep(700);   // the worker stores after it has answered
+          kept = await page.evaluate(async (name) => { const c = await caches.open(name); return { page: await (await c.match('/overload/fuel/index.html')).text(), folder: await (await c.match('/overload/fuel/')).text() }; }, now.cache);
+        } finally { delete site.pages['fuel/index.html']; delete site.pages['fuel/fuel.js']; }
         need(/fuel\.js\?v=3\.0/.test(kept.page) && !/\?v=9\.9/.test(kept.page) && /fuel\.js\?v=3\.0/.test(kept.folder), 'the stored page is the newer one: its files are not in the cache');
-        delete site.pages['fuel/index.html'];
         // And that stored page is what a start with no network gets.
         site.down = true;
         const o = await openPage(p1, at('fuel/index.html'));
@@ -606,6 +618,119 @@ async function openPage(phone, url, ready) {
     }
     site.down = false;
     await p6.close();
+
+    // =====================================================================
+    // Phone 7: the next release on weak signal. The server ignores ?v=, so once 3.1 is published it answers
+    // this release's addresses with 3.1's files; the 3.0 page must not run them, nor keep them (finding O1).
+    // =====================================================================
+    const base = copyTree(TREE), next31 = copyTree(TREE);
+    execSync('sh bump.sh 3.1', { cwd: next31, stdio: ['ignore', 'pipe', 'pipe'] });
+    const fuelFiles = [...read(next31, 'fuel/index.html').matchAll(/(?:src|href)="([^"?]+)\?v=/g)].map((m) => path.posix.normalize('fuel/' + m[1]));
+    for (const f of fuelFiles) fs.appendFileSync(path.join(next31, f), '\n/* 3.1 */\n');   // a real release changes its files
+    site.root = base;
+    const p7 = await phone('seven', { seed: seedFuel });
+    const seven = (title, fn) => run.step('next release, weak signal', title, fn);
+    let f7 = null;
+    const entries30 = fuelFiles.map((f) => site.url + BASE + f + '?v=3.0');
+    const entryTexts = (page, cache, urls) => page.evaluate(async ([name, list]) => { const c = await caches.open(name), out = {}; for (const u of list) { const r = await c.match(u); out[u] = r ? await r.text() : null; } return out; }, [cache, urls]);
+    const shownVersion = async (page) => { await lib.openTab(page, 'settings'); return (/Fuel · v([0-9.]+)/.exec(await F.text(page, '#app')) || [])[1] || null; };
+    const updateEnds = (page, scope) => page.evaluate(async (s) => {
+      const reg = (await navigator.serviceWorker.getRegistrations()).find((x) => new URL(x.scope).pathname === s);
+      let found = false;
+      const end = new Promise((resolve) => {
+        const watchIt = (w) => { if (!w) return; found = true; const look = () => { if (w.state === 'redundant' || w.state === 'activated') resolve(w.state); }; w.addEventListener('statechange', look); look(); };
+        reg.addEventListener('updatefound', () => watchIt(reg.installing));
+        watchIt(reg.installing);
+      });
+      await reg.update().catch(() => {});
+      return Promise.race([end, new Promise((r) => setTimeout(() => r(found ? 'timeout' : 'none'), 25000))]);
+    }, scope);
+    const settledReg = (page) => until(() => page.evaluate(async () => { const g = (await navigator.serviceWorker.getRegistrations()).find((x) => /\/fuel\/$/.test(x.scope)); return !!g && !g.installing && !g.waiting; }), 20000);
+    ok = await seven('set-up: Fuel 3.0 installed under its own worker; 3.1 made with bump.sh, every file of its page changed', async () => {
+      f7 = await openPage(p7, at('fuel/index.html'));
+      need(await until(async () => { const c = await cachesOf(f7); return c[now.cache] && listed.every((u) => c[now.cache].includes(u)) && (await controller(f7)) === FUEL_SW; }, 30000), 'Fuel did not install');
+      await settledReg(f7);
+      await f7.close();
+      return fuelFiles.length + ' files differ in 3.1: ' + fuelFiles.join(', ');
+    });
+    if (ok) {
+      site.root = next31;
+      const slowPage = { test: (rel) => rel === 'fuel/index.html', delay: 4000 };
+      const noInstall = { test: (rel) => rel === 'fuel/icon-512.png', status: 404 };   // the 3.1 worker cannot take over yet
+      site.rules.push(slowPage, noInstall);
+      await seven('the page over 3 s: the stored 3.0 page runs 3.0\'s fuel.js and files, and the stored copies stay 3.0\'s', async () => {
+        f7 = await openPage(p7, at('fuel/index.html'));
+        need((await f7.evaluate(() => document.querySelector('script[src*="fuel.js"]').getAttribute('src'))) === './fuel.js?v=3.0', 'the page is not the stored 3.0 one');
+        const v = await shownVersion(f7);
+        await sleep(5000);   // late answers, if any, would be stored by now
+        const now30 = await entryTexts(f7, now.cache, entries30);
+        const changed = entries30.filter((u) => now30[u] !== read(base, new URL(u).pathname.slice(BASE.length)));
+        await f7.close();
+        need(v === '3.0', 'Settings says Fuel · v' + v);
+        need(!changed.length, 'stored copies overwritten: ' + changed.map((u) => u.replace(site.url + BASE, '')).join(', '));
+        return 'Fuel · v' + v + '; ' + entries30.length + ' stored copies as the install stored them';
+      });
+      await seven('no signal: Fuel 3.0 from fuel-v1, its own files', async () => {
+        site.down = true;
+        try {
+          const o = await openPage(p7, at('fuel/index.html'));
+          const v = await shownVersion(o);
+          await o.close();
+          need(v === '3.0', 'Settings says Fuel · v' + v);
+          return 'Fuel · v' + v;
+        } finally { site.down = false; }
+      });
+      await seven('the food list (?db=) and the barcode reader (no ?v=) are still asked for first, and their stored copies refreshed', async () => {
+        const db = (/const DB_URL = '([^']+)'/.exec(read(base, 'fuel/food.js')) || [])[1], dbUrl = new URL(db, at('fuel/')).href, zx = abs('../vendor/zxing/share.js');
+        site.pages['data/foods.json'] = { type: TYPES['.json'], body: read(base, 'data/foods.json').replace(/\s*$/, '\n\n') };
+        site.pages['vendor/zxing/share.js'] = { type: TYPES['.js'], body: read(base, 'vendor/zxing/share.js') + '\n/* newer */\n' };
+        let got;
+        try {
+          f7 = await openPage(p7, at('fuel/index.html'));
+          await f7.evaluate(([a, b]) => Promise.all([fetch(a).then((r) => r.text()), fetch(b).then((r) => r.text())]), [dbUrl, zx]);
+          await sleep(800);
+          got = await entryTexts(f7, now.cache, [dbUrl, zx]);
+          await f7.close();
+        } finally { delete site.pages['data/foods.json']; delete site.pages['vendor/zxing/share.js']; }
+        need(/\n\n$/.test(got[dbUrl] || '') && /newer \*\/\n$/.test(got[zx] || ''), 'not refreshed: ' + [dbUrl, zx].filter((u) => got[u] == null || got[u] === read(base, new URL(u).pathname.slice(BASE.length))).join(', '));
+        return db + ' and ../vendor/zxing/share.js refreshed from the server';
+      });
+      await seven('an install of 3.1 that gets 3.0\'s fuel.js is refused; fuel-v1 stays as it was', async () => {
+        site.rules.length = 0;
+        site.pages['fuel/fuel.js'] = { type: TYPES['.js'], body: read(base, 'fuel/fuel.js') };
+        try {
+          f7 = await openPage(p7, at('fuel/index.html'));
+          const before = (await cachesOf(f7))[now.cache];
+          const outcome = await updateEnds(f7, '/overload/fuel/');
+          await settledReg(f7);
+          const cs = await cachesOf(f7);
+          await f7.close();
+          need(outcome === 'redundant', 'the 3.1 worker ended as: ' + outcome);
+          need(!cs['fuel-v2'] && JSON.stringify(cs[now.cache]) === JSON.stringify(before), 'caches: ' + Object.keys(cs).join(', '));
+          return 'the 3.1 worker ended as ' + outcome + '; ' + now.cache + ' unchanged';
+        } finally { delete site.pages['fuel/fuel.js']; }
+      });
+      await seven('good signal: 3.1 takes over (fuel-v2), the page reloads once into 3.1, and starts with no network', async () => {
+        f7 = await openPage(p7, at('fuel/index.html'));
+        const cs = await until(async () => { const c = await cachesOf(f7); return c['fuel-v2'] && !c[now.cache] ? c : null; }, 30000);
+        need(cs, 'no fuel-v2; caches: ' + Object.keys(await cachesOf(f7).catch(() => ({}))).join(', '));
+        need(await until(() => f7.loads >= 2, 10000), 'the page did not reload (loads: ' + f7.loads + ')');
+        await f7.waitForFunction(fuelStarted, null, { timeout: 15000 });
+        const v = await shownVersion(f7);
+        const list31 = fuelFiles.map((f) => site.url + BASE + f + '?v=3.1');
+        const got = await entryTexts(f7, 'fuel-v2', list31);
+        const wrong = list31.filter((u) => got[u] !== read(next31, new URL(u).pathname.slice(BASE.length)));
+        await f7.close();
+        site.down = true;
+        let off = null;
+        try { const o = await openPage(p7, at('fuel/index.html')); off = await shownVersion(o); await o.close(); } finally { site.down = false; }
+        need(v === '3.1' && off === '3.1', 'Settings says Fuel · v' + v + ', with no network v' + off);
+        need(!wrong.length, 'not 3.1\'s in fuel-v2: ' + wrong.join(', '));
+        return 'Fuel · v3.1, also with no network; ' + list31.length + ' stored copies are 3.1\'s';
+      });
+    }
+    site.rules.length = 0; site.down = false;
+    await p7.close();
   } catch (e) {
     run.say(false, 'fuel-sw', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
   }

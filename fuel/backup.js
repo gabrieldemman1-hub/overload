@@ -12,7 +12,8 @@
   const DB = 'fuel-copies';   // never Overload's 'overload-copies': the two would overwrite each other's daily copy
   const KEEP_DAYS = 7;
   const OPEN_WAIT = 2000;   // Safari can leave the open request unanswered: give up then, so callers fall back
-  let dbp = null;
+  let dbp = null;           // the open database (a promise of it), kept for the session
+  let kept = null;          // the database dbp gave, once it did
 
   function open() {
     if (dbp) return dbp;
@@ -32,7 +33,12 @@
         const db = req.result;
         if (over) { db.close(); return; }   // answered too late: the next call opens again
         over = true; clearTimeout(t);
-        db.onversionchange = () => { db.close(); dbp = null; }; resolve(db);
+        kept = db;
+        db.onversionchange = () => forget(db);
+        // The connection can be lost while the app runs: an iPhone drops it for an app that comes back from the
+        // background ("Connection to Indexed Database server lost"). Then the next call opens it again.
+        db.onclose = () => forget(db);
+        resolve(db);
       };
       req.onerror = () => fail(req.error || new Error('IndexedDB did not open'));
       req.onblocked = () => fail(new Error('IndexedDB is busy'));
@@ -40,16 +46,30 @@
     dbp.catch(() => { dbp = null; });   // try again next time
     return dbp;
   }
+  // Lets go of an opened database, if it is still the one kept, so that the next call opens it again.
+  function forget(db) {
+    if (db !== kept) return;
+    kept = null; dbp = null;
+    try { db.close(); } catch (e) { /* closed already */ }
+  }
   // One transaction; fn queues its requests synchronously (Safari closes a transaction left idle).
+  // A transaction that cannot be started (the connection was lost: db.transaction throws) or that fails lets go
+  // of the database, and is tried once more on a fresh connection. A transaction that failed changed nothing,
+  // so the second try starts from the same place. When the database does not open, there is no second try:
+  // the caller already waited OPEN_WAIT for it.
   function run(stores, mode, fn) {
-    return open().then((db) => new Promise((resolve, reject) => {
-      const t = db.transaction(stores, mode);
+    const once = () => open().then((db) => new Promise((resolve, reject) => {
+      const lost = (err) => { forget(db); reject({ again: true, err }); };
+      let t;
+      try { t = db.transaction(stores, mode); } catch (e) { lost(e); return; }
       let out;
       t.oncomplete = () => resolve(out);
-      t.onerror = () => reject(t.error || new Error('IndexedDB error'));
-      t.onabort = () => reject(t.error || new Error('IndexedDB aborted'));
-      fn(t, (v) => { out = v; });
+      t.onerror = () => lost(t.error || new Error('IndexedDB error'));
+      t.onabort = () => lost(t.error || new Error('IndexedDB aborted'));
+      try { fn(t, (v) => { out = v; }); } catch (e) { try { t.abort(); } catch (x) { /* over already */ } lost(e); }
     }));
+    const real = (e) => Promise.reject(e && e.again ? e.err : e);
+    return once().catch((e) => (e && e.again ? once().catch(real) : real(e)));
   }
   const dayKey = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
   // What a copy holds, for the list (counted once, when it is taken).

@@ -1,7 +1,7 @@
 /* Fuel's food log: calories, protein, carbs and fat. (It was Overload's Food tab until 3.0.)
  *
  * Loaded after fuel.js and built on the helpers it exposes (window.__overload.lib: the names are the
- * ones Overload's app.js used, so this file runs on Fuel's shell as it ran there).
+ * ones Overload's main script used, so this file runs on Fuel's shell as it ran there).
  * Where foods come from:
  *   - data/foods.json: about 7,700 common foods and about 650 packaged
  *     products (with barcodes) from USDA FoodData Central, built by

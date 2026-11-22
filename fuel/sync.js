@@ -43,7 +43,7 @@ const firebaseConfig = {
 };
 
 const SYNC_KEY = 'fuel.sync.v1';
-const STATE_KEY = 'fuel.state.v1';   // fuel.js's saved data: only looked at here, once, to see whether there was any (noteTrusted)
+const STATE_KEY = 'fuel.state.v1';   // fuel.js's saved data: looked at here only to see whether there was any, when fuel.js does not say (noteTrusted)
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig, 'fuel');   // Overload's is the default app; this one must not be
@@ -66,8 +66,16 @@ let linkTries = 0;
 // A page that started with none (a new phone at Welcome, or storage that lost the data but kept the note)
 // has nothing the note could describe: it links as a new phone, which downloads and deletes nothing. From
 // that link on, the note is this session's own.
+// fuel.js says whether the page started on saved data (it looked before anything could be tapped, and it
+// removes the note itself when there was none). This module runs only once its three imports have arrived,
+// which can take seconds: by then Start fresh may have saved an empty diary, so the storage seen from here
+// would say "saved data" and the old note would be believed. The storage is looked at only when fuel.js does
+// not say (an older fuel.js).
 let noteTrusted = false;
-try { noteTrusted = localStorage.getItem(STATE_KEY) !== null; } catch (e) { noteTrusted = false; }
+try {
+  const h = window.__overload;
+  noteTrusted = h && typeof h.startedWithData === 'boolean' ? h.startedWithData : localStorage.getItem(STATE_KEY) !== null;
+} catch (e) { noteTrusted = false; }
 
 const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 const obj = (x) => (isObj(x) ? x : {});

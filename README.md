@@ -241,7 +241,7 @@ Overload, at the root:
 | File                   | Purpose                                      |
 | ---------------------- | -------------------------------------------- |
 | `index.html`           | The page: top bar, tab bar, rest timer, sheet. Also the start-up rescue, which starts the previous release's stored files when this release's did not arrive |
-| `app.js`               | State, progression algorithm, all screens, the hand-over of the food log to Fuel |
+| `overload.js`          | State, progression algorithm, all screens, the hand-over of the food log to Fuel (`app.js` until 2.8: see Releases) |
 | `connector.js`         | WHOOP sync and reminders in the app (talks to the connector) |
 | `programs.js`          | Built-in program library (CBum, FST-7, arm programs) |
 | `train.css`            | The rules only Overload needs (week strip, exercise card, set rows, rest timer). Loaded after `shared/ui.css` |
@@ -309,7 +309,9 @@ node tests/train-rollback.js   # 2.8 running again on data 3.0 has used
 node tests/train-rescue.js     # the start-up rescue in index.html
 node tests/train-connector.js  # what is sent to the connector
 node tests/train-sw.js         # the offline worker, with real service workers
+node tests/train-mixed.js      # a release on weak signal: the page that runs is one release, never a mix
 node tests/train-sync.js       # cloud sync against a stand-in for Firebase
+node tests/train-bump.js       # bump.sh: which release numbers it takes and what it changes
 ```
 
 Fuel's tests are listed in `fuel/README.md`.
@@ -335,19 +337,40 @@ address in Safari.
 Both apps are released together under one number. From the repository root:
 
 ```bash
-sh bump.sh 3.1       # set the release to 3.1 in every place, then check
-sh bump.sh --check   # change nothing, only check
+sh bump.sh 3.1           # set the release to 3.1 in every place, then check
+sh bump.sh --major 4.0   # the same, for a new first number
+sh bump.sh --check       # change nothing, only check
 ```
 
+A release number is two whole numbers with a dot, like `3.1`, and must be
+higher than the current one (`3.10` comes after `3.9`). A new first number
+needs `--major`: the start-up rescue only falls back to an older release with
+the same first number, so a phone whose update to `4.0` arrives only half has
+nothing to fall back to.
+
 A new number changes the `?v=` on every file address in `index.html`, `sw.js`,
-`fuel/index.html` and `fuel/sw.js`, `VERSION` in `app.js` and `fuel/fuel.js`,
-and moves both offline cache names on by one (`overload-vN`, `fuel-vN`), also
-when only one app changed. Commit the result and push; a phone picks the
-release up the next time the app is opened with a connection.
+`fuel/index.html` and `fuel/sw.js`, `VERSION` in `overload.js` and `fuel/fuel.js`,
+`release` in `sync.js`, and moves both offline cache names on by one
+(`overload-vN`, `fuel-vN`), also when only one app changed. Commit the result
+and push; a phone picks the release up the next time the app is opened with a
+connection.
+
+Every change to a file the workers store needs a new number. A worker answers
+an address with `?v=` from the copy it stored when it installed, for the whole
+release, and never asks the server for it again: GitHub Pages ignores `?v=`, so
+once the next release is published it would answer the old addresses with the
+new files, and the old page would run them. The install refuses a main script
+(and Overload's `sync.js`) that does not name the release being installed.
+
+The names `app.js`, `styles.css` and `food.js` at the root stay unused. Phones
+that still have 2.8 ask for them, and with nothing there 2.8's worker falls back
+to its own stored copies, so a 2.8 page never runs newer code.
 
 The check fails, with exit code 1, when:
 
-- a `?v=` with another number is left, or the two `VERSION`s differ;
+- a `?v=` with another number is left, or the two `VERSION`s or `sync.js`'s
+  `release` differ;
+- `app.js`, `styles.css` or `food.js` is at the root;
 - a file in a worker's install list (`ASSETS` in `sw.js` and `fuel/sw.js`) is
   not on disk: that install would fail on every phone;
 - a page loads a versioned file its worker's list does not name: the app would

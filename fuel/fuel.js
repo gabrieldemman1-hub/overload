@@ -8,7 +8,7 @@
  * uses; the two apps are separate pages, and keeping the name means food.js needed no change).
  *
  * The pieces that protect the data (load, save, the storage-full banner, the unreadable-data screen, automatic
- * copies, the update flow) are Overload's own, copied from app.js and trimmed.
+ * copies, the update flow) are Overload's own, copied from its main script (app.js then, overload.js now) and trimmed.
  */
 (function () {
   'use strict';
@@ -93,11 +93,21 @@
     return normalize({ v: 1, app: 'fuel', settings: {}, food: {}, diary: {}, deleted: {}, bodyweight: [], moved: null });
   }
 
+  // Whether the page started on saved data, as load() found it before anything could be tapped. Cloud sync
+  // believes its note only then (see `startedWithData` at the end of this file).
+  let startedWithData = false;
   function load() {
     let raw = null;
     try {
       raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) { ui.welcome = true; return freshState(); }   // nothing saved yet: Welcome asks where to begin, and nothing is stored until he says
+      startedWithData = !!raw;
+      if (!raw) {
+        // Nothing saved yet: Welcome asks where to begin, and nothing is stored until he says. A note of what
+        // the cloud holds can only describe data that is no longer here (the storage lost it): with the note,
+        // the next upload would delete in the account everything it lists. Without it a sign-in downloads.
+        try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ }
+        ui.welcome = true; return freshState();
+      }
       const parsed = JSON.parse(raw);
       if (isObj(parsed) && parsed.v === 1) return normalize(parsed);
     } catch (e) { /* fall through */ }
@@ -150,7 +160,21 @@
       if (good !== list) diary[day] = good;
       const [y, m, d] = day.split('-').map(Number);
       let after = new Date(y, m - 1, d).getTime();
-      good.forEach((e, i) => {
+      const twins = new Map();   // entries without an id that hold exactly the same, on this day: how many so far
+      good.forEach((e) => {
+        // Everything is merged by day and id. An entry without one gets an id made from its day and what it
+        // holds as it arrived (before a time or a meal is filled in below), never from its place in the list:
+        // the same entry gets the same id every time it is read, also after the entries before it changed, so
+        // a later import does not add it again. Identical ones on the same day are told apart by a count.
+        let made = null;
+        if (typeof e.id !== 'string' || !e.id) {
+          if (typeof e.id === 'number') made = String(e.id);
+          else {
+            const held = JSON.stringify(e), k = twins.get(held) || 0;
+            twins.set(held, k + 1);
+            made = 'n' + hashOf(day + '#' + held + (k ? '#' + k : ''));
+          }
+        }
         const fixed = cleanItem(e);
         // Breakfast, Lunch, Dinner, Snacks are 0 to 3. An entry with another value would count in the day's
         // total and show under no meal: it goes to Snacks.
@@ -159,9 +183,7 @@
         // The time orders a day when cloud sync merges it. Without one: just after the entry before it.
         if (typeof e.at !== 'number' || !Number.isFinite(e.at)) { const t = cleanNum(e.at); e.at = typeof t === 'number' ? t : after; }
         after = e.at + 1;
-        // Everything is merged by id. An entry without one gets an id that is the same every time this
-        // same entry is read, so importing a file twice does not add it twice.
-        if (typeof e.id !== 'string' || !e.id) e.id = typeof e.id === 'number' ? String(e.id) : 'n' + hashOf(day + '#' + i + '#' + JSON.stringify(e));
+        if (made !== null) e.id = made;
         if (fixed && rep) rep.fixed++;
       });
     });
@@ -389,22 +411,44 @@
   }
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
   async function restoreCopy(id) {
-    const B = window.__overloadBackup; if (!B) return;
+    const B = window.__overloadBackup; if (!B || ui.replacing) return;
     let rec = null, parsed = null;
     try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
     if (!isObj(parsed) || parsed.v !== 1 || parsed.app !== 'fuel') { toast('That copy cannot be read'); return; }
     const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
     const here = ui.unreadable ? '' : '\nThis phone now: ' + dataSummary(state) + '.\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced');
     if (!confirm('Replace the food log on this phone with ' + what + '?\n\nThe copy: ' + dataSummary(parsed) + '.' + here)) return;
-    replaceState(parsed, 'restore', 'Copy restored');
+    await replaceState(parsed, 'restore', 'Copy restored');
   }
   // Restore: keep a copy of what is here, then put the copy in place. (An import never comes this way: it adds.)
-  function replaceState(parsed, kind, done) {
-    if (!ui.unreadable) safetyCopy(kind);
-    forgetCloudIfSignedOut();
-    state = normalize(parsed);
-    if (ui.unreadable) { leaveUnreadable(); ui.screen = 'food'; }
-    applyTheme(); const ok = save(); render(); toast(ok ? done : NOT_SAVED);
+  // The copy of what is here is stored first, as the question said: if it cannot be, nothing is replaced.
+  async function replaceState(parsed, kind, done) {
+    if (ui.replacing) return;
+    ui.replacing = true;
+    try {
+      if (!ui.unreadable) { const c = await copyFirst(kind); if (c !== 'kept') { notDone(c, 'Restore a copy', 'replaced'); return; } }
+      forgetCloudIfSignedOut();
+      state = normalize(parsed);
+      if (ui.unreadable) { leaveUnreadable(); ui.screen = 'food'; }
+      applyTheme(); const ok = save(); render(); toast(ok ? done : NOT_SAVED);
+    } finally { ui.replacing = false; }
+  }
+  // The copy of what is here, taken before a reset, a restore or an import. The question before each says it is
+  // kept, and it is the way back if the step was a mistake, so the step waits for it: 'kept' when it is stored
+  // and nothing changed meanwhile, 'failed' when it could not be stored (IndexedDB did not answer, or refused
+  // it), 'changed' when cloud sync brought something while it was being stored (the copy would not hold that).
+  async function copyFirst(kind) {
+    const text = JSON.stringify(state);
+    if (!(await safetyCopy(kind, false, text))) return 'failed';
+    return JSON.stringify(state) === text ? 'kept' : 'changed';
+  }
+  const copyFailedText = (did) => 'The automatic copy could not be stored, so nothing was ' + did + '. Export a backup first, then try again.';
+  // Nothing was done because the copy was not kept. Export is a button of its own in a sheet, so the share sheet
+  // opens from a tap of his (an iPhone opens it only from a tap).
+  function notDone(c, title, did) {
+    if (c !== 'failed') { toast('The food log changed just now. Nothing was ' + did + '.'); return; }
+    openSheet(sheetHeader(title) + '<div class="banner warn" role="alert">' + icon('warning') + '<span>' + copyFailedText(did) + '</span></div>'
+      + '<button class="btn block" data-action="export">' + icon('export') + 'Export backup</button>', 'copy-failed');
   }
 
   // Theme: 'system' follows the phone, 'dark' / 'light' force one.
@@ -424,7 +468,8 @@
     state = normalize(next);
     if (ui.welcome) leaveWelcome();   // the food log came down from his account: that is the beginning
     let ok = true;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+    // The storage meter counts the app's data from what was last stored (see storageUsed), here as in save().
+    try { const text = JSON.stringify(state); localStorage.setItem(STORAGE_KEY, text); ui.savedChars = text.length; } catch (e) { ok = false; }
     if (ok !== !ui.saveFailed) { ui.saveFailed = !ok; renderSaveWarning(); }
     ui.copyDue = true;
     applyTheme();
@@ -446,7 +491,9 @@
   // ---------------------------------------------------------------------------
   // screen: 'food' (the diary: the tab says Today, the name is the one food.js knows), 'trends' or 'settings'.
   // gate: 'install' | 'inside' | null, welcome, unreadable: screens that stand in front of those three.
-  const ui = { screen: 'food', gate: null, welcome: false, unreadable: null, saveFailed: false, sheet: null, sync: { status: 'off', msg: '' }, updateReady: false, booted: false, copyDue: false, here: null };
+  // replacing: a reset or restore waits for its automatic copy; sharing: the share sheet is open; trendsFor: the date Trends was drawn for.
+  const ui = { screen: 'food', gate: null, welcome: false, unreadable: null, saveFailed: false, sheet: null, sync: { status: 'off', msg: '' }, updateReady: false, booted: false, copyDue: false, here: null,
+    replacing: false, sharing: false, trendsFor: null };
   // What is on screen. food.js acts on the diary only while this is exactly 'food'.
   function shown() { return ui.gate ? 'install' : ui.unreadable ? 'unreadable' : ui.welcome ? 'welcome' : ui.screen; }
 
@@ -516,10 +563,20 @@
   // Each icon follows its bold word with no space of its own, so the sentence reads as it did without it.
   const INSTALL_STEPS = '<li>Tap <b>Share</b>' + icon('share') + ' in Safari\'s toolbar.</li><li>Choose <b>Add to Home Screen</b>' + icon('add-square') + '.</li><li>Open <b>' + APP_NAME + '</b> from its new icon.</li>';
   const BRAND = '<div class="onboard-brand"><span class="app-tile xl">' + icon('mark-fuel') + '</span></div>';   // the Home Screen icon, as he will find it there
+  // What this Safari tab holds of Fuel's own ("Use it here anyway" was tapped on an earlier visit), or null.
+  // The Home Screen app has a storage of its own and starts empty: this is what would stay behind in the tab,
+  // which Safari clears after about a week without a visit. (Data that cannot be read is offered for export
+  // on its own screen, once he goes on here.)
+  function tabHolds() {
+    if (ui.welcome || ui.unreadable) return null;
+    const f = state.food, days = Object.keys(state.diary);
+    const any = days.length || Object.keys(f.foods).length || Object.keys(f.meals).length || ['kcal', 'protein', 'carbs', 'fat'].some((k) => f.targets[k] > 0);
+    return any ? { days: days.length, entries: days.reduce((n, d) => n + state.diary[d].length, 0) } : null;
+  }
   function renderGate() {
     markTabs(null);
     renderTopbar();
-    const url = fuelAddress();
+    const url = fuelAddress(), held = ui.gate === 'install' ? tabHolds() : null;
     $('#app').innerHTML = '<div class="onboard">' + BRAND + '<div class="screen-title"><h1>Add ' + APP_NAME + ' to your Home Screen</h1></div>'
       + (ui.gate === 'inside'
         ? '<p class="lede">This page opened inside Overload. ' + APP_NAME + ' keeps its own data, so it has to be added from Safari.</p>'
@@ -531,6 +588,10 @@
           + '<p class="small muted center mt8">If the button does nothing: copy the link, open Safari and paste it there.</p>'
           + '<p class="small muted center mt8 link-text">' + esc(url) + '</p>'
         : '<p class="lede">' + APP_NAME + ' works best as its own app: it opens full screen, works offline and keeps its data between visits.</p>'
+          // Before the steps: once the Home Screen app is open, this tab's data is out of reach.
+          + (held ? '<div class="banner warn">' + icon('warning') + '<span>This Safari tab holds the food log you kept here' + (held.days ? ': ' + plural(held.days, 'day') + ', ' + plural(held.entries, 'entry', 'entries') : '')
+            + '. The Home Screen app starts empty, so export a backup first and choose that file in the app.</span></div>'
+            + '<button class="btn block mb8" data-action="export">' + icon('export') + 'Export backup</button>' : '')
           + '<ol class="install-steps">' + INSTALL_STEPS + '</ol>'
           + '<div class="banner">' + icon('info') + '<span>On an iPhone, a Safari tab can lose its data after about a week without a visit. The Home Screen app does not.</span></div>'
           + '<div class="foot"><button class="btn text" data-action="fuel-use-here">Use it here anyway</button></div>')
@@ -587,7 +648,7 @@
       + '<p class="lede">' + APP_NAME + ' is the food half of Overload, now its own app. Your days, targets, favorites and saved meals come across in one step. Nothing is removed from Overload.</p>'
       + '<div class="list">' + here
       + choiceRow('fuel-paste', 'Paste from Overload', 'In Overload, tap Copy my food log. Then tap here.', !here, OV_TILE)
-      + choiceRow('fuel-file', 'Choose a file', 'The food file or a backup saved from Overload.', false, lead('file'))
+      + choiceRow('fuel-file', 'Choose a file', 'The food file, a full Overload backup, or a ' + APP_NAME + ' backup.', false, lead('file'))
       + choiceRow('fuel-signin', 'Sign in to cloud sync', sync && sync.user ? 'Signed in as ' + esc(sync.user.email) + '. Tap to go on.' : 'The same email and password as in Overload.', false, lead('cloud'))
       + '</div><div class="foot"><button class="btn text" data-action="fuel-fresh">Start fresh</button>'
       + '<p class="small muted">You can still bring your log across later, in Settings.</p></div></div>';
@@ -648,6 +709,7 @@
   }
   function renderTrends() {
     const today = todayKey(), t = state.food.targets, target = t.kcal > 0 ? t.kcal : 0;
+    ui.trendsFor = today;   // the date this is drawn for: see redrawTrends
     const days = []; for (let i = 13; i >= 0; i--) days.push(addDays(today, -i));
     const week = (monday) => [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(monday, i));
     const thisWeek = week(weekStart(today)).filter((d) => d <= today), lastWeek = week(addDays(weekStart(today), -7));
@@ -673,6 +735,15 @@
       + row('days', 'Days logged', logged(thisWeek) + '<span class="of"> of ' + thisWeek.length + '</span>', logged(lastWeek) + '<span class="of"> of 7</span>')
       + '</tbody></table></div>'
       + '<p class="tiny muted center mt8">Averages count full days only: today joins tomorrow. Weeks start on Monday. ' + (target ? 'A day is over target from 5% above it. ' : '') + 'Tap a day to open it.</p>';
+  }
+  // Trends left on screen past midnight, or found there in the morning (an iPhone resumes the app, it does not
+  // reload it), would still show yesterday as today. It is drawn again for the new date, when the app comes back
+  // to the front and once a minute, but not under an open sheet or a box being typed in.
+  function redrawTrends() {
+    if (shown() !== 'trends' || !ui.trendsFor || ui.trendsFor === todayKey() || ui.sheet) return;
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    render();
   }
   // Open one day in Today. food.js owns which day is on screen; its own day buttons are the way in:
   // first back to today, then that many days back.
@@ -701,11 +772,11 @@
       + '<div class="group-title">From Overload</div><div class="card"><p class="small muted mb8">' + movedText() + '</p>'
       + '<button class="btn ghost block" data-action="fuel-import">' + icon('clipboard') + 'Bring food from Overload</button></div>'
       + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">' + icon('trash') + 'Reset all data</button></div>'
-      + '<div class="group-title">About</div><div class="card"><p><b>' + APP_NAME + '</b> · v' + VERSION + '</p><p class="small muted mt8">Food data: USDA FoodData Central, Open Food Facts.</p></div>';
+      + '<div class="group-title">About</div><div class="card" id="about-card"><p><b>' + APP_NAME + '</b> · v' + VERSION + '</p>' + offlineNote() + '<p class="small muted mt8">Food data: USDA FoodData Central, Open Food Facts.</p></div>';
   }
   function movedText() {
     const m = state.moved;
-    if (!m || !(m.at > 0)) return 'The food log you kept in Overload can be brought here at any time. Only what is missing here is added: nothing is replaced.';
+    if (!m || !(m.at > 0)) return 'The food log you kept in Overload can be brought here at any time. Only what is missing here is added, with the numbers you corrected there. Nothing else is replaced.';
     return 'Brought across on ' + esc(fmtDate(todayKey(new Date(m.at)))) + ': ' + plural(+m.days || 0, 'day') + ', ' + plural(+m.entries || 0, 'entry', 'entries') + '. Bringing it again only adds what is new.';
   }
   // The guide under the targets is food.js's. After a change here only that note is drawn again: rebuilding
@@ -806,16 +877,19 @@
   async function exportJson() {
     if (await shareFile(JSON.stringify(state, null, 2), 'fuel-backup-' + todayKey() + '.json', APP_NAME + ' backup')) exported();
   }
-  // Resolves true when the file was handed over (false when he cancelled the share sheet).
+  // Resolves true when the file was handed over: the share sheet took it, or, with no share sheet, the download
+  // started. False when he cancelled the share sheet, and when the phone would not open it: a second share while
+  // one is open is refused (InvalidStateError), and so is one that no tap of his started (NotAllowedError). A
+  // download then would count as saved while nothing may be. A second tap while the share sheet is open does nothing.
   async function shareFile(text, name, title) {
-    try {
-      const file = new File([text], name, { type: 'application/json' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title });
-        return true;
-      }
-    } catch (e) {
-      if (e && e.name === 'AbortError') return false;
+    if (ui.sharing) return false;
+    let file = null, canShare = false;
+    try { file = new File([text], name, { type: 'application/json' }); canShare = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShare = false; }
+    if (canShare) {
+      ui.sharing = true;
+      try { await navigator.share({ files: [file], title }); return true; }
+      catch (e) { if (e && (e.name === 'AbortError' || e.name === 'InvalidStateError' || e.name === 'NotAllowedError')) return false; }   // anything else: no share sheet here after all, so the download below
+      finally { ui.sharing = false; }
     }
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -885,23 +959,38 @@
     const sync = window.__overloadSync;
     if (!(sync && sync.user)) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
   }
-  // Signed in, a reset or restore syncs out and replaces the cloud copy too. Say so.
+  // Signed in, a reset or restore syncs out and replaces the cloud copy too. Say so, and what another phone
+  // signed in to the account does. A day leaves a phone only through deletion records (sync.js), and a reset or
+  // restore writes none, so that phone keeps its copy and sends it back, to the account and to this phone.
+  // Signing it out is not enough: it sends its copy at its next sign-in. Reset there while signed out, and its
+  // next sign-in takes the account's copy instead.
   function cloudNote(verb) {
     const sync = window.__overloadSync;
-    return sync && sync.user ? '\n\nYou are signed in to cloud sync, so the food log in your account (' + sync.user.email + ') is ' + verb + ' too.' : '';
+    return sync && sync.user ? '\n\nYou are signed in to cloud sync, so the food log in your account (' + sync.user.email + ') is ' + verb + ' too. '
+      + 'Another phone signed in to this account keeps its own copy and sends it back. Sign out on that phone first, and reset it before you sign in there again.' : '';
   }
-  function resetAll() {
+  async function resetAll() {
+    if (ui.replacing) return;
     if (!confirm('Erase the food diary, saved foods, saved meals and targets in ' + APP_NAME + ' on this phone?\n\nThis phone now: ' + dataSummary(state) + '.' + cloudNote('erased'))) return;
     if (!confirm('Really erase everything in ' + APP_NAME + '?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ' The latest copy stays in Settings > Automatic copies.'))) return;
-    safetyCopy('reset'); forgetCloudIfSignedOut();
-    state = freshState(); applyTheme(); save(); render(); toast('Reset: the food diary is empty');
+    ui.replacing = true;
+    try {
+      // The copy "Before reset" is stored first (the second question promises it): if it cannot be, nothing is erased.
+      const c = await copyFirst('reset');
+      if (c !== 'kept') { notDone(c, 'Reset all data', 'erased'); return; }
+      forgetCloudIfSignedOut();
+      state = freshState(); applyTheme(); save(); render(); toast('Reset: the food diary is empty');
+    } finally { ui.replacing = false; }
   }
 
   // ---------------------------------------------------------------------------
   // Bringing food in: from Overload (a pasted text, its food file, a full backup, or its data in this same
-  // storage) and from a Fuel backup. An import never replaces and never removes: it adds what is missing here.
-  //   entries        by id; an entry Fuel already has stays as Fuel has it
-  //   foods, meals   by id; Fuel's stay
+  // storage) and from a Fuel backup. An import never removes: it adds what is missing here.
+  //   entries        by day and id; an entry Fuel already has on that day stays as Fuel has it
+  //   meals          by id; Fuel's stay
+  //   foods          by id; Fuel's stay, and take two things from the copy: the star when Fuel's has none, and
+  //                  numbers he corrected or typed in (src custom) over the food list's own copy (src usda or off).
+  //                  A food made or corrected in Fuel is never changed; its last use and last amount stay Fuel's.
   //   targets, body weight   only when Fuel has none
   //   units, theme   only at Welcome, when Fuel has nothing of its own yet
   //   deleted here   stays deleted (the deletion records)
@@ -972,22 +1061,34 @@
   function planImport(inc) {
     const st = state, from = inc.state, gone = st.deleted;
     const p = { days: {}, addDays: 0, addEntries: 0, sameEntries: 0, goneEntries: 0, foods: [], sameFoods: 0, goneFoods: 0, meals: [], sameMeals: 0, goneMeals: 0,
-      targets: false, weight: null, settings: null, records: { food: {}, foods: {}, meals: {} }, moved: null };
-    const have = new Set();
-    Object.keys(st.diary).forEach((d) => st.diary[d].forEach((e) => have.add(e.id)));
+      updated: [], targets: false, weight: null, settings: null, records: { food: {}, foods: {}, meals: {} }, moved: null };
+    // An entry is already here when Fuel holds its id on the same day. Before v2.5 an entry edited across
+    // midnight was kept on both days under one id, and v2.8 shows both. Deletion records go by id alone.
+    const here = new Set(), held = new Set();   // day + id of every entry here; the ids alone
+    const dayId = (day, id) => day + '#' + id;
+    Object.keys(st.diary).forEach((d) => st.diary[d].forEach((e) => { here.add(dayId(d, e.id)); held.add(e.id); }));
     Object.keys(from.diary).forEach((day) => {
       const add = from.diary[day].filter((e) => {
         if (gone.food[e.id]) { p.goneEntries++; return false; }   // deleted here: it does not come back
-        if (have.has(e.id)) { p.sameEntries++; return false; }    // already here: Fuel's copy stays
-        have.add(e.id); return true;
+        if (here.has(dayId(day, e.id))) { p.sameEntries++; return false; }    // already here: Fuel's copy stays
+        here.add(dayId(day, e.id)); held.add(e.id); return true;
       });
       if (add.length) { p.days[day] = add; p.addDays++; p.addEntries += add.length; }
     });
-    const things = (kind, list, same, goneN) => Object.keys(from.food[kind]).forEach((id) => {
-      if (gone[kind][id]) p[goneN]++; else if (st.food[kind][id]) p[same]++; else p[list].push(id);
+    // A saved food both hold: Fuel's stays, and takes the star when it has none. When the copy's is one he
+    // corrected or typed in (src custom) and Fuel's is the food list's own, untouched (src usda or off), the
+    // copy's numbers, serving and barcode are taken: the whole food as he made it. A food made or corrected
+    // in Fuel (src custom) is never changed. Fuel's last use and last amount always stay.
+    Object.keys(from.food.foods).forEach((id) => {
+      const mine = st.food.foods[id], theirs = from.food.foods[id];
+      if (gone.foods[id]) { p.goneFoods++; return; }
+      if (!mine) { p.foods.push(id); return; }
+      const fav = !mine.fav && !!theirs.fav, fix = theirs.src === 'custom' && (mine.src === 'usda' || mine.src === 'off');
+      if (fav || fix) p.updated.push({ id, fav, fix }); else p.sameFoods++;
     });
-    things('foods', 'foods', 'sameFoods', 'goneFoods');
-    things('meals', 'meals', 'sameMeals', 'goneMeals');
+    Object.keys(from.food.meals).forEach((id) => {
+      if (gone.meals[id]) p.goneMeals++; else if (st.food.meals[id]) p.sameMeals++; else p.meals.push(id);
+    });
     const set = (t) => ['kcal', 'protein', 'carbs', 'fat'].some((k) => t[k] > 0);
     p.targets = !set(st.food.targets) && set(from.food.targets);
     const w = from.bodyweight[0];
@@ -999,13 +1100,13 @@
     if (ui.welcome) p.settings = { units: from.settings.units, theme: from.settings.theme };
     // Its deletion records come along too (a later cloud sign-in must not bring back what was deleted in
     // Overload), except for anything Fuel holds: that stays, so it must not be marked as deleted.
-    Object.keys(from.deleted.food).forEach((id) => { if (!have.has(id) && !gone.food[id]) p.records.food[id] = from.deleted.food[id]; });
+    Object.keys(from.deleted.food).forEach((id) => { if (!held.has(id) && !gone.food[id]) p.records.food[id] = from.deleted.food[id]; });
     ['foods', 'meals'].forEach((kind) => Object.keys(from.deleted[kind]).forEach((id) => {
       if (!st.food[kind][id] && !gone[kind][id] && p[kind].indexOf(id) < 0) p.records[kind][id] = from.deleted[kind][id];
     }));
     if (inc.kind === 'fuel') { if (!st.moved && from.moved) p.moved = from.moved; }
     else p.moved = { from: inc.from, at: Date.now(), days: inc.days, entries: inc.entries, madeAt: inc.madeAt };
-    p.adds = !!(p.addEntries || p.foods.length || p.meals.length || p.targets || p.weight);
+    p.adds = !!(p.addEntries || p.foods.length || p.updated.length || p.meals.length || p.targets || p.weight);
     p.quiet = ['food', 'foods', 'meals'].some((k) => Object.keys(p.records[k]).length);   // bookkeeping only: nothing he would see
     return p;
   }
@@ -1015,9 +1116,15 @@
     const last = state.moved, rep = inc.rep;
     const lines = ['Bring this food log into ' + APP_NAME + '?', '',
       'From: ' + inc.from + (how.here || !inc.madeAt ? '' : (inc.kind === 'payload' ? ', made ' : ', file dated ') + fmtWhen(inc.madeAt)) + '.',
-      'It holds ' + commas([plural(inc.days, 'day'), plural(inc.entries, 'entry', 'entries'), plural(inc.foods, 'saved food'), plural(inc.meals, 'saved meal')]) + '.', '',
-      'New here: ' + commas([p.addEntries && plural(p.addEntries, 'entry', 'entries') + ' on ' + plural(p.addDays, 'day'), p.foods.length && plural(p.foods.length, 'saved food'),
-        p.meals.length && plural(p.meals.length, 'saved meal'), p.targets && 'the daily targets', p.weight && 'your body weight']) + '.'];
+      'It holds ' + commas([plural(inc.days, 'day'), plural(inc.entries, 'entry', 'entries'), plural(inc.foods, 'saved food'), plural(inc.meals, 'saved meal')]) + '.', ''];
+    const added = commas([p.addEntries && plural(p.addEntries, 'entry', 'entries') + ' on ' + plural(p.addDays, 'day'), p.foods.length && plural(p.foods.length, 'saved food'),
+      p.meals.length && plural(p.meals.length, 'saved meal'), p.targets && 'the daily targets', p.weight && 'your body weight']);
+    if (added) lines.push('New here: ' + added + '.');
+    const fixes = p.updated.some((u) => u.fix);
+    if (p.updated.length) {
+      lines.push(plural(p.updated.length, 'saved food') + ' updated from ' + (inc.kind === 'fuel' ? 'the backup' : 'Overload') + ': '
+        + commas([p.updated.some((u) => u.fav) && 'the favorite star', fixes && 'your corrected numbers']) + '.');
+    }
     const same = commas([p.sameEntries && plural(p.sameEntries, 'entry', 'entries'), p.sameFoods && plural(p.sameFoods, 'saved food'), p.sameMeals && plural(p.sameMeals, 'saved meal')]);
     if (same) lines.push('Already in ' + APP_NAME + ', left as they are: ' + same + '.');
     const gone = commas([p.goneEntries && plural(p.goneEntries, 'entry', 'entries'), p.goneFoods && plural(p.goneFoods, 'saved food'), p.goneMeals && plural(p.goneMeals, 'saved meal')]);
@@ -1027,7 +1134,7 @@
     if (inc.kind !== 'fuel' && last && typeof last.madeAt === 'number' && typeof inc.madeAt === 'number' && inc.madeAt <= last.madeAt) {
       lines.push('', 'Note: this copy is not newer than the one you brought in on ' + fmtDate(todayKey(new Date(last.at || last.madeAt))) + '. If you logged food in Overload since, make a new copy there first.');
     }
-    lines.push('', 'Nothing in ' + APP_NAME + ' is replaced or removed.' + (ui.welcome ? '' : ' A copy of what ' + APP_NAME + ' holds now is kept first.'));
+    lines.push('', 'Nothing ' + (fixes ? 'else ' : '') + 'in ' + APP_NAME + ' is replaced or removed.' + (ui.welcome ? '' : ' A copy of what ' + APP_NAME + ' holds now is kept first.'));
     return lines.join('\n');
   }
   // What could not be read in the copy, in words.
@@ -1037,11 +1144,23 @@
       rep.fixed && plural(rep.fixed, 'entry', 'entries') + ' had numbers that could not be read: those count as 0.',
       rep.noMeal && plural(rep.noMeal, 'entry', 'entries') + ' named no meal: ' + (rep.noMeal === 1 ? 'it is' : 'they are') + ' under Snacks.'].filter(Boolean).join(' ');
   }
+  // The copy "Before import" of what Fuel held is stored before this runs (importFrom).
   function applyImport(inc, p) {
     const st = state, from = inc.state;
-    if (!ui.welcome) safetyCopy('import');   // what Fuel holds now, before anything is added
     Object.keys(p.days).forEach((day) => { st.diary[day] = (st.diary[day] || []).concat(p.days[day]); });
     p.foods.forEach((id) => { st.food.foods[id] = from.food.foods[id]; });
+    // Saved foods both hold (planImport says which and why): the star, or his corrected copy in place of the
+    // food list's, with Fuel's last use, last amount and star kept.
+    p.updated.forEach((u) => {
+      const mine = st.food.foods[u.id], theirs = from.food.foods[u.id];
+      if (!u.fix) { mine.fav = true; return; }
+      const f = Object.assign({}, theirs);
+      delete f.used; delete f.last; delete f.fav;
+      if ('used' in mine) f.used = mine.used;
+      if ('last' in mine) f.last = mine.last;
+      if (mine.fav || theirs.fav) f.fav = true;
+      st.food.foods[u.id] = f;
+    });
     p.meals.forEach((id) => { st.food.meals[id] = from.food.meals[id]; });
     if (p.targets) ['kcal', 'protein', 'carbs', 'fat'].forEach((k) => { st.food.targets[k] = from.food.targets[k]; });
     if (p.settings) { st.settings.units = p.settings.units; st.settings.theme = p.settings.theme; }
@@ -1069,10 +1188,22 @@
         return;
       }
       if (!confirm(importQuestion(inc, p, how || {}))) return;
+      // What Fuel holds now goes into the copy "Before import" first, as the question said: it is the way back
+      // from an import that was a mistake. If it cannot be stored, nothing is added. (At Welcome there is
+      // nothing to keep a copy of.)
+      if (!ui.welcome) {
+        const c = await copyFirst('import');
+        if (c === 'failed') { sheetImport({ msg: copyFailedText('brought in'), backup: true }); return; }
+        if (c === 'changed') { importSaid('The food log changed just now. Nothing was brought in.'); return; }
+      }
       const ok = applyImport(inc, p);
       if (ui.sheet) closeSheet();
       render(); window.scrollTo(0, 0);
-      if (ok) toast('Brought in ' + (commas([p.addEntries && plural(p.addEntries, 'entry', 'entries') + ' on ' + plural(p.addDays, 'day'), p.foods.length && plural(p.foods.length, 'saved food'), p.meals.length && plural(p.meals.length, 'saved meal')]) || 'your targets') + '.');
+      if (ok) {
+        let brought = commas([p.addEntries && plural(p.addEntries, 'entry', 'entries') + ' on ' + plural(p.addDays, 'day'), p.foods.length && plural(p.foods.length, 'saved food'), p.meals.length && plural(p.meals.length, 'saved meal')]);
+        if (!brought && (p.targets || p.weight)) brought = 'your targets';
+        toast([brought && 'Brought in ' + brought + '.', p.updated.length && 'Updated ' + plural(p.updated.length, 'saved food') + '.'].filter(Boolean).join(' '));
+      }
     } catch (e) {
       if (!(e && e.said)) console.error(e);
       importSaid(e && e.said ? e.message : 'That could not be read. Nothing was changed.');
@@ -1106,7 +1237,8 @@
     opts = opts || {};
     openSheet(sheetHeader('Bring food from Overload')
       + (opts.msg ? '<div class="banner warn" id="fuel-import-msg" role="alert">' + icon('warning') + '<span>' + esc(opts.msg) + '</span></div>' : '')
-      + '<p class="small muted mb8">In Overload, open the card "Food has moved to ' + APP_NAME + '" and tap Copy my food log, or Save as a file. Then come back here. Only what is missing here is added: nothing in ' + APP_NAME + ' is replaced or removed.</p>'
+      + (opts.backup ? '<button class="btn block mb8" data-action="export">' + icon('export') + 'Export backup</button>' : '')   // the copy could not be kept: a backup first
+      + '<p class="small muted mb8">In Overload, open the card "Food has moved to ' + APP_NAME + '" and tap Copy my food log, or Save as a file. Then come back here. Only what is missing here is added, with the numbers you corrected in Overload. Nothing else in ' + APP_NAME + ' is replaced or removed.</p>'
       + '<div class="list">' + hereRow(false)
       + choiceRow('fuel-paste', 'Paste from Overload', 'Reads the food log you copied in Overload.', false, OV_TILE)
       + choiceRow('fuel-file', 'Choose a file', 'The food file, a full Overload backup, or a ' + APP_NAME + ' backup.', false, lead('file')) + '</div>'
@@ -1245,28 +1377,60 @@
       reloading = true; location.reload();
     });
     // The registration object is kept: getRegistration() would give the training app's while its worker controls this page.
-    let reg = null;
-    sw.register('./sw.js', { updateViaCache: 'none' }).then((r) => {
-      reg = r;
+    const watch = (w) => { if (w) w.addEventListener('statechange', refreshOffline); };
+    const register = () => sw.register('./sw.js', { updateViaCache: 'none' }).then((r) => {
+      if (!r) throw new Error('no registration');
+      const fresh = r !== swReg;
+      swReg = r; swKnown = true;
       r.update().catch(() => {});
-      r.addEventListener('updatefound', () => {
-        const nw = r.installing; if (!nw) return;
-        nw.addEventListener('statechange', () => { if (nw.state === 'installed' && ours()) toast('Updating…'); });
-      });
-    }).catch(() => {});
-    // Also look for updates whenever the app comes back to the foreground.
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && reg) reg.update().catch(() => {}); });
+      if (fresh) {
+        r.addEventListener('updatefound', () => {
+          const nw = r.installing; if (!nw) return;
+          watch(nw);
+          nw.addEventListener('statechange', () => { if (nw.state === 'installed' && ours()) toast('Updating…'); });
+        });
+        watch(r.installing); watch(r.waiting);
+      }
+      refreshOffline();
+    }).catch(() => { swKnown = true; refreshOffline(); });
+    register();
+    // Also look for updates whenever the app comes back to the foreground. A first install that failed (one of
+    // its files did not arrive) leaves no registration behind, and update() on the one kept here then fetches
+    // nothing: register again instead, or the app would not open offline until a cold start with signal.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      if (!swReg || !(swReg.active || swReg.waiting || swReg.installing)) register();
+      else swReg.update().catch(() => {});
+    });
+  }
+  // Fuel's own registration, once register() has answered (swKnown), whatever it answered.
+  let swReg = null, swKnown = false;
+  // Settings says so while the app cannot open without signal: until its own worker is active (that worker
+  // keeps the offline copy). Nothing is said where there is no worker at all (a file, a browser without one).
+  function offlineNote() {
+    if (!workerStarted || !swKnown || (swReg && swReg.active)) return '';
+    return swReg && (swReg.installing || swReg.waiting)
+      ? '<div class="banner mt12" id="offline-note">' + icon('sync') + '<span>Getting ready to work offline…</span></div>'
+      : '<div class="banner warn mt12" id="offline-note">' + icon('cloud-off') + '<span>Not ready to work offline yet. Open ' + APP_NAME + ' again with good signal.</span></div>';
+  }
+  // The note in place, as the worker moves on (Settings is not redrawn for it: that would lose what is being typed).
+  function refreshOffline() {
+    const html = offlineNote(), el = $('#offline-note'), about = $('#about-card');
+    if (el) { if (html) el.outerHTML = html; else el.remove(); }
+    else if (html && about && about.firstElementChild) about.firstElementChild.insertAdjacentHTML('afterend', html);
   }
 
   state = load();
   ui.gate = gateNow();
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   // Going to the background (or being closed): today's automatic copy takes in what was logged since.
-  document.addEventListener('visibilitychange', () => { if (document.hidden) refreshDayCopy(); });
+  // Back in front: Trends follows the date.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) refreshDayCopy(); else redrawTrends(); });
+  setInterval(redrawTrends, 60000);
   window.addEventListener('pagehide', refreshDayCopy);
   try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) { /* ignore */ }
 
-  // For food.js and sync.js (and console debugging). The names are the ones Overload's app.js offers.
+  // For food.js and sync.js (and console debugging). The names are the ones Overload offers (overload.js).
   window.__overload = {
     get state() { return state; },
     get screen() { return shown(); },   // 'food' exactly while the diary is what #app shows
@@ -1274,6 +1438,10 @@
     // Sync waits while the stored data could not be read, and while the app is held at "Add to Home Screen"
     // (it runs on no data of its own then, possibly in another app's storage).
     get unreadable() { return !!(ui.unreadable || ui.gate); },
+    // Did this page start on saved data? Cloud sync believes its note of what the account holds only then. It
+    // cannot look for itself: it runs after its imports from another host arrive, which can take seconds, and
+    // by then Start fresh (or an import) may have saved new data.
+    get startedWithData() { return startedWithData; },
     safetyCopy,
     setState, save, render,
     // What food.js is built on

@@ -10,6 +10,10 @@
  *     food stays byte for byte; the question says so and still counts the food days of both.
  *   - Restore an automatic copy: the same.
  *   - After "Remove the old food log", restoring the copy taken before the removal brings the log back.
+ *   - When the phone holds one part of the old food copy (food days, or saved foods and targets) and not the other,
+ *     the Import question says which part comes from the file, and that is what happens.
+ *   - Restore of the copy taken before a removal or at the split, while the phone holds food days again (v2.8 ran
+ *     and logged food): the two logs are put together (the phone's entries as they are, its deletions kept).
  * On an empty phone: Import of a backup with food takes the file's food (the stored text is the file's).
  * A Fuel-style file ({ v: 1, app: 'fuel', … }) and a hand-over payload file, each with and without an
  * exercises field, are refused with "This is a Fuel file. Open it in Fuel." and change nothing; so is a copy
@@ -53,6 +57,8 @@ async function foodIsTheFixtures(page, what) {
 }
 function trainingIs(state, want, what) { TRAINING.forEach((k) => need(JSON.stringify(state[k]) === JSON.stringify(want[k]), what + ': ' + k + ' is not the backup\'s')); }
 async function importFile(page, file) { await lib.openTab(page, 'settings'); await page.setInputFiles('#import-file', file); }
+// The copy taken before the last "Remove the old food log" (each removal has one of its own).
+const removalCopy = async (page) => (await T.copies(page)).find((m) => m.kind === 'foodremove');
 async function restore(page, id) {
   await lib.openTab(page, 'settings');
   await page.waitForSelector('[data-action="restore-copy"][data-id="' + id + '"]', { timeout: 5000 });
@@ -166,7 +172,7 @@ async function restoreAfterRemove(browser, server) {
     await page.click('[data-action="handover-remove"]'); await T.toast(page, /Old food log removed/);
     same(JSON.parse(await text(page)).diary, {}, 'diary after the removal');
     page.dialogs.length = 0;
-    await restore(page, 'before-foodremove');
+    await restore(page, (await removalCopy(page)).id);
     await T.toast(page, /Copy restored|Not saved|cannot be read/);
     const q = plain(page.dialogs[0]).split('\n');
     need(q[0] === 'confirm: Replace everything on this phone with the copy "Before removing the old food log"?', 'the question starts: ' + q[0]);
@@ -176,6 +182,117 @@ async function restoreAfterRemove(browser, server) {
     return q[5];
   });
   errors(name, phone); await phone.close();
+}
+
+// The phone holds one part of the old food copy and not the other: the question says which part comes from the
+// file (T3). keepFoodCopy carries each part the phone has; the file's is used for a part the phone has none of.
+async function partsFromFile(browser, server) {
+  const name = 'one part on the phone';
+  // A log made of quick adds only: food days, but no saved food, meal or target.
+  const logOnly = JSON.parse(small.text);
+  logOnly.food = { targets: { kcal: null, protein: null, carbs: null, fat: null }, foods: {}, meals: {} };
+  {
+    const phone = await lib.newPhone(browser, { timezoneId: small.meta.tz, now: small.meta.now });
+    await lib.seedV28(phone.context, { state: logOnly, meta: small.meta });
+    const page = await lib.openApp(phone.context, server.url + '/index.html');
+    await T.copy(page, 'before-split');
+    await run.step(name, 'food days but no saved foods: Import says the backup\'s saved foods, meals and targets are used, and they are', async () => {
+      await importFile(page, T.writeFile(tmp, 'overload-backup-main-2.json', fx.text));
+      await T.toast(page, /Backup restored|Not saved|not an Overload/);
+      const q = plain(page.dialogs[0]).split('\n');
+      need(q[5] === 'The old food log on this phone (4 days) stays as it is. The saved foods, saved meals and targets in the backup are used, because this phone has none.', 'the food line reads: ' + q[5]);
+      const now = JSON.parse(await text(page));
+      need(JSON.stringify(now.food) === JSON.stringify(fx.state.food), 'the saved foods are not the backup\'s');
+      need(JSON.stringify(now.diary) === JSON.stringify(logOnly.diary), 'the food days are not the phone\'s');
+      return q[5];
+    });
+    errors(name, phone); await phone.close();
+  }
+  {
+    const { phone, page } = await phoneWith(browser, server, { clipboard: true });
+    await run.step(name, 'saved foods but no food days (after Remove): Import says the phone\'s saved foods stay and the backup\'s log comes', async () => {
+      await lib.openTab(page, 'settings');
+      await page.click('[data-action="handover-copy"]'); await T.toast(page, /Food log copied/);
+      await page.click('[data-action="handover-remove"]'); await T.toast(page, /Old food log removed/);
+      page.dialogs.length = 0;
+      await importFile(page, T.writeFile(tmp, 'overload-backup-small-3.json', small.text));
+      await T.toast(page, /Backup restored|Not saved|not an Overload/);
+      const q = plain(page.dialogs[0]).split('\n');
+      need(q[5] === 'The food log in the backup (4 days) comes with it. The saved foods, saved meals and targets on this phone stay as they are; those in the backup are not used.', 'the food line reads: ' + q[5]);
+      const now = JSON.parse(await text(page));
+      need(JSON.stringify(now.food) === JSON.stringify(fx.state.food), 'the saved foods are not the phone\'s');
+      need(JSON.stringify(now.diary) === JSON.stringify(small.state.diary), 'the food days are not the backup\'s');
+      return q[5];
+    });
+    errors(name, phone); await phone.close();
+  }
+}
+
+// Restore of the copy taken before a removal, or at the split, while the phone holds food days again (v2.8 ran and
+// logged food): the copy's log is put together with the phone's, not left out (U3).
+async function mergeRestore(browser, server) {
+  const name = 'restore puts the logs together';
+  const today = fx.meta.today, days = Object.keys(fx.state.diary), gone = fx.state.diary[days[0]][0];
+  // What v2.8 leaves when it runs once more: one food logged today, and one entry of the old log deleted (its record).
+  const asV28 = (page, opts) => page.evaluate(([key, today, goneId, opts]) => {
+    const s = JSON.parse(localStorage.getItem(key));
+    (s.diary[today] = s.diary[today] || []).push({ id: 'late1', food: null, meal: 3, qty: null, unit: null, amt: '', name: 'Late snack', brand: '', kcal: 210, p: 4, c: 30, f: 8, at: Date.now() });
+    if (opts.del) { Object.keys(s.diary).forEach((d) => { s.diary[d] = s.diary[d].filter((e) => e.id !== goneId); if (!s.diary[d].length) delete s.diary[d]; }); s.deleted.food[goneId] = Date.now(); }
+    localStorage.setItem(key, JSON.stringify(s));
+    return JSON.stringify(s);
+  }, [lib.STATE_KEY, today, gone.id, opts || {}]);
+  const reload = async (page) => { await page.reload({ waitUntil: 'load' }); await page.waitForFunction(() => !!window.__overload); };
+  // The copy's log with the phone's: every day of the copy, the phone's entry today, the deleted entry not back.
+  function checkMerged(now, phoneText, what) {
+    const phoneSt = JSON.parse(phoneText);
+    need(Object.keys(now.diary).length === days.length, what + ': ' + Object.keys(now.diary).length + ' food days, the copy had ' + days.length);
+    const late = now.diary[today].filter((e) => e.id === 'late1');
+    need(late.length === 1 && JSON.stringify(late[0]) === JSON.stringify(phoneSt.diary[today].find((e) => e.id === 'late1')), what + ': the entry logged on the phone is not there as it was');
+    days.forEach((d) => { const want = fx.state.diary[d].filter((e) => !phoneSt.deleted.food[e.id]).map((e) => JSON.stringify(e)); const got = (now.diary[d] || []).filter((e) => e.id !== 'late1').map((e) => JSON.stringify(e)); same(got, want, what + ': day ' + d); });
+    return Object.keys(now.diary).length + ' days, ' + Object.values(now.diary).reduce((n, l) => n + l.length, 0) + ' entries';
+  }
+  {
+    const { phone, page } = await phoneWith(browser, server, { clipboard: true });
+    await run.step(name, 'after Remove and a food logged in v2.8: Restore of the removal copy says so and brings the log back beside it', async () => {
+      await lib.openTab(page, 'settings');
+      await page.click('[data-action="handover-copy"]'); await T.toast(page, /Food log copied/);
+      await page.click('[data-action="handover-remove"]'); await T.toast(page, /Old food log removed/);
+      const phoneText = await asV28(page);
+      await reload(page);
+      page.dialogs.length = 0;
+      await restore(page, (await removalCopy(page)).id);
+      await T.toast(page, /Copy restored|Not saved|cannot be read/);
+      const q = plain(page.dialogs[0]).split('\n');
+      need(q[0] === 'confirm: Replace the training data on this phone with the copy "Before removing the old food log"?', 'the question starts: ' + q[0]);
+      need(q[5] === 'The food log in the copy (' + DAYS + ' days) is put together with the old food log on this phone (1 day).', 'the food line reads: ' + q[5]);
+      const now = JSON.parse(await text(page));
+      const detail = checkMerged(now, phoneText, 'after the restore');
+      need(JSON.stringify(now.food) === JSON.stringify(fx.state.food), 'the saved foods changed');
+      trainingIs(now, fx.state, 'after the restore');
+      const c = await T.copy(page, 'before-restore');
+      need(c && c.text === phoneText, 'the copy "Before restore" does not hold what the phone held');
+      return detail;
+    });
+    errors(name, phone); await phone.close();
+  }
+  {
+    const { phone, page } = await phoneWith(browser, server);
+    await run.step(name, 'v2.8 logged and deleted food after the split: Restore of the split copy keeps both, and the deletion', async () => {
+      const phoneText = await asV28(page, { del: true });
+      await reload(page);
+      page.dialogs.length = 0;
+      await restore(page, 'before-split');
+      await T.toast(page, /Copy restored|Not saved|cannot be read/);
+      const q = plain(page.dialogs[0]).split('\n');
+      need(q[0] === 'confirm: Replace the training data on this phone with the copy "Before the split into two apps"?', 'the question starts: ' + q[0]);
+      need(q[5] === 'The food log in the copy (' + DAYS + ' days) is put together with the old food log on this phone (' + Object.keys(JSON.parse(phoneText).diary).length + ' days).', 'the food line reads: ' + q[5]);
+      const now = JSON.parse(await text(page));
+      const detail = checkMerged(now, phoneText, 'after the restore');
+      need(!Object.values(now.diary).some((l) => l.some((e) => e.id === gone.id)) && now.deleted.food[gone.id], 'the entry deleted in v2.8 came back, or its record is gone');
+      return detail + '; the deleted entry stays deleted';
+    });
+    errors(name, phone); await phone.close();
+  }
 }
 
 async function fuelFiles(browser, server) {
@@ -236,7 +353,9 @@ async function signedIn(browser, server) {
     await lib.sleep(300);
     const q = page.dialogs.map(plain);
     same(q.length, 3, 'the number of questions');
-    const tail = (verb) => '\n\nYou are signed in to cloud sync, so the training data in your account (me@example.com) is ' + verb + ' too. The food log in your account is not changed.';
+    const tail = (verb) => '\n\nYou are signed in to cloud sync, so the training data in your account (me@example.com) is ' + verb + ' too.'
+      + (verb === 'erased' ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.' : '')
+      + ' The food log in your account is not changed.';
     need(q[0].endsWith('It stays on this phone until you remove it in Settings > Food.' + tail('erased')), 'Reset asks: ' + q[0]);
     need(q[1].endsWith('Food in the backup is not used.' + tail('replaced')), 'Import asks: ' + q[1]);
     need(q[2].endsWith('A copy of what is on the phone now is kept first.' + tail('replaced')), 'Restore asks: ' + q[2]);
@@ -256,6 +375,8 @@ async function signedIn(browser, server) {
     await importIntoEmpty(browser, server);
     await restoreOver(browser, server);
     await restoreAfterRemove(browser, server);
+    await partsFromFile(browser, server);
+    await mergeRestore(browser, server);
     await fuelFiles(browser, server);
     await signedIn(browser, server);
   } finally { await browser.close(); await server.stop(); T.removeDir(tmp); }

@@ -10,7 +10,7 @@
  *     files found one folder up;
  *   - targets, body weight and units, the theme, the Trends screen;
  *   - after a reload everything is still there;
- *   - window.__overload offers exactly what the spec lists and food.js started on it;
+ *   - window.__overload offers exactly what the spec lists (and startedWithData, for cloud sync) and food.js started on it;
  *   - the saved state has the shape of SPEC section 2 and no exercises field;
  *   - nothing was written under any overload.* name; no page error and no console error.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
@@ -53,12 +53,14 @@ const TODAY = fx.meta.today;
 
     await step('window.__overload is what the spec lists, and food.js runs on it', async () => {
       const api = await page.evaluate(() => ({ top: Object.keys(Object.getOwnPropertyDescriptors(window.__overload)).sort(), lib: Object.keys(window.__overload.lib).sort(),
-        food: Object.keys(window.__overloadFood).sort(), types: ['save', 'render', 'setState', 'safetyCopy', 'setSyncStatus', 'syncChanged'].map((k) => typeof window.__overload[k]) }));
-      same(api.top, ['lib', 'render', 'safetyCopy', 'save', 'saveFailed', 'screen', 'setState', 'setSyncStatus', 'state', 'syncChanged', 'unreadable'], 'window.__overload');
+        food: Object.keys(window.__overloadFood).sort(), types: ['save', 'render', 'setState', 'safetyCopy', 'setSyncStatus', 'syncChanged'].map((k) => typeof window.__overload[k]), began: window.__overload.startedWithData }));
+      // startedWithData (3.0, for cloud sync's guard): whether the page started on saved data.
+      same(api.top, ['lib', 'render', 'safetyCopy', 'save', 'saveFailed', 'screen', 'setState', 'setSyncStatus', 'startedWithData', 'state', 'syncChanged', 'unreadable'], 'window.__overload');
       same(api.lib, ['$', 'addDays', 'closeSheet', 'esc', 'fmtDate', 'markDeleted', 'num', 'openSheet', 'sheetHeader', 'toast', 'todayKey', 'uid'], 'window.__overload.lib');
       need(api.types.every((t) => t === 'function'), 'not all functions: ' + api.types.join(', '));
+      need(api.began === false, 'startedWithData is ' + api.began + ' on a phone with nothing stored');
       same(api.food, ['_', 'change', 'click', 'input', 'render', 'settingsCard', 'submit'], 'window.__overloadFood');
-      return '11 members, 12 helpers';
+      return '12 members, 12 helpers';
     });
 
     await step('Start fresh gives an empty diary', async () => {
@@ -257,6 +259,7 @@ const TODAY = fx.meta.today;
       need(day.entries === 1 && day.meals[0].foods === 1 && / \/ 2,200 kcal$/.test(day.kcalLine), 'Today reads ' + JSON.stringify(day));
       need(Object.keys(st.food.meals).length === 1 && st.settings.theme === 'light' && st.settings.units === 'kg' && st.bodyweight[0].weight === 81.6, 'the state after a reload: ' + JSON.stringify([st.settings, st.bodyweight]));
       need((await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'light', 'the theme was not applied at start');
+      need((await page.evaluate(() => window.__overload.startedWithData)) === true, 'startedWithData is not true after a reload on saved data');
       const sheet = await F.openAddSheet(page, 0);
       need(sheet.groups['Saved meals'] === 1 && sheet.groups.Recent === 1, 'the Add sheet lists ' + JSON.stringify(sheet.groups));
       await F.closeSheet(page);

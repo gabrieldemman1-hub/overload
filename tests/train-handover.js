@@ -51,6 +51,18 @@ const reload = async (page) => { await page.reload({ waitUntil: 'load' }); await
 const clip = (page) => page.evaluate(() => navigator.clipboard.readText());
 const split = async (page) => ((await T.stored(page, 'overload.backup')) || {}).split || {};
 const todayCard = (page) => T.count(page, '#handover[data-where="today"] .card');
+// The copies taken before "Remove the old food log", newest first (each removal has one of its own).
+const removalCopies = async (page) => (await T.copies(page)).filter((m) => m.kind === 'foodremove');
+// The short card Today keeps after a copy or a file: its text, its link and its keys.
+const shortCard = (page) => page.evaluate(() => {
+  const c = document.querySelector('#handover[data-where="today"] .card'); if (!c) return null;
+  const link = c.querySelector('a.btn');
+  const msg = c.querySelector(':scope > p.small');
+  return { text: msg ? msg.textContent : null, title: (c.querySelector('.handover-head b') || {}).textContent || null, getFuel: link ? link.textContent : null, href: link ? link.getAttribute('href') : null,
+    keys: [...c.querySelectorAll('button[data-action]')].map((b) => b.dataset.action + ':' + b.textContent.trim()) };
+});
+const COPIED = 'Copied. Open Fuel and tap Paste from Overload.', FILED = 'Saved as a file. Open Fuel and tap Choose a file.';
+const CLOUD_LINE = 'Using cloud sync? Copy the food log or save it as a file from here as well. Signing in to Fuel with the same email may bring some of it across, but not always all of it.';
 // Tap Copy my food log and return what reached the clipboard.
 async function copyLog(page) {
   await page.evaluate(() => navigator.clipboard.writeText('nothing yet'));
@@ -124,7 +136,8 @@ async function mainFlow(browser, server) {
     need(t === 'Copy your food log or save it as a file first.', 'the app said: ' + t);
     need(!page.dialogs.length, 'a question was asked: ' + page.dialogs.join(' / '));
     need((await lib.readStorageText(page, lib.STATE_KEY)) === base, 'the data changed');
-    need(!(await T.copy(page, 'before-foodremove', 300)), 'a removal copy was taken');
+    await lib.sleep(300);
+    need(!(await removalCopies(page)).length, 'a removal copy was taken');
     return t;
   });
 
@@ -135,11 +148,26 @@ async function mainFlow(browser, server) {
     const what = checkPayload(got.payload, got.json, state);
     return text.length + ' characters on the clipboard for ' + got.json.length + ' of JSON; ' + what;
   });
-  await step('after the copy the card leaves Today and Settings says "Copied today."', async () => {
-    need(await todayCard(page) === 0, 'the card is still on Today');
+  await step('after the copy Today keeps a short card: what to do next, Get Fuel, Copy link, Copy again (H2)', async () => {
+    const c = await shortCard(page);
+    need(c, 'no card on Today after the copy');
+    need(c.text === COPIED && c.title === 'Food has moved to Fuel', 'the short card reads: ' + c.title + ' / ' + c.text);
+    same([c.getFuel, c.href], ['Get Fuel', server.url + '/fuel/'], 'its Get Fuel link');
+    same(c.keys, ['handover-hide:', 'handover-link:Copy link', 'handover-copy:Copy again'], 'its keys');
+    await reload(page);
+    need((await shortCard(page) || {}).text === COPIED, 'the short card is gone after a restart');
+    return c.text;
+  });
+  await step('Copy again on the short card copies the same text again; Settings says "Copied today."', async () => {
+    await page.evaluate(() => navigator.clipboard.writeText('nothing yet'));
+    await page.click('#handover[data-where="today"] [data-action="handover-copy"]');
+    await T.toast(page, /Food log copied/);
+    checkPayload(T.decodeFoodText(await clip(page)).payload, T.decodeFoodText(await clip(page)).json, state);
+    need((await shortCard(page) || {}).text === COPIED, 'the short card changed');
     await lib.openTab(page, 'settings');
     need(/Copied today\./.test(await T.text(page, '#handover .card')), 'Settings does not say "Copied today."');
-    need(/Using cloud sync\? Signing in to Fuel with the same email also brings across the food log your account holds\. This phone may hold more, so copy it from here as well\./.test(await T.text(page, '#handover .card')), 'no line for cloud sync users (the phone holds a sync note)');
+    const card = await T.text(page, '#handover .card');
+    need(card.includes(CLOUD_LINE), 'the line for cloud sync users (the phone holds a sync note) reads: ' + (card.match(/Using cloud sync\?[^]*$/) || [''])[0].slice(0, 200));
   });
   await step('Save as a file: overload-food-YYYY-MM-DD.json, compact, the same content', async () => {
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="handover-file"]')]);
@@ -175,7 +203,7 @@ async function mainFlow(browser, server) {
     need(/The file from Sat, Nov 21 is out of date\./.test(await T.text(page, '#handover .card')), 'Settings does not say the file is out of date');
   });
   let before = null, state2 = null;
-  await step('copied again: the text holds the new entry, the card leaves Today, Remove is back', async () => {
+  await step('copied again: the text holds the new entry, Today has the short card again, Remove is back', async () => {
     before = await lib.readStorageText(page, lib.STATE_KEY); state2 = JSON.parse(before);
     const got = T.decodeFoodText(await copyLog(page));
     checkPayload(got.payload, got.json, state2);
@@ -183,7 +211,8 @@ async function mainFlow(browser, server) {
     need(s.copied.hash !== hash1 && s.copied.entries === fx.facts.counts.foodEntries + 1, 'the note was not renewed: ' + JSON.stringify(s.copied));
     need(await T.count(page, '[data-action="handover-remove"]') === 1, 'Remove is not offered');
     await lib.openTab(page, 'today');
-    need(await todayCard(page) === 0, 'the card is still on Today');
+    need((await shortCard(page) || {}).text === COPIED, 'Today does not show the short card');
+    need(!(await T.count(page, '#handover[data-where="today"] [data-action="handover-remove"]')), 'Remove is offered on Today');
     return JSON.stringify(s.copied);
   });
 
@@ -201,7 +230,9 @@ async function mainFlow(browser, server) {
     need(JSON.stringify(after.deleted) === JSON.stringify(state2.deleted), 'deleted changed');
     same(Object.keys(after), Object.keys(state2), 'the fields of the saved data');
     need(JSON.stringify(Object.assign({}, after, { diary: state2.diary })) === before, 'something besides diary changed');
-    const c = await T.copy(page, 'before-foodremove'), s = await split(page);
+    const list = await removalCopies(page);
+    need(list.length === 1 && /^before-foodremove-\d+$/.test(list[0].id), 'the removal copies are ' + JSON.stringify(list.map((m) => m.id)));
+    const c = await T.copy(page, list[0].id), s = await split(page);
     need(c && c.kind === 'foodremove' && c.text === before, 'the safety copy does not hold the data as it was before the removal');
     need(s.removed && typeof s.removed.at === 'number' && c.at <= s.removed.at, 'split.removed is ' + JSON.stringify(s.removed) + ', the copy is from ' + c.at);
     return 'diary emptied; ' + Object.keys(after.food.foods).length + ' saved foods and ' + Object.keys(after.deleted.food).length + ' deletion records kept; safety copy of ' + c.chars + ' characters';
@@ -291,13 +322,17 @@ async function hideFlow(browser, server) {
     need(await todayCard(page) === 1, 'the card did not come back');
     need(!/changed after you copied/.test(await T.text(page, '#handover .card')), 'the card speaks of a copy that was never made');
   });
-  await step('signed in, and sync.js says the account holds the whole food log: the card says signing in is enough', async () => {
+  await step('signed in: the card always asks for a copy or a file, also when sync.js says the account holds the log (S4)', async () => {
     await page.evaluate(() => { window.__overloadSync = { user: { email: 'me@example.com', uid: 'u1' }, foodInCloud: true }; });   // a stand-in: sync.js cannot load in tests
     await lib.openTab(page, 'settings');
-    need(/Using cloud sync\? Your whole food log is in your account\. Signing in to Fuel with the same email brings it across too\./.test(await T.text(page, '#handover .card')), 'the card reads: ' + (await T.text(page, '#handover .card')).slice(-260));
+    let card = await T.text(page, '#handover .card');
+    need(card.includes(CLOUD_LINE), 'with foodInCloud true the card reads: ' + card.slice(-260));
+    need(!/whole food log is in your account|brings it across too/.test(card), 'the card still says signing in to Fuel brings the whole log across');
     await page.evaluate(() => { window.__overloadSync.foodInCloud = false; });
     await lib.openTab(page, 'today'); await lib.openTab(page, 'settings');
-    need(/This phone may hold more, so copy it from here as well\./.test(await T.text(page, '#handover .card')), 'the card does not ask for a copy when the account may be behind');
+    card = await T.text(page, '#handover .card');
+    need(card.includes(CLOUD_LINE), 'with foodInCloud false the card reads: ' + card.slice(-260));
+    return CLOUD_LINE;
   });
   const problems = phone.problems();
   run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
@@ -317,7 +352,7 @@ async function declined(browser, server) {
     await lib.sleep(800);
     need(answers.length === 2, answers.length + ' questions asked');
     need((await lib.readStorageText(page, lib.STATE_KEY)) === fx.text, 'the data changed');
-    need(!(await T.copy(page, 'before-foodremove', 0)), 'a removal copy was taken');
+    need(!(await removalCopies(page)).length, 'a removal copy was taken');
     need(!(await split(page)).removed, 'a removal was noted');
     need(await T.count(page, '[data-action="handover-remove"]') === 1, 'Remove is no longer offered');
   });
@@ -351,12 +386,281 @@ async function smallUser(browser, server) {
     same(got.payload.food.targets, { kcal: null, protein: null, carbs: null, fat: null }, 'the targets');
     return checkPayload(got.payload, got.json, sm.state);
   });
-  await run.step(name, 'food logged after the copy: the card comes back and asks for another copy', async () => {
-    need(await todayCard(page) === 0, 'the card is still on Today after the copy');
+  await run.step(name, 'food logged after the copy: the card comes back in full and asks for another copy', async () => {
+    need((await shortCard(page) || {}).text === COPIED, 'Today does not show the short card after the copy');
     await logFoodAsV28(page);
     const card = await T.text(page, '#handover .card');
     need(/The food log here changed after you copied it on Sat, Nov 21\. Copy it again so Fuel gets the rest\./.test(card || ''), 'the card reads: ' + String(card).slice(0, 260));
     need(/The copy from Sat, Nov 21 is out of date\./.test(card), 'the card does not say the copy is out of date');
+  });
+  const problems = phone.problems();
+  run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
+  await phone.close();
+}
+
+// --- Today after Save as a file, and hiding the short card (H2) ------------------------------------------
+async function shortAfterFile(browser, server) {
+  const name = 'short card', step = (title, fn) => run.step(name, title, fn);
+  const phone = await phoneWith(browser, { state: JSON.parse(fx.text) });
+  const page = await open(phone, server);
+  await step('Save as a file on Today: the short card says to choose the file in Fuel, with Save again', async () => {
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#handover[data-where="today"] [data-action="handover-file"]')]);
+    need(/^overload-food-/.test(dl.suggestedFilename()), 'no file');
+    await T.toast(page, /saved as a file/);
+    const c = await shortCard(page);
+    need(c && c.text === FILED, 'the short card reads: ' + (c ? c.text : '(none)'));
+    same(c.keys, ['handover-hide:', 'handover-link:Copy link', 'handover-file:Save again'], 'its keys');
+    need(c.getFuel === 'Get Fuel', 'no Get Fuel link');
+    return c.text;
+  });
+  await step('then Copy my food log in Settings: the short card speaks of the copy, the newer of the two', async () => {
+    await lib.openTab(page, 'settings'); await copyLog(page); await lib.openTab(page, 'today');
+    need((await shortCard(page) || {}).text === COPIED, 'the short card reads: ' + ((await shortCard(page)) || {}).text);
+  });
+  await step('hidden, the short card stays away after a restart; the full card is still in Settings', async () => {
+    await page.click('#handover[data-where="today"] [data-action="handover-hide"]');
+    need((await T.toast(page, /Hidden/)) === 'Hidden here. It stays in Settings > Food.', 'the toast');
+    need(await todayCard(page) === 0, 'the card is still on Today');
+    await reload(page);
+    need(await todayCard(page) === 0, 'the card is back after a restart');
+    await lib.openTab(page, 'settings');
+    need(/^Food has moved to Fuel/.test(await T.text(page, '#handover .card')) && /Copied today/.test(await T.text(page, '#handover .card')), 'Settings lost the card');
+  });
+  await step('a double tap on Copy my food log on Today: the second tap lands on the short card, nothing else opens', async () => {
+    const p2 = await open(await phoneWith(browser, { state: JSON.parse(fx.text) }), server);
+    await p2.evaluate(() => window.__overload._handover.text());
+    const btn = p2.locator('#handover[data-where="today"] [data-action="handover-copy"]');
+    await btn.scrollIntoViewIfNeeded();
+    const box = await btn.boundingBox(), x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await p2.mouse.click(x, y);
+    await T.toast(p2, /Food log copied/);
+    const under = await p2.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y), b = e && e.closest('[data-action], a, .card'); return b ? (b.dataset.action || b.className) + ' ' + b.textContent.trim().replace(/\s+/g, ' ').slice(0, 40) : 'nothing'; }, [x, y]);
+    await p2.mouse.click(x, y);
+    await lib.sleep(400);
+    need(await p2.evaluate(() => document.querySelector('#sheet').hidden), 'a sheet opened under the second tap (' + under + ')');
+    need(/^handover-copy |^card handover/.test(under), 'the second tap lands on ' + under);
+    await p2.context().close();
+    return 'second tap on: ' + under;
+  });
+  const problems = phone.problems();
+  run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
+  await phone.close();
+}
+
+// --- What the clipboard text carries, made again when the weigh-in or the theme changed (H3) -----------
+async function freshText(browser, server) {
+  const name = 'weigh-in and theme';
+  const st = JSON.parse(fx.text);
+  st.bodyweight = st.bodyweight.filter((b) => b.date !== fx.meta.today);   // this morning's weigh-in is not done yet
+  const phone = await phoneWith(browser, { state: st });
+  const page = await open(phone, server);
+  await run.step(name, 'a weigh-in and a new theme in the same session reach the clipboard text; madeAt is when it was made', async () => {
+    const first = T.decodeFoodText(await page.evaluate(() => window.__overload._handover.text())).payload;   // ready, as a moment after the card is drawn
+    need(first.bodyweight[0].date !== fx.meta.today && first.settings.theme === 'dark', 'the first text: ' + JSON.stringify([first.bodyweight, first.settings]));
+    await page.clock.runFor(60000);
+    await page.fill('#bw-form input[name="weight"]', '179.4');
+    await page.click('#bw-form button[type="submit"]');
+    await lib.openTab(page, 'settings');
+    const changedAt = await page.evaluate(() => Date.now());
+    await page.click('[data-action="set-theme"][data-v="light"]');
+    await lib.openTab(page, 'today');
+    const got = T.decodeFoodText(await copyLog(page)).payload;
+    same(got.bodyweight, [{ date: fx.meta.today, weight: 179.4 }], 'the weigh-in in the text');
+    need(got.settings.theme === 'light', 'the theme in the text is ' + got.settings.theme);
+    need(got.madeAt >= changedAt, 'madeAt is ' + (changedAt - got.madeAt) + ' ms before the change');
+    same(got.diary, st.diary, 'the diary');
+    return JSON.stringify(got.bodyweight) + ', theme ' + got.settings.theme;
+  });
+  const problems = phone.problems();
+  run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
+  await phone.close();
+}
+
+// --- A phone whose storage is full: the note of the copy is kept in memory (U4) --------------------------
+// A stand-in quota: setItem throws QuotaExceededError once keys + values would pass what v2.8 left plus 20
+// characters, the old value staying in place, as browsers do.
+const FULL = (slack) => {
+  if (window.top !== window) return;
+  const used = () => { let n = 0; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('__t')) continue; n += k.length + localStorage.getItem(k).length; } return n; };
+  const real = Storage.prototype.setItem;
+  let limit = null;
+  Storage.prototype.setItem = function (k, v) {
+    if (this !== localStorage || k.startsWith('__t')) return real.apply(this, arguments);
+    if (limit == null) { limit = +localStorage.getItem('__t.limit') || (used() + slack); real.call(localStorage, '__t.limit', String(limit)); }
+    const old = localStorage.getItem(k), next = used() - (old == null ? 0 : k.length + old.length) + k.length + String(v).length;
+    if (next > limit) throw new DOMException('quota', 'QuotaExceededError');
+    return real.apply(this, arguments);
+  };
+};
+async function storageFull(browser, server) {
+  const name = 'storage full', step = (title, fn) => run.step(name, title, fn);
+  const phone = await phoneWith(browser, { state: JSON.parse(fx.text) });
+  await phone.context.addInitScript(FULL, 20);
+  const page = await open(phone, server);
+  await step('the stored note of the split could not be written (the stand-in quota works)', async () => {
+    await T.copy(page, 'before-split'); await lib.sleep(300);
+    need(!(await split(page)).at, 'split.at was stored: the quota stand-in did not hold');
+    need((await lib.readStorageText(page, lib.STATE_KEY)) === fx.text, 'the data changed');
+  });
+  await step('Copy my food log: the card says "Copied today." and Remove is offered, though nothing could be noted', async () => {
+    await lib.openTab(page, 'settings');
+    const t = T.decodeFoodText(await copyLog(page));
+    need(t.payload.diary && Object.keys(t.payload.diary).length === fx.facts.counts.foodDays, 'the clipboard text');
+    need(!(await split(page)).copied, 'the note reached storage: the stand-in did not hold');
+    need(/Copied today\./.test(await T.text(page, '#handover .card')), 'the card says: ' + ((await T.text(page, '#handover .card')).match(/(Not copied yet|Copied [a-z]+)\./) || ['?'])[0]);
+    need(await T.count(page, '[data-action="handover-remove"]') === 1, 'Remove is not offered');
+  });
+  await step('Save as a file: the card says so as well', async () => {
+    await Promise.all([page.waitForEvent('download'), page.click('[data-action="handover-file"]')]);
+    await T.toast(page, /saved as a file/);
+    need(/Copied today · Saved as a file today\./.test(await T.text(page, '#handover .card')), 'the card: ' + (await T.text(page, '#handover .card')).slice(0, 300));
+  });
+  await step('Remove frees the room, and then the whole note is stored', async () => {
+    await page.click('[data-action="handover-remove"]');
+    need((await T.toast(page, /removed|Not saved|could not|changed/)) === 'Old food log removed from Overload', 'the toast: ' + await T.text(page, '#toast'));
+    const s = await split(page);
+    need(s.copied && s.filed && s.removed && s.at, 'the stored note: ' + JSON.stringify(s));
+    same(JSON.parse(await lib.readStorageText(page, lib.STATE_KEY)).diary, {}, 'the diary');
+    return Object.keys(s).join(', ');
+  });
+  const problems = phone.problems();
+  run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
+  await phone.close();
+}
+
+// --- The share sheet (U5, T1). Chromium here has no share sheet: navigator.canShare and navigator.share are
+// stand-ins that behave as the Web Share standard says (a share stays pending while the sheet is open, a second
+// share() meanwhile is rejected with InvalidStateError, a cancel rejects with AbortError). __shareMode picks
+// what the next sheet does: 'hold' (until __endShare(result)), or an error name to reject with at once.
+const SHARE = () => {
+  let open = null;
+  window.__shares = []; window.__shareMode = 'hold';
+  navigator.canShare = (d) => !window.__noShare && !!(d && d.files);
+  navigator.share = (data) => {
+    if (open) { window.__shares.push('second: InvalidStateError'); return Promise.reject(new DOMException('An earlier share has not yet completed.', 'InvalidStateError')); }
+    const name = data.files && data.files[0] && data.files[0].name;
+    if (window.__shareMode !== 'hold') { window.__shares.push(name + ': ' + window.__shareMode); return Promise.reject(new DOMException('no', window.__shareMode)); }
+    window.__shares.push(name + ': sheet open');
+    return new Promise((resolve, reject) => { open = { resolve, reject }; });
+  };
+  window.__endShare = (how) => { if (!open) return; const o = open; open = null; window.__shares.push('sheet ' + how); if (how === 'saved') o.resolve(); else o.reject(new DOMException('Share canceled', 'AbortError')); };
+};
+async function shareSheet(browser, server) {
+  const name = 'share sheet', step = (title, fn) => run.step(name, title, fn);
+  const phone = await phoneWith(browser, { state: JSON.parse(fx.text), init: SHARE });
+  const page = await open(phone, server);
+  let downloads = 0; page.on('download', (d) => { downloads++; d.cancel().catch(() => {}); });
+  const shares = () => page.evaluate(() => window.__shares.splice(0));
+  await lib.openTab(page, 'settings');
+  await step('Save as a file tapped twice, then the sheet cancelled: one sheet, nothing saved, nothing noted, no Remove', async () => {
+    await page.evaluate(() => { const b = document.querySelector('[data-action="handover-file"]'); b.click(); b.click(); });
+    await lib.sleep(300);
+    await page.evaluate(() => window.__endShare('cancelled'));
+    await lib.sleep(300);
+    const seen = await shares();
+    same(seen, ['overload-food-' + fx.meta.today + '.json: sheet open', 'sheet cancelled'], 'what the share sheet saw');
+    need(!downloads, downloads + ' downloads started');
+    need(!(await split(page)).filed, 'noted as saved: ' + JSON.stringify((await split(page)).filed));
+    need(/Not copied yet\./.test(await T.text(page, '#handover .card')) && !(await T.count(page, '[data-action="handover-remove"]')), 'the card says it was saved, or Remove is offered');
+    return seen.join(' -> ');
+  });
+  for (const err of ['InvalidStateError', 'NotAllowedError']) {
+    await step('the sheet refuses with ' + err + ': treated as a cancel (no download, nothing noted)', async () => {
+      await page.evaluate((e) => { window.__shareMode = e; }, err);
+      await page.click('[data-action="handover-file"]'); await lib.sleep(400);
+      await page.evaluate(() => { window.__shareMode = 'hold'; });
+      need(!downloads, downloads + ' downloads started');
+      need(!(await split(page)).filed, 'noted as saved');
+      return (await shares()).join(' -> ');
+    });
+  }
+  await step('another failure of the sheet: the download is still offered, but not counted as saved', async () => {
+    await page.evaluate(() => { window.__shareMode = 'DataError'; });
+    await page.click('[data-action="handover-file"]'); await lib.sleep(600);
+    await page.evaluate(() => { window.__shareMode = 'hold'; });
+    need(downloads === 1, downloads + ' downloads');
+    need(!(await split(page)).filed, 'noted as saved');
+    downloads = 0; await shares();
+  });
+  await step('the sheet finishes: noted once, the card says so and offers Remove', async () => {
+    await page.click('[data-action="handover-file"]'); await lib.sleep(200);
+    await page.click('[data-action="handover-file"]'); await lib.sleep(200);   // a second tap while it is open: ignored
+    await page.evaluate(() => window.__endShare('saved'));
+    await T.toast(page, /saved as a file/);
+    const s = await split(page);
+    need(s.filed && s.filed.at, 'not noted');
+    need(/Saved as a file today\./.test(await T.text(page, '#handover .card')) && await T.count(page, '[data-action="handover-remove"]') === 1, 'the card');
+    need(!downloads, 'a download started');
+    return (await shares()).join(' -> ');
+  });
+  await step('Export JSON tapped twice and cancelled: one sheet, the last export is not noted', async () => {
+    const was = ((await T.stored(page, 'overload.backup')) || {}).lastExport;
+    await page.evaluate(() => { const b = document.querySelector('[data-action="export"]'); b.click(); b.click(); });
+    await lib.sleep(300);
+    await page.evaluate(() => window.__endShare('cancelled'));
+    await lib.sleep(300);
+    const seen = await shares();
+    need(seen.length === 2 && /^overload-backup-.*: sheet open$/.test(seen[0]), 'what the share sheet saw: ' + seen.join(' -> '));
+    need(((await T.stored(page, 'overload.backup')) || {}).lastExport === was && !downloads, 'the export was noted, or a download started');
+    return seen.join(' -> ');
+  });
+  await step('a phone whose share sheet cannot take files: the download is the way, and it counts', async () => {
+    await page.evaluate(() => { window.__noShare = true; });
+    const was = ((await T.stored(page, 'overload.backup')) || {}).lastExport;
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="export"]')]);
+    need(/^overload-backup-/.test(dl.suggestedFilename()), 'no export file');
+    await lib.sleep(200);
+    need(((await T.stored(page, 'overload.backup')) || {}).lastExport > was, 'the export was not noted');
+  });
+  const problems = phone.problems();
+  run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
+  await phone.close();
+}
+
+// --- Several removals: each keeps a safety copy of its own, the last three are kept (U3) -------------------
+async function removals(browser, server) {
+  const name = 'several removals', step = (title, fn) => run.step(name, title, fn);
+  const sm = lib.loadFixture('v28-state-small');
+  const phone = await lib.newPhone(browser, { timezoneId: sm.meta.tz, now: sm.meta.now });
+  await phone.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await lib.seedV28(phone.context, sm);
+  const page = await open(phone, server);
+  await T.copy(page, 'before-split');
+  const texts = [];
+  // One removal: the log as v2.8 would have it (one food logged in it), copied, removed.
+  const removeOnce = async (i) => {
+    if (i) await page.evaluate(([key, i]) => { const s = JSON.parse(localStorage.getItem(key)); s.diary['2026-11-' + (10 + i)] = [{ id: 'again' + i, food: null, meal: 0, qty: null, unit: null, amt: '', name: 'Logged in v2.8, ' + i, brand: '', kcal: 100 + i, p: 1, c: 2, f: 3, at: Date.now() }]; localStorage.setItem(key, JSON.stringify(s)); }, [lib.STATE_KEY, i]);
+    await reload(page);
+    await page.clock.runFor(600e3);   // ten minutes between removals
+    texts.push(await lib.readStorageText(page, lib.STATE_KEY));
+    await lib.openTab(page, 'settings');
+    await copyLog(page);
+    page.dialogs.length = 0;
+    await page.click('[data-action="handover-remove"]');
+    need((await T.toast(page, /removed|could not|changed/)) === 'Old food log removed from Overload', 'removal ' + (i + 1) + ': ' + await T.text(page, '#toast'));
+    return page.dialogs[0] || '';
+  };
+  await step('three removals: three safety copies, each holding the log it removed; no question speaks of letting one go', async () => {
+    const qs = [];
+    for (let i = 0; i < 3; i++) qs.push(await removeOnce(i));
+    const list = await removalCopies(page);
+    need(list.length === 3 && new Set(list.map((m) => m.id)).size === 3, 'removal copies: ' + JSON.stringify(list.map((m) => m.id)));
+    for (let i = 0; i < 3; i++) need((await T.copy(page, list[2 - i].id)).text === texts[i], 'the copy of removal ' + (i + 1) + ' does not hold what it removed');
+    need(!qs.some((q) => /let go/.test(q)), 'a question says a copy is let go: ' + qs.find((q) => /let go/.test(q)));
+    return list.map((m) => m.id + ' ' + m.foodDays + ' days').join(', ');
+  });
+  await step('the fourth removal says the oldest copy is let go, and only the last three are kept', async () => {
+    const oldest = (await removalCopies(page)).pop();
+    const q = await removeOnce(3);
+    const when = await page.evaluate((at) => new Date(at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }), oldest.at);
+    need(q.includes('\n\nSettings keeps the copies of the last 3 removals, so the copy from ' + when + ' is let go.'), 'the question reads: ' + q.replace(/\n/g, ' | '));
+    const list = await removalCopies(page);
+    need(list.length === 3 && !list.some((m) => m.id === oldest.id), 'removal copies: ' + JSON.stringify(list.map((m) => m.id)));
+    need((await T.copy(page, list[0].id)).text === texts[3], 'the newest copy does not hold what the fourth removal removed');
+    await page.waitForFunction((gone) => document.querySelector('#safety-copies .copy-row') && !document.querySelector('[data-action="restore-copy"][data-id="' + gone + '"]'), oldest.id, { timeout: 5000 });
+    const rows = await page.evaluate(() => [...document.querySelectorAll('#safety-copies .copy-row .title')].map((t) => t.textContent).filter((t) => /^Before removing the old food log/.test(t)));
+    need(rows.length === 3, 'Settings lists ' + rows.length + ' removal copies');
+    return q.split('\n\n')[3];
   });
   const problems = phone.problems();
   run.say(!problems.length, name, 'no page errors, no console errors', problems.join(' | ').slice(0, 400));
@@ -374,6 +678,11 @@ async function smallUser(browser, server) {
     await declined(browser, server);
     await standalone(browser, server);
     await smallUser(browser, server);
+    await shortAfterFile(browser, server);
+    await freshText(browser, server);
+    await storageFull(browser, server);
+    await shareSheet(browser, server);
+    await removals(browser, server);
   } finally { await browser.close(); await server.stop(); }
   run.done();
 })().catch((e) => { console.error(e); process.exit(1); });

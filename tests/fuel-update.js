@@ -11,7 +11,9 @@
  *   - an update while a sheet is open, or while a box has the keyboard, does not reload: the top bar offers
  *     "Update ready", and what was typed is still there; a tap on it reloads;
  *   - a page that the training app's worker controlled when it loaded is not reloaded when Fuel's own
- *     worker takes over from it (nothing about the page is out of date), and is reloaded by Fuel's next update.
+ *     worker takes over from it (nothing about the page is out of date), and is reloaded by Fuel's next update;
+ *   - a first install that fails leaves no registration: Settings says the app is not ready to work offline,
+ *     and coming back to the front registers the worker again (dev/notes/review-findings.md, O3).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -43,6 +45,10 @@ function buildSite(tmp) {
 // Takes over at once, like the real workers; answers nothing itself (every request goes to the network).
 const worker = (what) => '// ' + what + '\nself.addEventListener("install", () => self.skipWaiting());\nself.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));\nself.addEventListener("fetch", () => {});\n';
 const release = (tmp, n) => fs.writeFileSync(path.join(tmp.dir, 'fuel', 'sw.js'), worker('Fuel, stand-in, release ' + n));
+// An install that fails, as the real all-or-nothing one does when one of its files does not arrive.
+const failing = (tmp) => fs.writeFileSync(path.join(tmp.dir, 'fuel', 'sw.js'), '// Fuel, stand-in: one of its files did not arrive\nself.addEventListener("install", (e) => e.waitUntil(Promise.reject(new Error("a file did not arrive"))));\n');
+// A good release whose install takes a moment (the real one downloads about 2 MB).
+const slow = (tmp, n) => fs.writeFileSync(path.join(tmp.dir, 'fuel', 'sw.js'), '// Fuel, stand-in, release ' + n + ', a slow install\nself.addEventListener("install", (e) => { self.skipWaiting(); e.waitUntil(new Promise((r) => setTimeout(r, 2500))); });\nself.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));\nself.addEventListener("fetch", () => {});\n');
 
 async function newPhone(browser) {
   const phone = await lib.newPhone(browser, { serviceWorkers: 'allow' });
@@ -165,6 +171,59 @@ async function reloaded(page, from) { await page.waitForFunction((n) => +session
       return 'loaded twice';
     });
     await both.close();
+
+    // ---------------------------------------------------------------- a first install that fails (O3)
+    // One of the worker's files does not arrive, so its first install fails and the browser keeps no
+    // registration. An iPhone resumes a Home Screen app rather than reloading it: coming back to the front must
+    // register the worker again (update() on the registration that is gone fetches nothing), and Settings says
+    // that the app cannot open without signal yet until its worker is active.
+    const first = await newPhone(browser);
+    const fail = (t, fn) => run.step('a first install that fails', t, fn);
+    const regs = (page) => page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).map((r) => ({ scope: new URL(r.scope).pathname, active: !!r.active, installing: !!r.installing, waiting: !!r.waiting })));
+    const note = (page) => F.text(page, '#offline-note');
+    // Polls from here: page.waitForFunction does not wait for a promise that its function returns.
+    const until = async (fn, ms) => { const end = Date.now() + ms; for (;;) { if (await fn()) return true; if (Date.now() > end) return false; await lib.sleep(150); } };
+    let ip = null;
+    await fail('the install fails: no registration is left, and Settings says the app is not ready to work offline', async () => {
+      failing(tmp);
+      const asked = [];
+      first.context.on('request', (r) => { if (/\/fuel\/sw\.js$/.test(r.url().split('?')[0])) asked.push(r.url()); });
+      ip = await F.open(first, server);
+      await ip.click('[data-action="fuel-fresh"]');
+      await ip.waitForSelector('.f-meal');
+      await lib.openTab(ip, 'settings');
+      // The registration exists from before its script is fetched until its install fails.
+      need(await until(async () => asked.length > 0 && (await regs(ip)).length === 0, 15000), 'the worker was not asked for, or the failed install left ' + JSON.stringify(await regs(ip)));
+      need(!(await controller(ip)), 'a worker controls the page');
+      await ip.waitForFunction(() => /Not ready/.test((document.querySelector('#offline-note') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const t = await note(ip);
+      need(t === 'Not ready to work offline yet. Open Fuel again with good signal.', 'Settings says: ' + t);
+      return 'registrations: ' + JSON.stringify(await regs(ip)) + '; "' + t + '"';
+    });
+    await fail('back in front with good signal: the worker is registered again and installs; the note follows it, without a reload', async () => {
+      // He comes back later, not within milliseconds: the browser is done clearing the failed registration.
+      await lib.sleep(2000);
+      slow(tmp, ++n);
+      await comeBack(ip);
+      need(await until(async () => (await regs(ip)).length > 0, 8000), 'coming back to the front registered nothing: registrations ' + JSON.stringify(await regs(ip)));
+      await ip.waitForFunction(() => { const e = document.querySelector('#offline-note'); return !!e && /Getting ready to work offline/.test(e.textContent); }, null, { timeout: 15000 });
+      const getting = await note(ip);
+      await fuelInControl(ip);
+      await ip.waitForFunction(() => !document.querySelector('#offline-note'), null, { timeout: 15000 });
+      const r = await regs(ip);
+      need(r.length === 1 && r[0].scope === '/fuel/' && r[0].active, 'registrations: ' + JSON.stringify(r));
+      need((await loads(ip)) === 1 && (await F.screen(ip)) === 'settings', 'the page was reloaded, or left Settings');
+      return '"' + getting + '", then none; ' + JSON.stringify(r);
+    });
+    await fail('a later return to the front only looks for an update', async () => {
+      const before = await regs(ip);
+      await comeBack(ip);
+      await lib.sleep(1500);
+      same(await regs(ip), before, 'the registrations');
+      need((await note(ip)) === null && (await loads(ip)) === 1, 'the note came back, or the page reloaded');
+      return 'unchanged';
+    });
+    await first.close();
   } catch (e) {
     run.say(false, 'fuel-update', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' '));
   } finally {

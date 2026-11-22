@@ -19,6 +19,8 @@
  *
  * Firestore's persistent cache queues writes while offline and replays them
  * when the network is back, so logging in the gym without signal is fine.
+ * The core is one document, replaced whole, so it is the exception: it is sent only when this phone changed
+ * something in it, and the first one of a session only once the server's own core has been taken in (see push).
  */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
@@ -40,6 +42,8 @@ const firebaseConfig = {
 
 const SYNC_KEY = 'overload.sync.v1';
 const CORE_KEYS = ['settings', 'exercises', 'presc', 'program', 'active', 'bodyweight', 'sleep', 'templates', 'food', 'deleted'];
+const TRAIN_KEYS = CORE_KEYS.filter((k) => k !== 'food' && k !== 'deleted');   // compared one by one (see partsOf)
+const RECORD_DAYS = 90;   // overload.js (normalize) drops deletion records older than this at every start
 const BATCH_LIMIT = 400;
 
 const app = initializeApp(firebaseConfig);
@@ -48,8 +52,9 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
 const host = () => window.__overload;
 let user = null;
-let known = null;          // { uid, core: hash|null, workouts: { id: hash }, days: { date: hash } } — what the cloud is known to hold
-                           // (days: the food days as a version up to 2.8 noted them; this version only ever removes from it, see forgetDays)
+let known = null;          // { uid, core: hash|null, workouts: { id: hash }, days: { date: hash }, parts } — what the cloud is known to hold
+                           // (days: the food days as a version up to 2.8 noted them; this version only ever removes from it, see forgetDays;
+                           // parts: the noted core in more detail, see partsOf)
 let unsubs = [];
 let pushTimer = null;
 let inflight = 0;
@@ -58,6 +63,12 @@ let lastError = '';
 let linking = null;        // uid of the account whose first read is in flight
 let linkTimer = null;
 let linkTries = 0;
+let serverSeen = false;    // the server's own core has been taken in during this session (see readServerCore)
+let coreHeld = false;      // this phone's core waits for that
+let reading = false;       // the read of readServerCore is in flight
+let readTimer = null;
+let readTries = 0;
+let linkGen = 0;           // goes up at every link and sign-out: an answer that arrives for an earlier one is dropped
 
 // ---------------------------------------------------------------------------
 // Bookkeeping
@@ -104,13 +115,54 @@ let cloudFood;   // undefined: the cloud's core not seen yet in this session; nu
 const foodPart = (core) => ({ food: core.food, del: core.deleted && core.deleted.food });
 // The core as it is sent. Once the cloud's food part is known it replaces this phone's (the old food copy here
 // can be older, emptied by a reset or removed on purpose: none of that may reach the account). Only an account
-// with no core at all gets this phone's own food part, with its first upload.
-function coreOf(s) {
+// with no core at all gets this phone's own food part, with its first upload. fp: another food part to use.
+function coreOf(s, fp) {
+  if (fp === undefined) fp = cloudFood;
   const o = {}; CORE_KEYS.forEach((k) => { o[k] = s[k]; });
-  if (cloudFood) { o.food = cloudFood.food; o.deleted = Object.assign({}, s.deleted, { food: cloudFood.del }); }
+  if (fp) { o.food = fp.food; o.deleted = Object.assign({}, s.deleted, { food: fp.del }); }
   return o;
 }
-function coreJson(s) { return JSON.stringify(coreOf(s)); }
+function coreJson(s, fp) { return JSON.stringify(coreOf(s, fp)); }
+
+// The note's `core` is one hash of the whole core text. Beside it the note keeps `parts`, worked out from the same
+// text: a hash of each training key, one of the food part, and the training deletion records themselves (weigh-ins,
+// nights and workouts deleted in the last 90 days: a few small entries). With them this phone can tell, also after
+// a restart and without the offline cache, what it changed itself since that core:
+//   - which keys (a merge keeps those and takes the cloud's for the rest);
+//   - whether anything at all, leaving out its old food copy (frozen here, so it differs from the account's food
+//     part as soon as a phone on 2.8 logs a food) and deletion records past their 90 days (the app drops those at
+//     every start; that changes no data, and must not send this phone's whole core over newer ones).
+// Versions up to 2.8 keep a field of the note they do not know and leave it as it is. When one of them sends or
+// takes a core, `known.core` changes and `parts.core` no longer names it: the parts are then not used (notedParts).
+const textOf = (v) => (v === undefined ? '' : JSON.stringify(v));
+function partsOf(core, coreHash) {
+  const keys = {}; TRAIN_KEYS.forEach((k) => { keys[k] = hash(textOf(core[k])); });
+  const del = {}, d = core.deleted && typeof core.deleted === 'object' ? core.deleted : {};
+  Object.keys(d).forEach((k) => { if (k !== 'food' && d[k] && typeof d[k] === 'object') del[k] = Object.assign({}, d[k]); });
+  return { core: coreHash, keys, food: hash(textOf(foodPart(core))), del };
+}
+function notedParts() {
+  const p = known && known.parts;
+  if (!p || typeof p !== 'object' || !isHash(known.core) || p.core !== known.core) return null;
+  if (!p.keys || typeof p.keys !== 'object' || !isHash(p.food) || !p.del || typeof p.del !== 'object') return null;
+  return TRAIN_KEYS.every((k) => isHash(p.keys[k])) ? p : null;
+}
+// The deletion records of one kind that are still kept, in one text: the same rule as normalize in overload.js.
+function liveRecords(m, cutoff) {
+  const o = m && typeof m === 'object' ? m : {};
+  return JSON.stringify(Object.keys(o).filter((id) => o[id] > cutoff).sort().map((id) => [id, o[id]]));
+}
+// Does this phone's core hold something the noted core does not? With a note from a version up to 2.8 (no parts),
+// the whole text is compared, as there.
+function coreAhead(s) {
+  const p = notedParts();
+  if (!p) return hash(coreJson(s)) !== known.core;
+  const c = coreOf(s);
+  if (TRAIN_KEYS.some((k) => hash(textOf(c[k])) !== p.keys[k])) return true;
+  if (hash(textOf(foodPart(c))) !== p.food) return true;   // the cloud's food part as sent from here: the noted one
+  const cutoff = Date.now() - RECORD_DAYS * 864e5, mine = c.deleted && typeof c.deleted === 'object' ? c.deleted : {};
+  return Object.keys(Object.assign({}, mine, p.del)).some((k) => k !== 'food' && liveRecords(mine[k], cutoff) !== liveRecords(p.del[k], cutoff));
+}
 
 function metaRef() { return doc(db, 'users', user.uid, 'meta', 'state'); }
 function workoutRef(id) { return doc(db, 'users', user.uid, 'workouts', id); }
@@ -167,18 +219,27 @@ function unionByDate(first, second, gone) {
 }
 // The result has no `food` key: the caller lays it over the state, whose own food stays.
 function mergeCore(local, remote) {
-  const localAhead = hash(coreJson(local)) !== known.core;
+  // Which keys did this phone change since the noted core? With the note's parts, each key against its hash: the old
+  // food copy and the deletion records do not count, and it holds after a restart too. Without them (a note from a
+  // version up to 2.8): only while the whole core differs from the note, and only for keys that differ from the
+  // cloud's core as last seen in this session (none after a restart: the cloud's then wins every key). While the
+  // cloud's food part is not known yet, the remote's stands in for it, as this phone's own is never sent.
+  const p = notedParts();
+  const ahead = !p && hash(coreJson(local, cloudFood !== undefined ? cloudFood : foodPart(remote))) !== known.core;
+  const mine = p ? (k) => hash(textOf(local[k])) !== p.keys[k]
+    : (k) => ahead && !!baseCore && JSON.stringify(local[k]) !== JSON.stringify(baseCore[k]);
   const out = {};
   CORE_KEYS.forEach((k) => {
-    if (k === 'food') return;   // the cloud's food part is never taken into the old food copy
+    if (k === 'food' || k === 'deleted') return;   // the cloud's food part is never taken into the old food copy; deleted: below
     // A key this phone changed and has not uploaded yet stays; otherwise the cloud's copy.
-    const changedHere = localAhead && baseCore && JSON.stringify(local[k]) !== JSON.stringify(baseCore[k]);
-    out[k] = changedHere || remote[k] === undefined ? local[k] : remote[k];
+    out[k] = mine(k) || remote[k] === undefined ? local[k] : remote[k];
   });
   out.deleted = mergeDeleted(local.deleted, remote.deleted);
   out.deleted.food = (local.deleted && local.deleted.food) || {};   // nor are its food deletion records
-  out.bodyweight = localAhead ? unionByDate(local.bodyweight, remote.bodyweight, out.deleted.bw) : unionByDate(remote.bodyweight, local.bodyweight, out.deleted.bw);
-  out.sleep = localAhead ? unionByDate(local.sleep, remote.sleep, out.deleted.sleep) : unionByDate(remote.sleep, local.sleep, out.deleted.sleep);
+  // Weigh-ins and nights: both lists, by date. For a date both have, this phone's entry wins only if it changed this list.
+  const first = (k) => (p ? mine(k) : ahead);
+  out.bodyweight = first('bodyweight') ? unionByDate(local.bodyweight, remote.bodyweight, out.deleted.bw) : unionByDate(remote.bodyweight, local.bodyweight, out.deleted.bw);
+  out.sleep = first('sleep') ? unionByDate(local.sleep, remote.sleep, out.deleted.sleep) : unionByDate(remote.sleep, local.sleep, out.deleted.sleep);
   return out;
 }
 // Drop the workouts the deletion records say are gone (after new records arrive from another phone).
@@ -194,7 +255,7 @@ function report() {
   let status, msg;
   if (!user) { status = 'off'; msg = ''; }
   else if (lastError) { status = 'error'; msg = lastError; }
-  else if (inflight > 0) { status = navigator.onLine ? 'syncing' : 'offline'; msg = navigator.onLine ? 'Syncing…' : 'Offline, will sync later'; }
+  else if (inflight > 0 || coreHeld) { status = navigator.onLine ? 'syncing' : 'offline'; msg = navigator.onLine ? 'Syncing…' : 'Offline, will sync later'; }
   else { status = 'synced'; msg = lastSync ? 'Synced ' + new Date(lastSync).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Synced'; }
   h.setSyncStatus(status, msg);
 }
@@ -240,8 +301,18 @@ async function push() {
 
   // The core goes only once the cloud's own core has been seen in this session (cloudFood is set): until then
   // the food part it must carry is not known, and sending this phone's would overwrite the account's.
+  // It goes only when this phone changed something in it (coreAhead): a core that differs from the note only by
+  // deletion records past their 90 days is not sent. And the first one of a session waits until the server's own
+  // core has been taken in (serverSeen): a copy from the offline cache can be weeks old, and the whole core sent
+  // over the account's would undo on every phone what the others changed meanwhile.
   const cj = coreJson(s), ch = hash(cj);
-  if (cloudFood !== undefined && ch !== known.core) { ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 })); known.core = ch; baseCore = JSON.parse(cj); cloudFood = foodPart(baseCore); }
+  const ahead = cloudFood !== undefined && ch !== known.core && coreAhead(s);
+  if (ahead && serverSeen) {
+    ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 }));
+    known.core = ch; baseCore = JSON.parse(cj); cloudFood = foodPart(baseCore); known.parts = partsOf(baseCore, ch);
+  }
+  if (coreHeld !== (ahead && !serverSeen)) { coreHeld = !coreHeld; report(); }
+  if (coreHeld) readServerCore();
 
   const seen = {};
   s.workouts.forEach((w) => {
@@ -270,25 +341,68 @@ async function push() {
 // ---------------------------------------------------------------------------
 // Pull: live listeners apply remote changes into the app
 // ---------------------------------------------------------------------------
+// One snapshot of the core: from the listener, or from the read of readServerCore (onlyNoted: taken only when it
+// is the core the note names, see there). Returns false when it was not taken.
+function takeCore(snap, onlyNoted) {
+  // Every snapshot of the core, this phone's own unsent writes included, shows the food part the cloud holds
+  // (or will hold once the write lands). It is noted for the next upload and never taken into the app.
+  // The first one of a session is what lets the core be sent at all (see push).
+  const unseen = cloudFood === undefined;
+  // No core in the account. Only the server's own word counts: an empty cache while offline says nothing.
+  if (!snap.exists()) { if (unseen && !snap.metadata.fromCache) { cloudFood = null; schedulePush(); } return true; }
+  const remote = snap.data().core;
+  if (typeof remote !== 'string') return true;   // nothing that can be read: nothing to take in
+  let core; try { core = parse(remote); } catch (e) { return true; }
+  if (!core || typeof core !== 'object') return true;
+  const rh = hash(remote);
+  if (snap.metadata.hasPendingWrites || rh === known.core) {
+    cloudFood = foodPart(core);
+    // The noted core in hand, and a note without its parts (written by a version up to 2.8): work them out now.
+    if (rh === known.core && !notedParts()) { known.parts = partsOf(core, rh); saveKnown(); }
+    if (unseen) schedulePush();
+    return true;
+  }
+  if (onlyNoted) return false;
+  const local = host().state;
+  const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));   // before cloudFood moves on: mergeCore compares with the core known so far
+  known.core = rh; baseCore = core; cloudFood = foodPart(core); known.parts = partsOf(core, rh);
+  host().setState(next); saveKnown();   // after the app's own save, so a failed save is known
+  schedulePush();   // the merge may hold something the cloud lacks; push() only sends what this phone changed
+  return true;
+}
+
+// What this session knew of the server's core belongs to one link: forgotten at the next one and at sign-out.
+function forgetServer() { serverSeen = false; coreHeld = false; reading = false; readTries = 0; clearTimeout(readTimer); linkGen++; }
+// The first core a session sends waits for the server's own core (serverSeen; see push). A snapshot of the listener
+// that is not from the offline cache is that. But the listener tells nothing when the server holds what the cache
+// held, so when this phone has a core to send, the server is asked once. Its answer is taken only when it is the
+// core the note names, or the account has none: anything else the listener brings and merges (its snapshots come
+// in order; an answer from here could be older than the last one it gave). No signal: asked again when the signal
+// is back, at the next save, and after a while.
+function readServerCore() {
+  if (reading || serverSeen || !user || !known) return;
+  clearTimeout(readTimer);
+  reading = true;
+  const gen = linkGen;
+  getDocFromServer(metaRef()).then((snap) => {
+    if (gen !== linkGen) return;
+    readTries = 0;
+    if (!serverSeen && takeCore(snap, true)) serverSeen = true;
+    if (serverSeen) schedulePush();
+    else readTimer = setTimeout(schedulePush, 15000);
+  }, (e) => {
+    if (gen !== linkGen) return;
+    if (e && e.code && e.code !== 'unavailable') { lastError = friendly(e); report(); }
+    readTimer = setTimeout(schedulePush, Math.min(300, 15 * 2 ** readTries++) * 1000);
+  }).finally(() => { if (gen === linkGen) reading = false; });
+}
+
 function listen() {
   stopListening();
   unsubs.push(onSnapshot(metaRef(), { includeMetadataChanges: false }, (snap) => {
-    // Every snapshot of the core, this phone's own unsent writes included, shows the food part the cloud holds
-    // (or will hold once the write lands). It is noted for the next upload and never taken into the app.
-    // The first one of a session is what lets the core be sent at all (see push).
-    const unseen = cloudFood === undefined;
-    // No core in the account. Only the server's own word counts: an empty cache while offline says nothing.
-    if (!snap.exists()) { if (unseen && !snap.metadata.fromCache) { cloudFood = null; schedulePush(); } return; }
-    const remote = snap.data().core;
-    if (typeof remote !== 'string') return;
-    let core; try { core = parse(remote); } catch (e) { return; }
-    if (!core || typeof core !== 'object') return;
-    if (snap.metadata.hasPendingWrites || hash(remote) === known.core) { cloudFood = foodPart(core); if (unseen) schedulePush(); return; }
-    const local = host().state;
-    const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));   // before cloudFood moves on: mergeCore compares with the core known so far
-    known.core = hash(remote); baseCore = core; cloudFood = foodPart(core);
-    host().setState(next); saveKnown();   // after the app's own save, so a failed save is known
-    schedulePush();   // the merge may hold something the cloud lacks; push() only sends what differs
+    takeCore(snap, false);
+    // Not from the offline cache: the server's own core, now taken in. The first core of the session may go.
+    if (!snap.metadata.fromCache && !serverSeen) { serverSeen = true; schedulePush(); }
   }, (e) => { lastError = friendly(e); report(); }));
 
   unsubs.push(onSnapshot(workoutsCol(), (qs) => {
@@ -332,6 +446,7 @@ async function link() {
   const h = host();
   clearTimeout(linkTimer);
   cloudFood = undefined;   // what was seen belongs to the listeners before this link, maybe to another account
+  forgetServer();
   if (h.unreadable) return;   // the app could not read its saved data: nothing syncs until he chooses what to do
   const stored = loadKnown();
   if (stored && stored.uid === user.uid) {
@@ -364,6 +479,7 @@ async function link() {
       fresh.core = hash(meta.data().core);
       const cloud = parse(meta.data().core);
       baseCore = cloud;
+      fresh.parts = partsOf(cloud, fresh.core);
       const mine = { food: next.food, del: (next.deleted || {}).food || {} };
       Object.assign(next, cloud);
       next.food = mine.food;
@@ -407,6 +523,7 @@ async function link() {
     // The account's settings and program are about to replace this phone's: keep a copy of what is here first.
     if (fresh.core && h.safetyCopy) h.safetyCopy('cloud');
     known = fresh;
+    serverSeen = true;   // read from the server itself just now, and merged
     h.setState(next);
     saveKnown();
     lastError = '';
@@ -429,9 +546,10 @@ async function link() {
 }
 
 // ---------------------------------------------------------------------------
-// Public API used by app.js
+// Public API used by overload.js
 // ---------------------------------------------------------------------------
 window.__overloadSync = {
+  release: '3.0',   // the release this file belongs to (bump.sh sets it): overload.js removes the old food log only beside its own release's sync module
   get user() { return user ? { email: user.email, uid: user.uid } : null; },
   get lastSync() { return lastSync; },
   get error() { return lastError; },
@@ -463,10 +581,10 @@ window.__overloadSync = {
   },
   async signOut() {
     clearTimeout(pushTimer); clearTimeout(linkTimer); linkTries = 0;
-    stopListening();
+    stopListening(); forgetServer();
     // The stored note of what the cloud holds is kept (it names the account): signing back in to the same
     // account then sends the changes made in between instead of taking the cloud's older copy.
-    // app.js removes it when Reset or Import runs while signed out.
+    // overload.js removes it when Reset or Import runs while signed out.
     known = null;
     lastSync = null; lastError = '';
     await signOut(auth);
@@ -481,11 +599,11 @@ window.__overloadSync = {
 onAuthStateChanged(auth, (u) => {
   user = u;
   if (u) link();
-  else { stopListening(); known = null; cloudFood = undefined; report(); }
+  else { stopListening(); forgetServer(); known = null; cloudFood = undefined; report(); }
   const h = host();
   if (h) { if (h.syncChanged) h.syncChanged(); else h.render(); }   // only the sync parts, not the whole screen
 });
 
 document.addEventListener('overload:save', () => { forgetDaysNow(); schedulePush(); });
-window.addEventListener('online', () => { report(); if (user && !known && !linking) { linkTries = 0; link(); } else schedulePush(); });
+window.addEventListener('online', () => { report(); readTries = 0; if (user && !known && !linking) { linkTries = 0; link(); } else schedulePush(); });
 window.addEventListener('offline', report);

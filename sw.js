@@ -8,7 +8,7 @@ const ASSETS = [
   './index.html',
   './programs.js?v=3.0',
   './backup.js?v=3.0',
-  './app.js?v=3.0',
+  './overload.js?v=3.0',
   './sync.js?v=3.0',
   './connector.js?v=3.0',
   // The stylesheets and the icon set, written exactly as index.html writes them. Every address in this list must
@@ -32,20 +32,30 @@ const fresh = (req) => new Request(req, { cache: 'no-cache' });
 // never asks for files that are not stored.
 const RELEASE = (ASSETS.find((a) => a.includes('?v=')) || '').split('?v=')[1] || '';
 const pageFits = (html) => !RELEASE || (String(html).match(/\?v=[^"'&\s>]+/g) || []).includes('?v=' + RELEASE);
+// Two files say which release they are: the main script (one line  const VERSION = '3.0')  and the sync module
+// (release: '3.0'). bump.sh sets both. A copy of one of them that names another release than the ?v= of its
+// address is never stored or run: a server can still hand out the old file for a while after a release, and the
+// server ignores ?v=, so it hands out the next release's file under this release's address once that is published.
+const MARKS = { 'overload.js': "const VERSION = '", 'sync.js': "release: '" };
+// The releases a copy of such a file names ([] when it names none): file is its path below this worker's folder.
+const releasesIn = (file, text) => String(text).split(MARKS[file]).slice(1).map((p) => p.split("'")[0]);
+const fromRelease = (file, v, text) => { const r = releasesIn(file, text); return r.length === 1 && r[0] === v; };
 
 // All or nothing: if any file fails to download, the install fails and the
 // version already on the phone keeps running (and keeps its cache). The next
 // update check tries again. A half-filled cache would break the app offline.
-// The same goes for a page left over from the previous release (a server can
-// still hand it out for a few minutes after a release).
+// The same goes for a page or a main script left over from the previous release
+// (a server can still hand it out for a few minutes after a release): what the
+// install stores is kept for the whole release (see fetch), so it must be right.
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE)
       .then((c) => Promise.all(ASSETS.map((a) => fetch(new Request(a, { cache: 'reload' })).then((res) => {
         if (!res.ok) throw new Error(a + ' ' + res.status);
-        if (a !== './' && a !== './index.html') return c.put(a, res);
-        return res.clone().text().then((html) => {
-          if (!pageFits(html)) throw new Error(a + ' is not from this release');
+        const page = a === './' || a === './index.html', file = a.replace(/^\.\//, '').split('?')[0];
+        if (!page && !MARKS[file]) return c.put(a, res);
+        return res.clone().text().then((text) => {
+          if (page ? !pageFits(text) : !fromRelease(file, RELEASE, text)) throw new Error(a + ' is not from this release');
           return c.put(a, res);
         });
       }))))
@@ -61,14 +71,20 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Network first so updates show up; fall back to cache when offline.
+// A file of one release (same site, its address carries ?v=): the copy this worker stored is the answer, and the
+// network is asked only when there is none (then the answer is stored as below). The server ignores ?v=, so
+// once the next release is published it answers this release's addresses with the next release's files; asking
+// it first would store those under this release's names and run them in this release's page.
+// Everything else (the pages, files without ?v=, the Firebase SDK scripts): network first so updates show up;
+// fall back to cache when offline.
 // Gym wifi and one bar of signal are worse than offline: the request hangs.
 // If the network has not answered in NET_WAIT ms and a cached copy exists,
 // use the cached copy (the network reply still refreshes the cache).
 // An error page (site down or switched off) also gets the cached copy.
 // The app's own page is refreshed this way only with a page of this cache's
 // release (pageFits): a newer release's page asks for files that are not stored
-// yet, so it waits for that release's install.
+// yet, so it waits for that release's install. A main script or sync module that
+// names another release than its address is neither run nor stored (see fromNetwork).
 // Only our own files and the Firebase SDK scripts are cached; API traffic
 // (Open Food Facts lookups) is not.
 const NET_WAIT = 3000;
@@ -86,31 +102,43 @@ self.addEventListener('fetch', (e) => {
   // cache, and everything a diet page loads would be stored in the training cache.
   if (sameOrigin && url.pathname.startsWith(scope) && /^(fuel|data|vendor)(\/|$)/.test(url.pathname.slice(scope.length))) return;
   const appPage = sameOrigin && (url.pathname === scope || url.pathname === scope + 'index.html');
+  const v = sameOrigin && !isPage ? url.searchParams.get('v') : null;
+  const file = sameOrigin && url.pathname.startsWith(scope) ? url.pathname.slice(scope.length) : '';
   const cached = () => caches.match(e.request).then((hit) => hit || (isPage ? caches.match('./index.html') : undefined));
-  let stored;
-  const net = fetch(sameOrigin ? fresh(e.request) : e.request).then((res) => {
-    if (res.ok) {
-      const copy = res.clone(), page = appPage ? res.clone() : null;
-      stored = (page ? page.text().then(pageFits) : Promise.resolve(true))
-        .then((keep) => keep && caches.open(CACHE).then((c) => c.put(e.request, copy))).catch(() => {});
-    }
-    return res;
-  });
-  e.waitUntil(net.then(() => stored, () => {}));
-  e.respondWith(new Promise((resolve) => {
-    let settled = false;
-    const done = (res) => { if (!settled && res) { settled = true; resolve(res); } };
-    const fallback = () => cached().then((hit) => { if (hit) done(hit); return hit; });
-    const t = setTimeout(fallback, NET_WAIT);
-    net.then((res) => {
-      clearTimeout(t);
-      if (res.ok || res.type === 'opaqueredirect' || res.type === 'opaque') { done(res); return; }
-      fallback().then((hit) => { if (!hit) done(res); });   // an error page: only when nothing is stored
-    }, () => {
-      clearTimeout(t);
-      fallback().then((hit) => { if (!hit) done(Response.error()); });
+  const fromNetwork = () => {
+    let stored;
+    // A main script or sync module that names another release than its address is answered like an error page:
+    // the page never runs it (the start-up rescue takes over), and it is not stored.
+    const other = (res) => res.clone().text().then((text) => { const r = releasesIn(file, text); return r.length && !(r.length === 1 && r[0] === v); });
+    const net = fetch(sameOrigin ? fresh(e.request) : e.request)
+      .then((res) => (res.ok && v && MARKS[file] ? other(res).then((no) => (no ? new Response('', { status: 409, statusText: 'Another release' }) : res)) : res))
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone(), page = appPage ? res.clone() : null;
+          stored = (page ? page.text().then(pageFits) : Promise.resolve(true))
+            .then((keep) => keep && caches.open(CACHE).then((c) => c.put(e.request, copy))).catch(() => {});
+        }
+        return res;
+      });
+    try { e.waitUntil(net.then(() => stored, () => {})); } catch (err) { /* the answer is already given: the copy may not be stored */ }
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (res) => { if (!settled && res) { settled = true; resolve(res); } };
+      const fallback = () => cached().then((hit) => { if (hit) done(hit); return hit; });
+      const t = setTimeout(fallback, NET_WAIT);
+      net.then((res) => {
+        clearTimeout(t);
+        if (res.ok || res.type === 'opaqueredirect' || res.type === 'opaque') { done(res); return; }
+        fallback().then((hit) => { if (!hit) done(res); });   // an error page: only when nothing is stored
+      }, () => {
+        clearTimeout(t);
+        fallback().then((hit) => { if (!hit) done(Response.error()); });
+      });
     });
-  }));
+  };
+  if (v == null) { e.respondWith(fromNetwork()); return; }
+  // Looked for in this worker's own cache only: the diet app's cache (fuel-…) holds the shared files under the same addresses.
+  e.respondWith(caches.open(CACHE).then((c) => c.match(e.request)).then((hit) => hit || fromNetwork(), () => fromNetwork()));
 });
 
 // Reminders from the connector (connector/worker.js): show them, and open the app on tap.

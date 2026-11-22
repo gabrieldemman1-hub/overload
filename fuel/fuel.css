@@ -57,10 +57,12 @@
 
 /* Macros: told apart by tone and by mark (protein square, carbs circle, fat diamond), not only by the label.
    In .f-macros the order gives the mark, so the markup needs no change. Elsewhere: <i class="mk p"></i> / .c / .f */
-.f-macros { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 8px; border-top: 1px solid var(--rule); }
-.f-macro { display: flex; flex-direction: column; padding: 12px 10px 14px; border-left: 1px solid var(--rule); min-width: 0; }
-.f-macro:first-child { border-left: 0; padding-left: 0; }
-.f-macro:last-child { padding-right: 0; }
+/* Three columns of the same width, the hairline between two in the middle of the gap: each macro has the same room,
+   so a target wraps in one cell only where it would in the others. (With padding on one side of the outer cells and
+   on both sides of the middle one, carbs had 10 px less, and "176 / 240 g" wrapped there alone.) */
+.f-macros { --mgap: 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--mgap); margin-top: 8px; border-top: 1px solid var(--rule); }
+.f-macro { position: relative; display: flex; flex-direction: column; padding: 12px 0 14px; min-width: 0; }
+.f-macro + .f-macro::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--mgap) / -2 - 0.5px); border-left: 1px solid var(--rule); }
 .f-macro .k { display: flex; align-items: center; gap: 6px; font-size: var(--t-label); font-weight: 700; letter-spacing: var(--track); text-transform: uppercase; color: var(--ink-3); }
 /* "133 / 190 g": the target wraps under the value as one piece when the cell is too narrow; the bars stay level. */
 .f-macro .v { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.22em; margin: 4px 0 8px; font-size: var(--n-value); font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; color: var(--ink); }
@@ -234,7 +236,7 @@ body.no-tabs .screen { padding-bottom: calc(var(--safe-bottom) + 24px); }
 
 /* ============================================================ 10. Small phones */
 @media (max-width: 359px) {
-  .f-macro { padding-left: 8px; padding-right: 6px; }
+  .f-macros { --mgap: 12px; }
   .f-macro .v { font-size: 18px; }
   .f-macro .v .muted { font-size: 12px; }
   .f-amount .input { font-size: 28px; }

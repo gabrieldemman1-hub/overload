@@ -193,7 +193,10 @@
     let raw = null;
     try {
       raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return seedState();   // first start: nothing saved yet
+      // First start: nothing saved yet. A note of what the cloud holds cannot belong to nothing: left in place,
+      // the next sign-in would take everything it lists for deleted here and delete it from the account and from
+      // the other phones. Without it, the next sign-in is a first link, which downloads and deletes nothing.
+      if (!raw) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } return seedState(); }
       const parsed = JSON.parse(raw);
       if (parsed && parsed.v === 1) {
         const st = normalize(parsed);
@@ -366,12 +369,18 @@
     try { return B ? B.take(kind, text || (kind === 'day' ? () => JSON.stringify(state) : JSON.stringify(state)), force) : Promise.resolve(false); } catch (e) { return Promise.resolve(false); }
   }
   function backupInfo() { try { return JSON.parse(localStorage.getItem(BACKUP_KEY)) || {}; } catch (e) { return {}; } }
-  function setBackupInfo(patch) { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(Object.assign(backupInfo(), patch))); } catch (e) { /* ignore */ } }
+  // Returns whether it was stored. A note about the split that could not be stored earlier goes along with it.
+  function setBackupInfo(patch) {
+    const next = Object.assign(backupInfo(), ui.splitHeld ? { split: ui.splitHeld } : {}, patch);
+    try { localStorage.setItem(BACKUP_KEY, JSON.stringify(next)); ui.splitHeld = null; return true; } catch (e) { return false; }
+  }
   // The split into two apps, as far as this phone goes: { at, copied: { at, hash, days, entries }, filed: { at, hash },
   // removed: { at }, dismissed }. Kept beside the data, not in it: a Reset, an Import, a Restore or cloud sync must
   // not make the app forget that the food log was copied, and v2.8 leaves fields it does not know in this object alone.
-  function splitInfo() { const s = backupInfo().split; return isObj(s) ? s : {}; }
-  function setSplit(patch) { setBackupInfo({ split: Object.assign(splitInfo(), patch) }); }
+  // When the phone's storage is full the note cannot be stored: it is then kept in memory for this session
+  // (ui.splitHeld), so the card still says what was done and Remove, which frees the room, is still offered.
+  function splitInfo() { const s = ui.splitHeld || backupInfo().split; return isObj(s) ? s : {}; }
+  function setSplit(patch) { const next = Object.assign({}, splitInfo(), patch); if (!setBackupInfo({ split: next })) ui.splitHeld = next; }
   // The first start of 3.0 on this phone: keep the stored text exactly as the last version left it ("Before the
   // split into two apps" in Settings > Automatic copies, never cleared out), and note when. The text was read
   // before this version saved anything. The note (split.at) is written once the copy is known to be stored, so a
@@ -467,9 +476,12 @@
     if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
     if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) { toast('That copy cannot be read'); return; }
     const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
-    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy') + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced');
+    // The copies taken at the split and before a removal are where the old food log was kept. Restored while the
+    // phone holds food days again (an older version of the app ran and logged food), the two logs are put together.
+    const merge = !ui.unreadable && (rec.kind === 'foodremove' || rec.kind === 'split') && foodFacts().days > 0 && fileFood(parsed).days > 0;
+    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy', merge) + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced');
     if (!confirm(replaceQuestion(what) + '\n\n' + dataSummary(parsed, 'The copy') + here)) return;
-    replaceState(parsed, 'restore', 'Copy restored');
+    replaceState(parsed, 'restore', 'Copy restored', merge);
   }
   // A file made by Fuel, or a food log saved for Fuel, is not a backup of this app and must never replace its data.
   const FUEL_FILE = 'This is a ' + FUEL + ' file. Open it in ' + FUEL + '.';
@@ -479,11 +491,29 @@
   function replaceQuestion(what) {
     return (!ui.unreadable && foodFacts().days ? 'Replace the training data on this phone with ' : 'Replace everything on this phone with ') + what + '?';
   }
-  // The questions' line about food: what this phone holds stays; food in the file is used only when the phone has none.
-  function foodLine(parsed, what) {
-    const here = foodFacts().days, there = isObj(parsed.diary) ? Object.keys(parsed.diary).length : 0;
-    if (here) return '\n\nThe old food log on this phone (' + plural(here, 'day') + ') stays as it is. Food in ' + what + ' is not used.';
-    return there ? '\n\nThe food log in ' + what + ' (' + plural(there, 'day') + ') comes with it.' : '';
+  // The parts of the saved foods a state, file or copy holds, in words: ['saved foods', 'saved meals', 'targets'].
+  function foodParts(food) {
+    const n = (o) => (isObj(o) ? Object.keys(o).length : 0), t = isObj(food) && isObj(food.targets) ? food.targets : {};
+    return isObj(food) ? [n(food.foods) ? 'saved foods' : '', n(food.meals) ? 'saved meals' : '', ['kcal', 'protein', 'carbs', 'fat'].some((x) => t[x] != null && t[x] !== '') ? 'targets' : ''].filter(Boolean) : [];
+  }
+  const joinWords = (list) => (list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list.join(''));
+  // What food a backup file or copy holds: the log (its days) and the saved foods with the targets.
+  function fileFood(parsed) { return { days: isObj(parsed.diary) ? Object.keys(parsed.diary).length : 0, parts: foodParts(parsed.food) }; }
+  // The questions' lines about food, as keepFoodCopy does it: each part this phone holds stays (the log; the saved
+  // foods with the targets), and a part comes from the file or copy only when the phone has none of it. When the
+  // phone has one part and not the other, the question says which comes from where.
+  function foodLine(parsed, what, merge) {
+    const f = foodFacts(), there = fileFood(parsed), mine = foodParts(state.food);
+    const lines = [];
+    if (merge) lines.push('The food log in ' + what + ' (' + plural(there.days, 'day') + ') is put together with the old food log on this phone (' + plural(f.days, 'day') + ').');
+    else if (f.days) lines.push('The old food log on this phone (' + plural(f.days, 'day') + ') stays as it is.');
+    else if (there.days) lines.push('The food log in ' + what + ' (' + plural(there.days, 'day') + ') comes with it.');
+    if (f.catalogue) {
+      // The saved foods here stay. Said only when the file's are different, and not again after "Food in … is not used".
+      if (there.parts.length && (merge || !f.days) && JSON.stringify(parsed.food) !== JSON.stringify(state.food)) lines.push('The ' + joinWords(mine) + ' on this phone stay as they are; those in ' + what + ' are not used.');
+    } else if (there.parts.length && (f.days || merge)) lines.push('The ' + joinWords(there.parts) + ' in ' + what + ' are used, because this phone has none.');
+    if (f.days && !merge && (f.catalogue || !there.parts.length)) lines.push('Food in ' + what + ' is not used.');
+    return lines.length ? '\n\n' + lines.join(' ') : '';
   }
   // The questions' line about a workout in progress. A copy or backup taken during it holds the same workout as it was then.
   function activeLine(parsed, what) {
@@ -498,10 +528,10 @@
     return label + ': ' + plural(ws.length, 'workout') + (ws.length ? ' (' + fmtRange(ws[0], ws[ws.length - 1], true) + ')' : '') + (days ? ', ' + plural(days, 'food day') : '') + '.';
   }
   // Import and Restore: keep a copy of what is here, then put the new data in place.
-  function replaceState(parsed, kind, done) {
+  function replaceState(parsed, kind, done, merge) {
     // An older copy may hold an older WHOOP connector link: this phone keeps its own.
     if (kind === 'restore' && !ui.unreadable && isObj(parsed.settings)) ['connUrl', 'connKey'].forEach((k) => { if (state.settings[k]) parsed.settings[k] = state.settings[k]; });
-    if (!ui.unreadable) { safetyCopy(kind); keepFoodCopy(parsed); }
+    if (!ui.unreadable) { safetyCopy(kind); keepFoodCopy(parsed, merge); }
     forgetCloudIfSignedOut();
     state = normalize(parsed);
     stopTimer();   // it was counting rest for a set of the data just replaced
@@ -515,10 +545,34 @@
   // phone has none of. The two parts are the saved foods with the targets (state.food) and the log itself
   // (state.diary, with its deletion records). After "Remove the old food log" the phone has no log, so restoring
   // the copy taken before the removal brings the log back; the saved foods on the phone stay either way.
-  function keepFoodCopy(next) {
+  // merge (Restore of the copy taken at the split or before a removal, while the phone holds food days again): the
+  // copy's log is put together with the phone's instead of being left out (mergeDiaries).
+  function keepFoodCopy(next, merge) {
     const f = foodFacts();
     if (f.catalogue) next.food = state.food;
-    if (f.days) { next.diary = state.diary; if (!isObj(next.deleted)) next.deleted = {}; next.deleted.food = state.deleted.food; }
+    if (!f.days) return;
+    if (!isObj(next.deleted)) next.deleted = {};
+    if (merge && isObj(next.diary)) { const m = mergeDiaries(next.diary, state.diary, next.deleted.food, state.deleted.food); next.diary = m.diary; next.deleted.food = m.deleted; return; }
+    next.diary = state.diary; next.deleted.food = state.deleted.food;
+  }
+  // Two food logs as one, day by day and entry by entry (an entry is known by its id): every entry of the phone
+  // stays as it is, and an entry of the copy is added when the phone does not hold it on that day and has not
+  // deleted it (its deletion records). On a day both have, the copy's entries go first: they were logged earlier.
+  // The deletion records are the phone's, plus the copy's for entries neither log holds.
+  function mergeDiaries(copy, phone, copyDeleted, phoneDeleted) {
+    const gone = isObj(phoneDeleted) ? phoneDeleted : {}, key = (e) => (e && e.id != null ? 'id:' + e.id : 'x:' + JSON.stringify(e));
+    const diary = {}, held = new Set();
+    const add = (day, list) => { diary[day] = list; list.forEach((e) => held.add(key(e))); };
+    Object.keys(copy).forEach((day) => {
+      const theirs = Array.isArray(copy[day]) ? copy[day] : [];
+      if (!Array.isArray(phone[day])) { add(day, theirs.filter((e) => !(e && e.id != null && gone[e.id]))); if (!diary[day].length) delete diary[day]; return; }
+      const mine = new Set(phone[day].map(key));
+      add(day, theirs.filter((e) => !mine.has(key(e)) && !(e && e.id != null && gone[e.id])).concat(phone[day]));
+    });
+    Object.keys(phone).forEach((day) => { if (!(day in diary)) add(day, phone[day]); });
+    const deleted = Object.assign({}, gone);
+    if (isObj(copyDeleted)) Object.keys(copyDeleted).forEach((id) => { if (!(id in deleted) && !held.has('id:' + id)) deleted[id] = copyDeleted[id]; });
+    return { diary, deleted };
   }
   // Theme: 'system' follows the phone, 'dark' / 'light' force one.
   function applyTheme() {
@@ -785,7 +839,7 @@
   // UI state
   // ---------------------------------------------------------------------------
   const ui = { screen: 'today', selectedDay: weekdayIndex(), dayKey: todayKey(), saveFailed: false, sheet: null, search: '', chartEx: null, sync: { status: 'off', msg: '' }, calOffset: 0, reviewOffset: 0, showOthers: false, updateReady: false };
-  const timer = { end: 0, total: 0, handle: null, kind: 'rest' };
+  const timer = { end: 0, total: 0, handle: null, kind: 'rest', next: '' };
 
   // ---------------------------------------------------------------------------
   // Rendering
@@ -2046,15 +2100,44 @@
     if (!sec) return;
     if (timer.handle && timer.kind === 'cardio' && kind !== 'cardio') return;  // cardio keeps running
     unlockAudio();
+    runTimer(kind, sec, Date.now() + sec * 1000, next);
+  }
+  function runTimer(kind, total, end, next) {
     timer.kind = kind || 'rest';
     const label = $('.rest-label'); if (label) label.textContent = timer.kind === 'cardio' ? 'Cardio' : 'Rest';
     const line = $('#rest-next'); if (line) line.textContent = next || '';
-    timer.total = sec; timer.end = Date.now() + sec * 1000;
+    timer.total = total; timer.end = end; timer.next = next || '';
     showRestOf();
     $('#rest-timer').hidden = false;
-    tick();
     clearInterval(timer.handle);
     timer.handle = setInterval(tick, 500);
+    keepTimer();
+    tick();
+  }
+  // A running timer is also kept for this session (sessionStorage), so a reload during a workout ("Update ready")
+  // does not drop it: resumeTimer starts it again at start. With it goes what it is for: the workout in progress,
+  // whose cardio a cardio timer logs when it ends.
+  const TIMER_KEY = 'overload.timer';
+  function keepTimer() {
+    try {
+      if (timer.handle) sessionStorage.setItem(TIMER_KEY, JSON.stringify({ end: timer.end, total: timer.total, kind: timer.kind, next: timer.next || '', workout: state.active }));
+      else sessionStorage.removeItem(TIMER_KEY);
+    } catch (e) { /* not available: the timer lasts as long as the page */ }
+  }
+  function resumeTimer() {
+    let t = null;
+    try { t = JSON.parse(sessionStorage.getItem(TIMER_KEY)); sessionStorage.removeItem(TIMER_KEY); } catch (e) { t = null; }
+    const w = activeWorkout();
+    if (!isObj(t) || !w || t.workout !== w.id || !(t.total > 0) || !(t.end > 0)) return;   // not this workout's
+    const kind = t.kind === 'cardio' ? 'cardio' : 'rest';
+    if (t.end <= Date.now()) {
+      // It ran out while the page was being loaded again: a cardio timer logs the cardio, as it would have.
+      if (kind === 'cardio' && w.cardio && !w.cardio.done) { w.cardio.done = true; save(); toast('Cardio done · ' + w.cardio.min + ' min logged'); }
+      return;
+    }
+    runTimer(kind, t.total, t.end, String(t.next || ''));
+    // An iPhone plays the beep only once a tap has allowed sound in this page: the next tap does.
+    ['touchend', 'click'].forEach((ev) => document.addEventListener(ev, unlockAudio, { once: true, passive: true }));
   }
   function tick() {
     const left = Math.max(0, Math.ceil((timer.end - Date.now()) / 1000));
@@ -2070,7 +2153,7 @@
   }
   // The whole rest beside the time left ("1:24 / 2:00"). It changes only with +30s.
   function showRestOf() { const el = $('#rest-of'); if (el) el.textContent = '/ ' + fmtTime(timer.total); }
-  function stopTimer() { clearInterval(timer.handle); timer.handle = null; timer.kind = 'rest'; $('#rest-timer').hidden = true; }
+  function stopTimer() { clearInterval(timer.handle); timer.handle = null; timer.kind = 'rest'; $('#rest-timer').hidden = true; keepTimer(); }
 
   // ---------------------------------------------------------------------------
   // Toast
@@ -2089,24 +2172,35 @@
   async function exportJson() {
     if (await shareFile(JSON.stringify(state, null, 2), 'overload-backup-' + todayKey() + '.json', 'Overload backup')) exported();
   }
-  // Resolves true when the file was handed over (false when he cancelled the share sheet).
+  // Resolves true when the file was handed over: the share sheet finished, or the phone has no share sheet for
+  // files and the download is the only way. False when he cancelled the sheet, when a second tap came while a
+  // sheet is open (it is ignored), and when the sheet refused: the phone answers InvalidStateError or
+  // NotAllowedError then, which is treated as a cancel. Any other failure of the sheet still offers the download,
+  // but does not count it, as it cannot be told whether a file came of it.
   async function shareFile(text, name, title) {
-    try {
-      const file = new File([text], name, { type: 'application/json' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title });
-        return true;
-      }
-    } catch (e) {
-      if (e && e.name === 'AbortError') return false;
+    // A sheet opened in the last minute is still open (a second share() would be refused); after that a tap is
+    // let through, so a sheet that never answers cannot block saving for the rest of the session.
+    if (ui.sharing && Date.now() - ui.sharing < 60000) return false;
+    let file = null, sheet = false;
+    try { file = new File([text], name, { type: 'application/json' }); sheet = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { sheet = false; }
+    if (sheet) {
+      const mine = ui.sharing = Date.now();
+      try { await navigator.share({ files: [file], title }); return true; }
+      catch (e) { if (e && /^(AbortError|InvalidStateError|NotAllowedError)$/.test(e.name)) return false; }
+      finally { if (ui.sharing === mine) ui.sharing = 0; }
+      download(text, name);
+      return false;
     }
+    download(text, name);
+    return true;
+  }
+  function download(text, name) {
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    return true;
   }
   // ---- Saved data that could not be read at start ----
   function renderUnreadable() {
@@ -2169,9 +2263,15 @@
   }
   // Signed in, a reset or import syncs out and replaces the training data in the cloud too. Say so.
   // The food log in the account is never changed from this app any more (sync.js), so say that as well.
+  // A Reset writes no deletion records, so another phone signed in to the account keeps its weigh-ins and nights
+  // and sends them back (they are merged by date), and so does a phone signed out meanwhile that keeps its data
+  // and signs in again. The question says so, and how to erase them as well.
   function cloudNote(verb) {
     const sync = window.__overloadSync;
-    return sync && sync.user ? '\n\nYou are signed in to cloud sync, so the training data in your account (' + sync.user.email + ') is ' + verb + ' too. The food log in your account is not changed.' : '';
+    if (!(sync && sync.user)) return '';
+    return '\n\nYou are signed in to cloud sync, so the training data in your account (' + sync.user.email + ') is ' + verb + ' too.'
+      + (verb === 'erased' ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.' : '')
+      + ' The food log in your account is not changed.';
   }
   // Reset all data: the training data goes back to a new install. The old food log is not part of it: it leaves
   // this phone only through "Remove the old food log" in Settings > Food, and the questions say so.
@@ -2248,8 +2348,9 @@
   // from (units and theme) and the latest weigh-in for its protein guide. Named fields only: nothing else from
   // settings may ever leave this app (settings.connKey is a secret), and never an "exercises" field, which
   // together with v: 1 is what this app's own Import takes for a full backup.
+  const lastWeighIn = () => state.bodyweight.filter((b) => b && +b.weight > 0).sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
   function foodPayload() {
-    const st = state, last = st.bodyweight.filter((b) => b && +b.weight > 0).sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
+    const st = state, last = lastWeighIn();
     return { kind: 'overload-food', v: 1, madeAt: Date.now(), from: 'Overload ' + VERSION,
       food: { targets: st.food.targets, foods: st.food.foods, meals: st.food.meals },
       diary: st.diary, deleted: { food: st.deleted.food },
@@ -2275,12 +2376,20 @@
     }
     return 'OVERLOAD-FOOD:0:' + base64(bytes);
   }
+  // Everything the payload holds but madeAt, as one short text: the food data's fingerprint, then the latest
+  // weigh-in, the units, the theme and the food deletion records.
+  function payloadKey() {
+    const last = lastWeighIn();
+    return foodFacts().hash + '|' + hashText(JSON.stringify([last ? [last.date, last.weight] : null, state.settings.units, state.settings.theme, state.deleted.food]));
+  }
   // The text is made ahead, when a card with the Copy button is drawn: an iPhone lets a page write to the
-  // clipboard only during the tap itself, and gzip takes longer than that. Made once for each state of the food data.
+  // clipboard only during the tap itself, and gzip takes longer than that. Made again whenever anything it holds
+  // changed (a weigh-in or a new theme in the same session must reach Fuel too); madeAt is when it was made.
+  // The check-in and Settings draw the card again, so the new text is normally ready before the tap.
   function prepareFoodText() {
-    const hash = foodFacts().hash;
-    if (ui.foodText && ui.foodText.hash === hash) return ui.foodText;
-    const job = { hash, text: null, ready: null };
+    const key = payloadKey();
+    if (ui.foodText && ui.foodText.key === key) return ui.foodText;
+    const job = { key, hash: foodFacts().hash, text: null, ready: null };
     job.ready = foodText(foodPayload()).then((t) => { job.text = t; return t; });
     job.ready.catch(() => { if (ui.foodText === job) ui.foodText = null; });   // made again at the next try
     return (ui.foodText = job);
@@ -2336,20 +2445,36 @@
     return { f, copied, filed, current, removed, removedAt: removed ? s.removed.at : null,
       // Changed after it was copied: an older version of the app can run again while an update is half arrived, and log food.
       stale: !current && !removed && !!(copied || filed),
-      // On Today until it is hidden or done. Hiding remembers what the food data was, so the card returns when that changes.
-      today: f.any && !removed && !current && s.dismissed !== f.hash };
+      // On Today until it is hidden: in full, then (once copied or saved) short, with the way to Fuel and the next
+      // step. Hiding remembers what the food data was, so the card returns when that changes.
+      today: f.any && !removed && s.dismissed !== f.hash,
+      // What was made last of the two that hold what is here now: 'copied' or 'filed' (null when neither does).
+      done: !current ? null : (copied && copied.hash === f.hash ? copied.at : 0) >= (filed && filed.hash === f.hash ? filed.at : 0) ? 'copied' : 'filed' };
   }
-  // The card "Food has moved to Fuel": on Today until it is hidden or the log was copied, always in Settings.
+  // The card "Food has moved to Fuel": on Today until it is hidden (short once the log was copied), always in Settings.
   function handoverHtml(where) {
     if (ui.unreadable) return '';
     const h = handoverInfo(), f = h.f, today = where === 'today';
     if (today && !h.today) return '';
     const title = today ? '' : '<div class="group-title">Food</div>';
     const tile = '<span class="app-tile l" data-app="fuel">' + icon('mark-fuel') + '</span>';   // Fuel's Home Screen icon, in its own colour
+    const hide = today ? '<button class="icon-btn" data-action="handover-hide" aria-label="Hide this card">' + icon('close') + '</button>' : '';
     // Nothing to hand over (a new install, or the old log was removed): one line and the way to Fuel.
     if (!f.any || h.removed) {
       return title + '<div class="card handover"><div class="handover-head">' + tile + '<p class="small muted">Food is logged in a separate app, ' + FUEL + '.'
         + (h.removed ? ' The old food log was removed from Overload on ' + fmtDate(todayKey(new Date(h.removedAt))) + '.' : '') + '</p></div>' + fuelButtons() + '</div>';
+    }
+    // On Today, once copied or saved as a file: a short card in the same place, until he hides it. It still has
+    // the way to get Fuel (he may copy before he has it) and the step that comes next, and lets him do it again.
+    // Its head, the line under it and the last line keep the card about as tall as where Copy my food log was:
+    // the second tap of a double tap lands on the card, not on what would move up under it.
+    if (today && h.done) {
+      const file = h.done === 'filed';
+      return '<div class="card handover"><div class="handover-head">' + tile + '<b>Food has moved to ' + FUEL + '</b>' + hide + '</div>'
+        + '<p class="small mt8">' + (file ? 'Saved as a file. Open ' + FUEL + ' and tap Choose a file.' : 'Copied. Open ' + FUEL + ' and tap Paste from Overload.') + '</p>'
+        + fuelButtons()
+        + '<div class="btn-row mt8">' + (file ? '<button class="btn ghost" data-action="handover-file">' + icon('export') + 'Save again</button>' : '<button class="btn ghost" data-action="handover-copy">' + icon('copy') + 'Copy again</button>') + '</div>'
+        + '<p class="tiny muted mt12">This card is also in Settings, under Food.</p></div>';
     }
     const holds = [plural(f.days, 'day'), entriesText(f.entries), plural(f.foods, 'saved food')].concat(f.meals ? [plural(f.meals, 'saved meal')] : []).join(', ') + ' (about ' + fmtSize(f.chars) + ')';
     const made = [h.copied && h.copied.hash === f.hash ? 'Copied ' + agoText(h.copied.at) : '', h.filed && h.filed.hash === f.hash ? 'Saved as a file ' + agoText(h.filed.at) : ''].filter(Boolean);
@@ -2357,12 +2482,10 @@
     const file = !!h.filed && (!h.copied || h.filed.at > h.copied.at);
     const lastDay = fmtDate(todayKey(new Date(Math.max(h.copied ? h.copied.at : 0, h.filed ? h.filed.at : 0))));
     const status = h.stale ? 'The ' + (file ? 'file' : 'copy') + ' from ' + lastDay + ' is out of date.' : made.length ? made.join(' · ') + '.' : 'Not copied yet.';
-    // For cloud sync users. This app no longer uploads food, so the account can be behind this phone: only when
-    // sync.js can prove the account holds all of it (foodInCloud) does the card say signing in is enough.
-    const sync = window.__overloadSync;
-    const cloud = !syncOn() ? '' : '<p class="small muted mt12">Using cloud sync? ' + (sync && sync.foodInCloud === true
-      ? 'Your whole food log is in your account. Signing in to ' + FUEL + ' with the same email brings it across too.'
-      : 'Signing in to ' + FUEL + ' with the same email also brings across the food log your account holds. This phone may hold more, so copy it from here as well.') + '</p>';
+    // For cloud sync users. Signing in to Fuel is never the whole answer: this app no longer uploads food, so the
+    // account can be behind this phone, and once Fuel has signed in it never reads this app's copy in the account
+    // again (food an older version logs after that only goes across by Copy or a file). So: always copy, sign-in extra.
+    const cloud = !syncOn() ? '' : '<p class="small muted mt12">Using cloud sync? Copy the food log or save it as a file from here as well. Signing in to ' + FUEL + ' with the same email may bring some of it across, but not always all of it.</p>';
     // Offered only when the last copy or file holds exactly what is here now.
     const remove = !today && h.current && f.days ? '<div class="handover-remove"><b>When ' + FUEL + ' shows your food log</b>'
       + '<p class="small muted">You can remove the old food log from Overload. That frees about ' + fmtSize(f.diaryChars) + ' on this phone. A safety copy is kept first, and your saved foods and targets stay.</p>'
@@ -2371,7 +2494,7 @@
     // numbers, no step headings, no fine print. The steps are numbered by the list; the second is done (solid)
     // while the last copy or file holds what is here now.
     return title + '<div class="card handover">'
-      + '<div class="handover-head">' + tile + '<b>Food has moved to ' + FUEL + '</b>' + (today ? '<button class="icon-btn" data-action="handover-hide" aria-label="Hide this card">' + icon('close') + '</button>' : '') + '</div>'
+      + '<div class="handover-head">' + tile + '<b>Food has moved to ' + FUEL + '</b>' + hide + '</div>'
       + '<p class="small muted mt8">The food log is now its own app, ' + FUEL + '. Your log is still on this phone: ' + holds + '. Nothing is taken away until you remove it yourself.</p>'
       + (h.stale ? '<div class="banner warn mt8">' + icon('warning') + '<span>The food log here changed after you ' + (file ? 'saved it as a file' : 'copied it') + ' on ' + lastDay + '. ' + (file ? 'Save' : 'Copy') + ' it again so ' + FUEL + ' gets the rest.</span></div>' : '')
       + '<ol class="steps">'
@@ -2401,19 +2524,37 @@
   // what is here. Asks twice, then keeps a safety copy of everything (it must be stored, or nothing is removed),
   // then empties the log itself (state.diary) and nothing else: the saved foods with the targets and the deletion
   // records are small, and with them an older version of the app and the cloud's copy still find what they expect.
+  // While signed in, only beside this release's own sync module: one of another release (a half-arrived update)
+  // may still send food, and 2.8's deletes from the account every food day that is gone from the phone. A sync
+  // module that is not signed in holds no note of the account in memory: it reads the note at sign-in, after
+  // forgetSyncedDays has taken the removed days off it.
+  const otherSync = () => { const sync = window.__overloadSync; return !!(sync && sync.user && sync.release !== VERSION); };
+  const UPDATE_FIRST = 'Finish the update first: open Overload once with good signal, then try again.';
   async function removeFoodLog() {
     const h = handoverInfo(), f = h.f;
     if (ui.unreadable || ui.removing || !f.days) return;   // removing: a second tap while the safety copy is being stored
     if (!h.current) { toast('Copy your food log or save it as a file first.'); return; }
-    const sync = window.__overloadSync;
+    if (otherSync()) { toast(UPDATE_FIRST); return; }
+    // Every removal keeps a safety copy of its own, and the newest few are kept (backup.js): when that lets an
+    // older one go, the question says so.
+    const B = window.__overloadBackup, keep = (B && B.KEEP_REMOVALS) || 3;
+    ui.removing = true;
+    let earlier = [];
+    try { earlier = B ? (await B.list()).filter((m) => m.kind === 'foodremove').sort((a, b) => a.at - b.at) : []; } catch (e) { earlier = []; }
+    ui.removing = false;
+    const going = earlier.slice(0, Math.max(0, earlier.length + 1 - keep)).map((m) => fmtDate(todayKey(new Date(m.at))));
+    const sync = window.__overloadSync;   // signed in: this release's, which never changes the account's food log
     if (!confirm('Remove the old food log from Overload?\n\n' + plural(f.days, 'day') + ' of food (' + entriesText(f.entries) + ') leave this app. Do this only when ' + FUEL + ' shows your food log.'
-      + '\n\nA safety copy is kept first, in Settings > Automatic copies. Your saved foods and targets stay.' + (sync && sync.user ? '\n\nThe food log in your cloud account is not changed.' : ''))) return;
+      + '\n\nA safety copy is kept first, in Settings > Automatic copies. Your saved foods and targets stay.'
+      + (going.length ? '\n\nSettings keeps the copies of the last ' + keep + ' removals, so the ' + (going.length === 1 ? 'copy' : 'copies') + ' from ' + joinWords(going) + (going.length === 1 ? ' is' : ' are') + ' let go.' : '')
+      + (sync && sync.user ? '\n\nThe food log in your cloud account is not changed.' : ''))) return;
     if (!confirm('Really remove the old food log from Overload?')) return;
     ui.removing = true;
     const kept = await safetyCopy('foodremove', false, JSON.stringify(state));
     ui.removing = false;
     if (!kept) { toast('The safety copy could not be stored, so nothing was removed. Try again.'); return; }
     if (foodFacts().hash !== f.hash) { toast('The food log changed just now. Nothing was removed.'); return; }   // cloud data arrived while the copy was stored
+    if (otherSync()) { toast(UPDATE_FIRST); return; }   // signed in while the questions were open or the copy was stored
     const old = state.diary;
     state.diary = {};
     const ok = save();
@@ -2516,7 +2657,7 @@
       case 'cardio-undo': if (w && w.cardio) { w.cardio.done = false; save(); render(); } break;
       case 'discard-workout': discardWorkout(); break;
       case 'rest-skip': { const k = timer.kind; stopTimer(); if (k === 'cardio') render(); break; }
-      case 'rest-add': timer.end += 30000; timer.total += 30; showRestOf(); tick(); break;
+      case 'rest-add': timer.end += 30000; timer.total += 30; showRestOf(); tick(); keepTimer(); break;
 
       // Program
       case 'add-day': { const day = { id: uid(), name: 'New day', exercises: [] }; state.program.days.push(day); save(); render(); sheetDay(day.id); break; }
@@ -2743,6 +2884,7 @@
   if (ui.unreadable) { if (ui.unreadable.raw) safetyCopy('unreadable', true, ui.unreadable.raw); } else { noteSplit(); save(); }
   if (activeWorkout()) ui.screen = 'today';
   if (!backupInfo().since) setBackupInfo({ since: Date.now() });
+  if (!ui.unreadable) resumeTimer();   // a rest or cardio timer that was running when the page was loaded again
   render();
   ui.booted = true;
   if (!ui.unreadable) safetyCopy('day');

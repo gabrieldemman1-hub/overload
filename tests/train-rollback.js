@@ -14,7 +14,8 @@
  *      and does not take the split copy a second time.
  *   2. Workout in progress. 3.0: one more set ticked. v2.8 resumes the workout with that set.
  *   3. After "Remove the old food log" in 3.0: v2.8 starts, shows an empty food day with the targets, saved
- *      meals and favourites still there, and restores the log from the copy taken before the removal.
+ *      meals and favourites still there. It logs a food, 3.0 removes the log again: each removal keeps a copy of
+ *      its own. v2.8 lists both and restores the log from the first.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -33,7 +34,7 @@ let server = null;
 async function serve(dir) { if (server) await server.stop(); server = await lib.startServer(dir, PORT); return server; }
 async function openV(phone, version) {
   const page = await lib.openApp(phone.context, server.url + '/index.html');
-  const v = await page.evaluate(() => [...document.scripts].map((s) => (/app\.js\?v=([\d.]+)/.exec(s.getAttribute('src') || '') || [])[1]).filter(Boolean)[0]);
+  const v = await page.evaluate(() => [...document.scripts].map((s) => (/(?:app|overload)\.js\?v=([\d.]+)/.exec(s.getAttribute('src') || '') || [])[1]).filter(Boolean)[0]);   // the main script: app.js in v2.8, overload.js since 3.0
   if (v !== version) throw new Error('the page is version ' + v + ', expected ' + version);
   return page;
 }
@@ -201,7 +202,7 @@ async function activeScenario(browser, v28) {
 async function removedScenario(browser, v28) {
   const name = 'after Remove', fx = lib.loadFixture('v28-state'), facts = fx.facts, step = (title, fn) => run.step(name, title, fn);
   const phone = await newPhone(browser, fx);
-  let used = null, page = null;
+  let used = null, page = null, first = null, second = null;
   await serve(lib.REPO);
   await step('3.0: copy the food log, then remove the old food log', async () => {
     page = await openV(phone, '3.0');
@@ -211,9 +212,13 @@ async function removedScenario(browser, v28) {
     await page.click('[data-action="handover-remove"]'); await T.toast(page, /Old food log removed/);
     used = await text(page);
     same(JSON.parse(used).diary, {}, 'diary');
-    const c = await T.copy(page, 'before-foodremove');
+    const list = (await T.copies(page)).filter((m) => m.kind === 'foodremove');
+    need(list.length === 1, 'removal copies: ' + JSON.stringify(list.map((m) => m.id)));
+    first = list[0].id;
+    const c = await T.copy(page, first);
     need(c && c.text === fx.text, 'the copy taken before the removal does not hold the fixture text');
     await page.close();
+    return first;
   });
   await serve(v28);
   await step('v2.8 starts, every tab draws, food shows an empty day with targets, saved meals and favourites', async () => {
@@ -229,10 +234,35 @@ async function removedScenario(browser, v28) {
     same((await T.readHistory(page)).stats, facts.history.stats, 'History');
     return day.kcalLine + '; ' + JSON.stringify(sheet.groups);
   });
-  await step('v2.8: Restore of the copy taken before the removal brings the food log back', async () => {
+  // v2.8 logs one food; 3.0 again: copied and removed a second time. Each removal keeps a copy of its own.
+  await step('v2.8 logs a food, 3.0 removes it again: two removal copies, the first still the whole log', async () => {
+    await page.evaluate(() => { const O = window.__overload, d = O.lib.todayKey(); (O.state.diary[d] = O.state.diary[d] || []).push({ id: 'flip1', food: null, meal: 2, qty: null, unit: null, amt: '', name: 'Dinner logged in v2.8', brand: '', kcal: 650, p: 40, c: 60, f: 20, at: Date.now() }); O.save(); });
+    const logged = await text(page);
+    await page.close();
+    await serve(lib.REPO);
+    page = await openV(phone, '3.0');
+    await page.clock.runFor(60000);
     await lib.openTab(page, 'settings');
-    await page.waitForSelector('[data-action="restore-copy"][data-id="before-foodremove"]', { timeout: 5000 });
-    await page.click('[data-action="restore-copy"][data-id="before-foodremove"]');
+    await page.click('[data-action="handover-copy"]'); await T.toast(page, /Food log copied/);
+    await page.click('[data-action="handover-remove"]'); await T.toast(page, /Old food log removed/);
+    const list = (await T.copies(page)).filter((m) => m.kind === 'foodremove');
+    need(list.length === 2 && list[1].id === first, 'removal copies: ' + JSON.stringify(list.map((m) => m.id)));
+    second = list[0].id;
+    need((await T.copy(page, first)).text === fx.text && (await T.copy(page, second)).text === logged, 'the two copies do not hold what each removal removed');
+    used = await text(page);
+    await page.close();
+    await serve(v28);
+    page = await openV(phone, '2.8');
+    need((await text(page)) === used, 'v2.8 changed the stored text at its start');
+    return first + ', ' + second;
+  });
+  await step('v2.8 lists both removal copies and restores the first: the whole food log is back', async () => {
+    await lib.openTab(page, 'settings');
+    await page.waitForSelector('[data-action="restore-copy"][data-id="' + second + '"]', { timeout: 5000 });
+    const rows = await page.evaluate((ids) => ids.map((id) => document.querySelector('[data-action="restore-copy"][data-id="' + id + '"]').closest('.copy-row').textContent.replace(/\s+/g, ' ').trim()), [first, second]);
+    need(/^Copy · Sat, Nov 21/.test(rows[0]) && /110 food days/.test(rows[0]) && /^Copy · Sat, Nov 21/.test(rows[1]) && /1 food day/.test(rows[1]), 'the rows read: ' + rows.join(' | '));
+    page.dialogs.length = 0;
+    await page.click('[data-action="restore-copy"][data-id="' + first + '"]');
     await T.toast(page, /Copy restored|cannot be read|Not saved/);
     need((await text(page)) === fx.text, 'the stored text is not the fixture after the restore');
     await lib.openTab(page, 'food');

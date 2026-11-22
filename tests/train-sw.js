@@ -18,6 +18,10 @@
  *   - when one file of the install list fails, the old worker and its cache stay as they were, and the next
  *     check completes the update.
  *   - a reminder's tap does not pick a window of the diet app (the choice is a function in sw.js, called here).
+ *   - a file whose address carries ?v= is answered from the worker's own stored copy, also when the server has
+ *     another file under that name (the server ignores ?v=, so after the next release it has); a file without
+ *     ?v= is still asked for first; a stored copy that is missing is fetched and stored again; a main script
+ *     from the network that names another release is neither run nor stored (review finding O1).
  *
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree). Give a copy
  *                when the tree's page and worker do not fit each other yet (a file one of them names is still
@@ -283,7 +287,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
     await until(async () => { const c = await caches(page2); return c[old.cache] && c[old.cache].length >= old.assets.length && (await pageFacts(page2)).controlled; }, 30000);
     const before = (await caches(page2))[old.cache].slice().sort();
     site.root = TREE;
-    const failing = now.assets.find((a) => /app\.js/.test(a)) || now.assets[2];
+    const failing = now.assets.find((a) => /overload\.js/.test(a)) || now.assets[2];
     const failRule = { test: (rel, u) => abs(failing) === site.url + u.pathname + u.search, status: 503 };
     site.rules.push(failRule);
     let outcome = await updateOutcome(page2);
@@ -305,6 +309,56 @@ const updateOutcome = (page) => page.evaluate(async () => {
     cs = await until(async () => { const c = await caches(page2); return c[now.cache] && !c[old.cache] ? c : null; }, 30000);
     check(!!cs && now.assets.every((a) => cs[now.cache].includes(abs(a))), 'the next update check, with every file answering, completes the update', cs ? 'caches: ' + Object.keys(cs).join(', ') : 'no ' + now.cache + ' after 30 s');
     await phone2.close();
+
+    // =====================================================================
+    // Phone 3: a file with ?v= comes from the worker's own copy; the network only when there is none
+    // =====================================================================
+    // The server ignores ?v=: after the next release it answers this release's addresses with the next release's
+    // files. The stand-in for that is a changed file under the same name (site.pages).
+    site.root = TREE;
+    const main = now.assets.find((a) => /overload\.js\?v=/.test(a)) || '';
+    const mainRel = main.replace(/^\.\//, '').split('?')[0] || 'overload.js', css = now.assets.find((a) => /train\.css\?v=/.test(a)) || '';
+    const cssRel = css.replace(/^\.\//, '').split('?')[0] || 'train.css';
+    const readOr = (rel) => { try { return fs.readFileSync(path.join(TREE, rel), 'utf8'); } catch (e) { return ''; } };
+    const realMain = readOr(mainRel), realCss = readOr(cssRel);
+    const nextMain = realMain.replace("const VERSION = '" + now.release + "'", "const VERSION = '9.9'");
+    const phone3 = await lib.newPhone(browser, { serviceWorkers: 'allow' });
+    await lib.seedV28(phone3.context, fx);
+    const page3 = await lib.openApp(phone3.context, at('index.html'));
+    cs = await until(async () => { const c = await caches(page3); return c[now.cache] && now.assets.every((a) => c[now.cache].includes(abs(a))) && (await pageFacts(page3)).controlled ? c : null; }, 30000);
+    check(!!cs && !!main && !!css, 'set-up: this tree installed under its own worker (' + now.cache + ')', main + ', ' + css);
+    const entry = (page, url) => page.evaluate(async ([name, u]) => { const r = await (await self.caches.open(name)).match(u); return r ? r.text() : null; }, [now.cache, url]);
+    const shown = async (page) => { await lib.openTab(page, 'settings'); return page.$eval('#app p.version', (e) => e.textContent).catch(() => null); };
+    site.pages[mainRel] = { type: TYPES['.js'], body: nextMain };
+    site.pages[cssRel] = { type: TYPES['.css'], body: realCss + '\n/* the next release */\n' };
+    site.pages['icon.svg'] = { type: TYPES['.svg'], body: '<svg xmlns="http://www.w3.org/2000/svg"><!-- the next release --></svg>' };
+    site.log.length = 0;
+    await page3.reload(); await page3.waitForFunction(() => !!window.__overload);
+    await page3.evaluate(() => fetch('./icon.svg').then((r) => r.text()));   // a file without ?v=, as the page's icon link asks for it
+    await sleep(700);
+    const askedV = site.log.filter((u) => /\?v=/.test(u));
+    check((await shown(page3)) === 'Overload · v' + now.release && !askedV.length, 'the server answering ' + mainRel + ' and ' + cssRel + ' with other files: the page runs the stored copies and asks the server for no file with ?v=', 'asked: ' + (askedV.join(', ') || 'none'));
+    check((await entry(page3, abs(main))) === realMain && (await entry(page3, abs(css))) === realCss, 'the stored ' + mainRel + ' and ' + cssRel + ' are still as the install stored them');
+    check(/the next release/.test((await entry(page3, abs('./icon.svg'))) || ''), 'a file without ?v= is still asked for first, and its stored copy refreshed (network first, as before)');
+    delete site.pages[cssRel];
+    await page3.evaluate(([name, u]) => self.caches.open(name).then((c) => c.delete(u)), [now.cache, abs(css)]);
+    await page3.reload(); await page3.waitForFunction(() => !!window.__overload);
+    await sleep(700);
+    check((await entry(page3, abs(css))) === realCss && await page3.evaluate(() => [...document.querySelectorAll('link[rel="stylesheet"]')].every((l) => l.sheet && l.sheet.cssRules.length > 0)), 'a stored copy that is missing is taken from the network and stored again', cssRel);
+    await page3.evaluate(([name, u]) => self.caches.open(name).then((c) => c.delete(u)), [now.cache, abs(main)]);
+    let gaveUp = null;
+    try {
+      await page3.goto(at('index.html'));
+      await page3.waitForFunction(() => { const n = document.getElementById('boot-note'); return (n && /did not finish starting/.test(n.textContent)) || !!window.__overload; }, null, { timeout: 15000 });
+      gaveUp = await page3.evaluate(() => ({ started: !!window.__overload, note: (document.getElementById('boot-note') || {}).textContent || '' }));
+    } catch (e) { gaveUp = { error: String(e.message).split('\n')[0] }; }
+    check(!!gaveUp && gaveUp.started === false && /did not finish starting/.test(gaveUp.note), 'the main script missing, and the server\'s naming another release: that file is not run (the page says it did not finish starting)', JSON.stringify(gaveUp).slice(0, 160));
+    check((await entry(page3, abs(main))) === null && (await lib.readStorageText(page3, lib.STATE_KEY)) !== null, '... and not stored; the saved data is still there');
+    delete site.pages[mainRel]; delete site.pages['icon.svg'];
+    await page3.goto(at('index.html')); await page3.waitForFunction(() => !!window.__overload, null, { timeout: 15000 });
+    await sleep(700);
+    check((await entry(page3, abs(main))) === realMain && (await shown(page3)) === 'Overload · v' + now.release, 'with the right file on the server again, the next start runs it and stores it');
+    await phone3.close();
   } catch (e) {
     check(false, 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
   }

@@ -70,7 +70,10 @@ Everything is in `localStorage` on the device, under names of Fuel's own:
 - A save that fails (storage full) shows a banner until a save works. Stored data that cannot be read is
   never written over: the app shows "Your data" and lets the owner export it, restore a copy or start fresh.
 - Automatic copies: one a day for the last 7 days (taken at start, brought up to date when the app goes to
-  the background), and one before each import, reset, restore and cloud sign-in. Settings lists them.
+  the background), and one before each import, reset, restore and cloud sign-in. Settings lists them. Reset,
+  Restore and an import wait for their copy: when it cannot be stored (IndexedDB does not answer), nothing is
+  erased, replaced or added, and the app offers Export instead. A connection to the copies that the phone
+  dropped is opened again by the next copy.
 - Export JSON writes the state itself as `fuel-backup-YYYY-MM-DD.json`.
 
 ## Cloud sync: where the data is in the account
@@ -94,14 +97,19 @@ one account holds both apps' data, in documents of their own:
   copy is never read again: food logged later in an old Overload comes with Copy my food log.
 - On the phone, `fuel.sync.v1` is sync's note of what the account holds of this phone's data (`{ uid, core,
   days }`, as fingerprints). A day leaves a phone only through deletion records, never because its document
-  is missing in the account. `moved` is not part of `core`: it stays on each phone.
+  is missing in the account. `moved` is not part of `core`: it stays on each phone. A page that starts with no
+  saved data removes the note (it would describe data that is gone, and the next upload would delete in the
+  account what it lists), and sync believes a note only on a page that started on saved data
+  (`window.__overload.startedWithData`, which `fuel.js` sets before anything can be tapped).
 - The Firebase app has a name of its own (`fuel`), so where both apps share one browser storage they do not
   share a sign-in or an offline cache.
 - `../firestore.rules` needs nothing for this: its one rule covers everything under `users/{uid}`.
 - The three Firebase files are not in the worker's install list (a slow or blocked download must never keep
   the app from installing). The worker stores them once it is active, and whenever a page loads them.
-- Reset and Restore replace the food log in the account too when signed in. With a second phone signed in
-  that still holds the old log, its days and saved foods come back from there.
+- Reset and Restore replace the food log in the account too when signed in. They write no deletion records,
+  so a second phone signed in that still holds the old log sends its days and saved foods back. Their
+  questions say so: sign out on that phone first, and reset it there before signing in again (its note is
+  then gone, and its next sign-in takes the account's copy).
 
 ## Where it runs on an iPhone
 
@@ -109,7 +117,8 @@ An iPhone keeps a separate storage for Safari and for each Home Screen app. Fuel
 `navigator.standalone` (only iPhones and iPads have it):
 
 - In a Safari tab it shows how to add Fuel to the Home Screen, with "Use it here anyway" (remembered for that
-  tab only).
+  tab only). When the tab already holds Fuel data, the screen says so first and offers Export: the Home Screen
+  app starts empty, and its Welcome takes that Fuel backup under Choose a file.
 - In a Home Screen app that holds Overload's data and none of Fuel's, the page was opened inside the installed
   Overload. It shows Open in Safari and Copy link, stores nothing and registers no worker.
 - Otherwise it runs.
@@ -145,8 +154,10 @@ From the repo root, each with its own local server (`--port=` changes it):
 ```bash
 node tests/fuel-shell.js     # first start, a day of use, reload, the saved state's shape
 node tests/fuel-import.js    # every way in from Overload, second imports, malformed input
-node tests/fuel-guard.js     # Safari tab, inside Overload, Home Screen app, a computer
-node tests/fuel-backup.js    # export and import, automatic copies, restore, unreadable data, storage full
+node tests/fuel-guard.js     # Safari tab (with and without Fuel data), inside Overload, Home Screen app, a computer
+node tests/fuel-backup.js    # export and import, automatic copies, restore, unreadable data, storage full, the share sheet
+node tests/fuel-trends.js    # Trends left open over midnight, or found in the morning, follows the date
+node tests/fuel-look.js      # Today's three macro cells at 320, 390 and 430 px
 node tests/fuel-host.js      # what the shell gives cloud sync, with a stand-in for sync.js
 node tests/fuel-update.js    # how the page takes a new offline worker, with stand-in workers
 node tests/fuel-rescue.js    # the start-up rescue in index.html, with stored copies put there by hand

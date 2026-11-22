@@ -196,7 +196,7 @@ function readStorageText(page, key) { return page.evaluate((k) => localStorage.g
 /**
  * Opens `url` in a new page of the context and waits until the app has started.
  * opts.ready: a function or expression evaluated in the page; default: window.__overload exists
- * (app.js sets it last; the diet app's shell is planned to offer the same object).
+ * (overload.js sets it last, and app.js in v2.8; the diet app's shell, fuel/fuel.js, offers the same object).
  * opts.dialogs: 'accept' (default) | 'dismiss' | 'none' | (dialog) => any. confirm() and prompt() would
  * otherwise hang the page. page.dialogs lists the messages seen.
  */

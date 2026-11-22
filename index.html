@@ -29,7 +29,7 @@
   <script>
     // Start-up rescue. The first start after an update can still be handled by the previous release's
     // offline copy (sw.js), and on a weak signal it can store this page without this release's files.
-    // With no signal the app would then open blank. If app.js could not load, run the previous release's
+    // With no signal the app would then open blank. If overload.js could not load, run the previous release's
     // files that the phone still has (every script and every stylesheet, so they match; each script only
     // sets things up on window, so running one again is safe). They run from the stored copies themselves,
     // so nothing goes to the network and nothing is stored again under the old names. The update finishes
@@ -62,14 +62,14 @@
       setTimeout(function () { say(true); }, 8000);   // the files may still be on their way: the app replaces this when it starts
       window.addEventListener('error', function (e) { var t = e.target; if (t && t !== window && (t.src || t.href)) failed.push(t.src || t.href); }, true);
       window.addEventListener('load', function () {
-        if (window.__overload) return;   // this release started (app.js sets it)
+        if (window.__overload) return;   // this release started (overload.js sets it)
         var scripts = Array.prototype.slice.call(document.querySelectorAll('script[src]')), css = sheets();
         var rel = function (url) { var m = /[?&]v=([^&#]+)/.exec(url); return m ? m[1] : ''; };
         var swap = function (url, v) { return url.replace(/([?&]v=)[^&#]*/, '$1' + v); };
         var path = function (url) { try { var u = new URL(url, location.href); return u.origin === location.origin ? u.pathname : ''; } catch (e) { return ''; } };
         var parts = function (v) { var p = String(v).split('.'); return [parseInt(p[0], 10), parseInt(p[1] || '0', 10)]; };
         var older = function (a, b) { var x = parts(a), y = parts(b); return x[0] === y[0] && x[1] < y[1]; };   // a came before b and has the same first number
-        var mainPath = path('./app.js');   // this app's main script, next to this page
+        var mainPath = path('./overload.js');   // this app's main script, next to this page
         var main = scripts.filter(function (s) { return path(s.src) === mainPath; })[0];
         if (!main || !window.caches || failed.indexOf(main.src) < 0) return say();
         var mine = rel(main.src);
@@ -100,7 +100,7 @@
 </head>
 <body>
   <!-- The sets meter comes before .topbar-inner: the stylesheet draws it on the bar's bottom edge, and "the meter
-       is showing" is what switches the bar to its workout layout. app.js (renderTopbar) sets the title and the meter. -->
+       is showing" is what switches the bar to its workout layout. overload.js (renderTopbar) sets the title and the meter. -->
   <header class="topbar">
     <div id="topbar-meter" class="topbar-meter" hidden><span></span></div>
     <div class="topbar-inner">
@@ -141,10 +141,14 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <!-- The main script is overload.js and the stylesheets are shared/ui.css and train.css: names v2.8 never used.
+       v2.8's stored page asks the server for ./app.js, ./styles.css and ./food.js. With nothing there, its worker
+       falls back to v2.8's own stored copies, so that page never runs this release's code. Keep those three
+       names free (sh bump.sh checks it). -->
   <script src="./programs.js?v=3.0"></script>
   <script src="./backup.js?v=3.0"></script>
   <script src="./shared/icons.js?v=3.0"></script>
-  <script src="./app.js?v=3.0"></script>
+  <script src="./overload.js?v=3.0"></script>
   <script src="./connector.js?v=3.0"></script>
   <script type="module" src="./sync.js?v=3.0"></script>
 </body>

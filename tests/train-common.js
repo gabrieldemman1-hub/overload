@@ -143,7 +143,7 @@ function decodeFoodText(clip) {
 function foodTexts(state) {
   return { food: JSON.stringify(state.food), diary: JSON.stringify(state.diary), deleted: JSON.stringify((state.deleted || {}).food) };
 }
-/** deleted.food as the app leaves it after a load at `now`: records older than 90 days are dropped (app.js normalize). */
+/** deleted.food as the app leaves it after a load at `now`: records older than 90 days are dropped (normalize in overload.js). */
 function prunedDeletions(map, now) {
   const out = {}, cutoff = now - 90 * 864e5;
   Object.keys(map || {}).forEach((id) => { if (map[id] > cutoff) out[id] = map[id]; });

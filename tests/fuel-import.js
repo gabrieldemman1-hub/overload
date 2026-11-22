@@ -17,6 +17,12 @@
  * Then: a second import adds nothing; an entry, a saved food and a saved meal deleted in Fuel do not come
  * back; a copy that is not newer is said to be so; a Fuel with its own entries and targets keeps them;
  * malformed text and files are refused or cleaned with a message, and nothing ever throws.
+ * Saved foods both sides hold (review finding H1): after Start fresh and two foods logged from the food list,
+ * the import gives them Overload's star and the bar's corrected numbers (Fuel's last use and amount stay),
+ * the question says so, the numbers survive the food list loading, a second import adds nothing, and a
+ * backup of the result comes back exactly; with foods made, corrected or deleted in Fuel, Fuel's stay.
+ * An entry id on two days arrives on both (H4); entries without an id keep the same made-up id when the
+ * entries before them change, twins included, so a later copy does not add them again (H5).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -81,6 +87,23 @@ async function submitText(page, text) {
   await page.fill('#fuel-paste', text);
   await page.click('#fuel-paste-form button[type="submit"]');
 }
+// Logging a food from the food list on the day on screen: search, pick it, Add. Returns the preview's text.
+async function logListed(page, meal, query, id) {
+  await page.click('[data-action="food-add"][data-meal="' + meal + '"]');
+  await page.waitForSelector('#sheet:not([hidden]) #food-results');
+  await page.fill('[data-field="food-search"]', query);
+  await page.waitForSelector('#food-results [data-action="food-pick"][data-id="' + id + '"]', { timeout: 15000 });
+  await page.click('#food-results [data-action="food-pick"][data-id="' + id + '"]');
+  await page.waitForSelector('#food-preview .stat');
+  const shown = await F.text(page, '#food-preview');
+  await page.click('[data-action="food-save"]');
+  await page.waitForFunction(() => document.querySelector('#sheet').hidden || !!document.querySelector('#food-added .f-added:not(.none)'), null, { timeout: 8000 });
+  await F.afterAdd(); await F.closeSheet(page);
+  return shown;
+}
+const dayAgo = (day) => Math.round((Date.parse(TODAY) - Date.parse(day)) / 864e5);
+const kcalOf = (list) => list.reduce((s, e) => s + e.kcal, 0);
+const unstarred = (food) => { const f = Object.assign({}, food); delete f.fav; return f; };
 
 // Everything a route must show once the old phone's food is in a Fuel that had nothing.
 async function checkImported(label, phone, page, from, old) {
@@ -547,6 +570,272 @@ async function checkImported(label, phone, page, from, old) {
       return page6.dialogs.length + ' questions asked in all';
     });
     await p6.close();
+
+    // ---------------------------------------------------------------- Start fresh, then the food log (H1)
+    // He starts fresh in Fuel and logs from the food list two foods he also has in Overload: the oats (a
+    // favourite there) and the protein bar (a favourite there, its label numbers corrected there: src custom,
+    // 316.7 kcal per 100 g where the list says 300). A week later he brings the log across.
+    const BAR = 'u1903553', OATS = 'u173904', OL_FOODS = PURE.food.foods;
+    const pureText = F.foodText(F.payloadFrom(PURE, NOW - 60000), true);
+    const fresh = (title, fn) => run.step('Start fresh, then the food log', title, fn);
+    const p7 = await newPhone(browser, { clipboard: false });
+    let page7 = null, listed = null, merged = null;
+    await fresh('Start fresh; the oats and the protein bar logged from the food list', async () => {
+      page7 = await F.open(p7, server);
+      await page7.click('[data-action="fuel-fresh"]');
+      await page7.waitForSelector('.f-meal');
+      await logListed(page7, 0, 'oats rolled', OATS);
+      const shown = await logListed(page7, 3, 'quest bar cookies', BAR);
+      listed = await F.stored(page7);
+      const o = listed.food.foods[OATS], b = listed.food.foods[BAR];
+      need(o && o.src === 'usda' && !o.fav && b && b.src === 'usda' && !b.fav && b.n.kcal === 300 && b.used > 0 && b.last && listed.diary[TODAY].length === 2, 'Fuel holds ' + JSON.stringify([o, b]).slice(0, 300));
+      return 'the bar from the list: src ' + b.src + ', ' + b.n.kcal + ' kcal per 100 g, barcode ' + b.barcode + ' (' + shown.slice(0, 12) + ')';
+    });
+    await fresh('the question says what is new and that the two saved foods are updated from Overload', async () => {
+      await submitText(page7, pureText);
+      const t = await F.toast(page7, /Brought in/);
+      const foods = (COUNTS.savedFoods - 2) + ' saved foods, ' + COUNTS.savedMeals + ' saved meals';
+      need(t === 'Brought in ' + n(COUNTS.foodEntries) + ' entries on ' + COUNTS.foodDays + ' days, ' + foods + '. Updated 2 saved foods.', 'the toast says "' + t + '"');
+      const q = lastQuestion(page7);
+      for (const s of ['New here: ' + n(COUNTS.foodEntries) + ' entries on ' + COUNTS.foodDays + ' days, ' + foods + ', the daily targets, your body weight.',
+        '2 saved foods updated from Overload: the favorite star, your corrected numbers.', 'Nothing else in Fuel is replaced or removed. A copy of what Fuel holds now is kept first.']) need(q.includes(s), 'the question does not say "' + s + '": ' + q.replace(/\n/g, ' | '));
+      need(!/Already in Fuel|Nothing in Fuel/.test(q), 'the question says something else: ' + q.replace(/\n/g, ' | '));
+      return q.split('\n').filter((l) => /updated from|Nothing else/.test(l)).join(' | ');
+    });
+    await fresh('the bar is his corrected copy and every favourite is one; Fuel\'s last use and amount stay', async () => {
+      merged = await F.stored(page7);
+      const lf = listed.food.foods;
+      same(merged.food.foods[BAR], Object.assign({}, OL_FOODS[BAR], { used: lf[BAR].used, last: lf[BAR].last, fav: true }), 'the bar');
+      same(merged.food.foods[OATS], Object.assign({}, lf[OATS], { fav: true }), 'the oats');
+      const rest = Object.assign({}, merged.food.foods), restOl = Object.assign({}, OL_FOODS);
+      [BAR, OATS].forEach((id) => { delete rest[id]; delete restOl[id]; });
+      same(rest, restOl, 'the other saved foods');
+      same(merged.food.meals, PURE.food.meals, 'the saved meals');
+      same(merged.diary[TODAY], listed.diary[TODAY].concat(PURE.diary[TODAY]), 'today');
+      const days = Object.assign({}, merged.diary), oldDays = Object.assign({}, PURE.diary); delete days[TODAY]; delete oldDays[TODAY];
+      same(days, oldDays, 'the other days');
+      await F.gotoDay(page7, 0);
+      const sheet = await F.openAddSheet(page7, 3);
+      same(sheet.favourites, fx.facts.addSheet.favourites, 'the favourites in the Add sheet');
+      await F.closeSheet(page7);
+      return 'bar: src ' + merged.food.foods[BAR].src + ', ' + merged.food.foods[BAR].n.kcal.toFixed(1) + ' kcal per 100 g, barcode ' + merged.food.foods[BAR].barcode + '; ' + sheet.favourites.length + ' favourites';
+    });
+    await fresh('his numbers stay once the food list is loaded, and a bar now counts 190 kcal, not 180', async () => {
+      await F.closeSheet(page7);
+      await F.gotoDay(page7, 0);
+      await page7.click('[data-action="food-add"][data-meal="3"]');
+      await page7.waitForSelector('#sheet:not([hidden]) #food-results');
+      await page7.fill('[data-field="food-search"]', 'quest bar cookies');
+      await page7.evaluate(() => window.__overloadFood._.loadDb().then(() => true));   // the search loads the food list, which brings its own copies up to date
+      await lib.sleep(300);
+      await page7.click('#food-results [data-action="food-pick"][data-id="' + BAR + '"]');
+      await page7.waitForSelector('#food-preview .stat');
+      const kcal = await F.text(page7, '#food-preview .stat .v');
+      await F.closeSheet(page7);
+      same((await F.stored(page7)).food.foods[BAR], merged.food.foods[BAR], 'the bar after the food list loaded');
+      need(kcal === '190', 'one bar shows ' + kcal + ' kcal');
+      return '1 bar: ' + kcal + ' kcal';
+    });
+    await fresh('the same copy again adds nothing', async () => {
+      const before = await F.storedText(page7), asked = page7.dialogs.length;
+      await submitText(page7, pureText);
+      const msg = await importMsg(page7);
+      need(/^Nothing new/.test(msg), 'the sheet says "' + msg + '"');
+      need(page7.dialogs.length === asked && (await F.storedText(page7)) === before, 'a question was asked or the saved data changed');
+      await F.closeSheet(page7);
+      return msg;
+    });
+    await fresh('a backup of it comes back exactly, into a new Fuel and into this one', async () => {
+      const mine = await F.stored(page7);
+      await lib.openTab(page7, 'settings');
+      const [dl] = await Promise.all([page7.waitForEvent('download'), page7.click('[data-action="export"]')]);
+      const file = require('path').join(tmp.dir, dl.suggestedFilename());
+      await dl.saveAs(file);
+      const p7b = await newPhone(browser, { clipboard: false });
+      try {
+        const other = await F.open(p7b, server);
+        await F.chooseFile(other, '[data-action="fuel-file"]', file);
+        await F.toast(other, /Brought in/);
+        same(await F.stored(other), mine, 'a new Fuel against the one exported');
+        F.assertClean(p7b, 'the new Fuel');
+      } finally { await p7b.close(); }
+      await openBox(page7);
+      await F.chooseFile(page7, '#sheet [data-action="fuel-file"]', file);
+      const msg = await importMsg(page7);
+      need(/^Nothing new/.test(msg) && (await F.storedText(page7)) === JSON.stringify(mine), 'into the same Fuel: "' + msg + '", or the saved data changed');
+      await F.closeSheet(page7);
+      F.assertClean(p7);
+      return dl.suggestedFilename() + '; ' + msg;
+    });
+    await p7.close();
+
+    // ---------------------------------------------------------------- saved foods made, corrected or deleted in Fuel (H1)
+    const T0 = NOW - 3 * 864e5, COOKIE = 'b0850031234567', WHEY = 'u173180', EGG = 'u172187';
+    const OWN = F.fuelStateFrom(PURE, { food: { targets: { kcal: null, protein: null, carbs: null, fat: null }, meals: {}, foods: {
+      // corrected in Fuel too (other numbers than in Overload, no star): stays as it is, and gets Overload's star
+      [BAR]: Object.assign(unstarred(OL_FOODS[BAR]), { n: { kcal: 320, p: 33, c: 37, f: 13 }, used: T0, last: { qty: 2, unit: 'srv' } }),
+      // corrected in Fuel, a plain list copy in Overload (starred there): stays as it is, and gets the star
+      [WHEY]: { id: WHEY, src: 'custom', name: 'Whey, my scoop', brand: '', n: { kcal: 400, p: 80, c: 8, f: 5 }, serving: { label: '1 scoop', g: 30, n: null }, servings: [], used: T0 },
+      // scanned in Fuel (Open Food Facts), typed in from the label in Overload: Overload's numbers are taken
+      [COOKIE]: { id: COOKIE, src: 'off', name: 'Protein Cookie Double Chocolate', brand: 'Bakehouse', barcode: '0850031234567', n: { kcal: 350, p: 20, c: 45, f: 12 }, serving: { label: '1 cookie (70 g)', g: 70, n: null }, servings: [], used: T0, last: { qty: 2, unit: 'srv' } },
+      // list copies on both sides: Fuel's stay, star or no star, numbers or not
+      [OATS]: Object.assign({}, OL_FOODS[OATS], { n: { kcal: 375, p: 13, c: 68, f: 6.5 }, used: T0 }),
+      [EGG]: Object.assign({}, OL_FOODS[EGG], { used: T0, last: { qty: 2, unit: 's0' } })
+    } }, diary: { [TODAY]: [{ id: 'own0entry001', food: null, meal: 1, qty: null, unit: null, amt: '', name: 'Own lunch', brand: '', kcal: 555, p: 30, c: 40, f: 20, at: NOW - 7200000 }] },
+    deleted: { food: {}, foods: { cv6244zzsrdxu: T0, cvvpk4s5y0vtb: T0 }, meals: {} }, bodyweight: [], moved: null });
+    const ownFoods = (title, fn) => run.step('Fuel\'s own saved foods', title, fn);
+    const p10 = await newPhone(browser, { clipboard: false });
+    await lib.seedStorage(p10.context, { 'fuel.state.v1': JSON.stringify(OWN), 'fuel.theme': 'dark' });
+    let page10 = null;
+    await ownFoods('foods made or corrected in Fuel keep their numbers; a list copy takes his corrected one; deleted ones stay deleted', async () => {
+      page10 = await F.open(p10, server);
+      need((await F.screen(page10)) === 'food', 'Fuel did not start on its saved data');
+      await submitText(page10, pureText);
+      const t = await F.toast(page10, /Brought in/);
+      const q = lastQuestion(page10), st = await F.stored(page10), mine = OWN.food.foods;
+      for (const s of ['New here: ' + n(COUNTS.foodEntries) + ' entries on ' + COUNTS.foodDays + ' days, ' + (COUNTS.savedFoods - 7) + ' saved foods, ' + COUNTS.savedMeals + ' saved meals, the daily targets, your body weight.',
+        '3 saved foods updated from Overload: the favorite star, your corrected numbers.', 'Already in Fuel, left as they are: 2 saved foods.', 'Deleted in Fuel, not brought back: 2 saved foods.',
+        'Nothing else in Fuel is replaced or removed.']) need(q.includes(s), 'the question does not say "' + s + '": ' + q.replace(/\n/g, ' | '));
+      need(/Updated 3 saved foods\.$/.test(t), 'the toast says "' + t + '"');
+      same(st.food.foods[BAR], Object.assign({}, mine[BAR], { fav: true }), 'the bar he corrected in Fuel');
+      same(st.food.foods[WHEY], Object.assign({}, mine[WHEY], { fav: true }), 'the whey he corrected in Fuel');
+      same(st.food.foods[COOKIE], Object.assign({}, OL_FOODS[COOKIE], { used: T0, last: mine[COOKIE].last }), 'the scanned cookie');
+      same(st.food.foods[OATS], mine[OATS], 'the oats'); same(st.food.foods[EGG], mine[EGG], 'the egg');
+      need(!st.food.foods.cv6244zzsrdxu && !st.food.foods.cvvpk4s5y0vtb, 'a food deleted in Fuel came back');
+      same(st.deleted.foods, OWN.deleted.foods, 'the deletion records of saved foods');
+      same(st.diary[TODAY], OWN.diary[TODAY].concat(PURE.diary[TODAY]), 'today');
+      const copy = await F.copy(page10, 'before-import');
+      same(JSON.parse(copy.text), OWN, 'the copy "Before import"');
+      return q.split('\n').filter((l) => /updated from|left as|not brought/.test(l)).join(' | ');
+    });
+    await ownFoods('the same copy again adds nothing', async () => {
+      const before = await F.storedText(page10);
+      await submitText(page10, pureText);
+      const msg = await importMsg(page10);
+      need(/^Nothing new/.test(msg) && (await F.storedText(page10)) === before, 'the sheet says "' + msg + '", or the saved data changed');
+      await F.closeSheet(page10);
+      return msg;
+    });
+    await ownFoods('a copy whose only news is a star: the question and the message say just that', async () => {
+      const starred = JSON.parse(fx.text); starred.food.foods[EGG].fav = true;   // starred in Overload since
+      const before = await F.stored(page10);
+      await page10.evaluate(() => { document.querySelector('#toast').hidden = true; });
+      await submitText(page10, F.foodText(F.payloadFrom(starred, NOW - 400), true));
+      const t = await F.toast(page10, /Updated/);
+      const q = lastQuestion(page10), st = await F.stored(page10);
+      need(t === 'Updated 1 saved food.', 'the toast says "' + t + '"');
+      need(q.includes('1 saved food updated from Overload: the favorite star.') && q.includes('Nothing in Fuel is replaced or removed.') && !/New here|corrected numbers|Nothing else/.test(q), 'the question says: ' + q.replace(/\n/g, ' | '));
+      before.food.foods[EGG].fav = true;
+      same(st.food, before.food, 'the saved foods, meals and targets'); same(st.diary, before.diary, 'the diary'); same(st.deleted, before.deleted, 'the deletion records');
+      F.assertClean(p10);
+      return q.split('\n').filter((l) => /updated from/.test(l)).join(' | ');
+    });
+    await p10.close();
+
+    // ---------------------------------------------------------------- one entry id on two days (H4)
+    // Versions 1.6 to 2.4 kept an entry edited across midnight on both days under one id; v2.8 shows both.
+    const DAY_A = '2026-11-17', DAY_B = '2026-11-18';
+    const DUP = JSON.parse(fx.text), twin = DUP.diary[DAY_A][DUP.diary[DAY_A].length - 1];
+    DUP.diary[DAY_B].push(Object.assign({}, twin, { qty: (twin.qty || 1) * 2, kcal: twin.kcal * 2, p: twin.p * 2, c: twin.c * 2, f: twin.f * 2 }));
+    const dupFile = tmp.file('overload-food-dup.json', JSON.stringify(F.payloadFrom(DUP, NOW - 60000)));
+    const two = (title, fn) => run.step('one id on two days', title, fn);
+    const p8 = await newPhone(browser, { clipboard: false });
+    let page8 = null;
+    await two('Welcome > Choose a file: the entry arrives on both days', async () => {
+      page8 = await F.open(p8, server);
+      await F.chooseFile(page8, '[data-action="fuel-file"]', dupFile);
+      await F.toast(page8, /Brought in/);
+      const q = lastQuestion(page8), st = await F.stored(page8);
+      need(q.includes('New here: ' + n(COUNTS.foodEntries + 1) + ' entries on ' + COUNTS.foodDays + ' days,') && !/Already in Fuel/.test(q), 'the question says: ' + q.replace(/\n/g, ' | '));
+      same(st.diary, DUP.diary, 'the diary');
+      for (const d of [DAY_A, DAY_B]) {
+        await F.gotoDay(page8, dayAgo(d));
+        const got = await F.readDay(page8);
+        need(got.date === d && got.entries === DUP.diary[d].length && got.kcal === kcalOf(DUP.diary[d]).toLocaleString('en-US'), d + ' shows ' + got.kcal + ' kcal, ' + got.entries + ' entries; Overload has ' + kcalOf(DUP.diary[d]) + ', ' + DUP.diary[d].length);
+      }
+      await F.gotoDay(page8, 0);
+      return twin.name + ' (' + twin.id + ') on ' + DAY_A + ' (' + twin.kcal + ' kcal) and ' + DAY_B + ' (' + twin.kcal * 2 + ' kcal)';
+    });
+    await two('the same file again adds nothing', async () => {
+      const before = await F.storedText(page8);
+      await openBox(page8);
+      await F.chooseFile(page8, '#sheet [data-action="fuel-file"]', dupFile);
+      const msg = await importMsg(page8);
+      need(/^Nothing new/.test(msg) && (await F.storedText(page8)) === before, 'the sheet says "' + msg + '", or the saved data changed');
+      await F.closeSheet(page8);
+      return msg;
+    });
+    await two('removed from one day in Fuel: the other day keeps it, and the file does not bring it back', async () => {
+      await F.gotoDay(page8, dayAgo(DAY_B));
+      need((await F.count(page8, '.f-meal .f-row[data-id="' + twin.id + '"]')) === 1, 'the entry is not on ' + DAY_B);
+      await page8.click('.f-meal .f-row[data-id="' + twin.id + '"]');
+      await page8.click('#sheet [data-action="food-delete"]');
+      await F.toast(page8, /Removed/);
+      await lib.sleep(500);
+      const before = await F.storedText(page8);
+      await openBox(page8);
+      await F.chooseFile(page8, '#sheet [data-action="fuel-file"]', dupFile);
+      const msg = await importMsg(page8);
+      need(/^Nothing new/.test(msg) && /deleted here/.test(msg) && (await F.storedText(page8)) === before, 'the sheet says "' + msg + '", or the saved data changed');
+      await F.closeSheet(page8);
+      const st = await F.stored(page8);
+      need(st.deleted.food[twin.id] > 0 && st.diary[DAY_A].some((e) => e.id === twin.id) && !st.diary[DAY_B].some((e) => e.id === twin.id), 'the entry is ' + JSON.stringify([DAY_A, st.diary[DAY_A].some((e) => e.id === twin.id), DAY_B, st.diary[DAY_B].some((e) => e.id === twin.id)]));
+      F.assertClean(p8);
+      return msg;
+    });
+    await p8.close();
+
+    // ---------------------------------------------------------------- entries without an id (H5)
+    // v2.8 always writes an id; a hand-edited or damaged save may not. Two such entries on one day, without a
+    // time either (Fuel fills it in from the entry before), and two identical ones on the next day.
+    const D1 = '2026-11-15', D2 = '2026-11-16';
+    const NOID = JSON.parse(fx.text);
+    NOID.diary[D1] = NOID.diary[D1].slice(0, 3);
+    [1, 2].forEach((i) => { delete NOID.diary[D1][i].id; delete NOID.diary[D1][i].at; });
+    const cake = { food: null, meal: 3, qty: null, unit: null, amt: '', name: 'Rice cake', brand: '', kcal: 35, p: 0.7, c: 7.3, f: 0.3, at: Date.parse(D2 + 'T20:00:00Z') };
+    NOID.diary[D2].push(Object.assign({}, cake), Object.assign({}, cake));
+    // Later in Overload: the first entry of each of the two days deleted (as v2.8's Remove does), one food logged today.
+    const NOID2 = JSON.parse(JSON.stringify(NOID));
+    [D1, D2].forEach((d) => { NOID2.deleted.food[NOID2.diary[d].shift().id] = NOW - 5000; });
+    NOID2.diary[TODAY].push({ id: 'late0apple02', food: null, meal: 3, qty: null, unit: null, amt: '', name: 'Late apple', brand: '', kcal: 95, p: 0.5, c: 25, f: 0.3, at: NOW - 1000 });
+    const noid = (title, fn) => run.step('entries without an id', title, fn);
+    const p9 = await newPhone(browser, { clipboard: false });
+    let page9 = null, ids = null;
+    const idsOf = (st) => [D1, D2].map((d) => st.diary[d].map((e) => e.id));
+    await noid('they arrive with an id each, twins too, and the same copy again adds nothing', async () => {
+      page9 = await F.open(p9, server);
+      await F.chooseFile(page9, '[data-action="fuel-file"]', tmp.file('overload-food-noid.json', JSON.stringify(F.payloadFrom(NOID, NOW - 60000))));
+      await F.toast(page9, /Brought in/);
+      const st = await F.stored(page9);
+      ids = idsOf(st);
+      need(st.diary[D1].length === 3 && st.diary[D2].length === NOID.diary[D2].length, D1 + ' has ' + st.diary[D1].length + ' entries, ' + D2 + ' ' + st.diary[D2].length);
+      const made = [st.diary[D1][1].id, st.diary[D1][2].id].concat(ids[1].slice(-2));
+      need(made.every((id) => /^n[0-9a-z]{6,}$/.test(id)) && new Set(made).size === 4 && typeof st.diary[D1][2].at === 'number', 'the made-up ids are ' + JSON.stringify(made) + ', time ' + st.diary[D1][2].at);
+      const before = await F.storedText(page9);
+      await submitText(page9, F.foodText(F.payloadFrom(NOID, NOW - 60000), false));
+      const msg = await importMsg(page9);
+      need(/^Nothing new/.test(msg) && (await F.storedText(page9)) === before, 'the same copy again: "' + msg + '"');
+      await F.closeSheet(page9);
+      return made.join(', ');
+    });
+    await noid('a later copy, after the entries before them were deleted in Overload, adds only the new entry', async () => {
+      await page9.evaluate(() => { document.querySelector('#toast').hidden = true; });   // the first import's message may still show
+      await submitText(page9, F.foodText(F.payloadFrom(NOID2, NOW - 500), true));
+      const t = await F.toast(page9, /Brought in/);
+      const q = lastQuestion(page9), st = await F.stored(page9);
+      need(t === 'Brought in 1 entry on 1 day.' && q.includes('New here: 1 entry on 1 day.'), 'the toast says "' + t + '"; the question: ' + q.replace(/\n/g, ' | '));
+      same(idsOf(st), ids, 'the ids of the two days');
+      need(st.diary[TODAY].some((e) => e.id === 'late0apple02'), 'the new entry is not there');
+      for (const d of [D1, D2]) {
+        await F.gotoDay(page9, dayAgo(d));
+        const got = await F.readDay(page9);
+        need(got.entries === NOID.diary[d].length && got.kcal === kcalOf(NOID.diary[d]).toLocaleString('en-US'), d + ' shows ' + got.kcal + ' kcal, ' + got.entries + ' entries; expected ' + kcalOf(NOID.diary[d]) + ', ' + NOID.diary[d].length);
+      }
+      await F.gotoDay(page9, 0);
+      F.assertClean(p9);
+      return D1 + ': ' + st.diary[D1].length + ' entries, ' + D2 + ': ' + st.diary[D2].length;
+    });
+    await p9.close();
   } catch (e) {
     run.say(false, 'fuel-import', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' '));
   } finally {

@@ -3,14 +3,14 @@
  *
  *   node tests/train-rescue.js [--port=8406]
  *
- * The rescue runs when the page arrived but app.js did not. The test serves the repo's own page as "the next
- * release" (every ?v=3.0 turned into ?v=3.1, and a second stylesheet added), lets app.js?v=3.1 fail, and puts
+ * The rescue runs when the page arrived but overload.js did not. The test serves the repo's own page as "the next
+ * release" (every ?v=3.0 turned into ?v=3.1, and a second stylesheet added), lets overload.js?v=3.1 fail, and puts
  * stored copies into Cache Storage by hand, as the service worker would have left them:
  *   - an older release with the same first number (3.0 for the 3.1 page) is started from the stored copies,
  *     every script and every stylesheet;
  *   - of two older releases the newer one is used;
  *   - a release with another first number (2.8) is never used; nor a newer one; nor copies in a cache that is
- *     not this app's (fuel-…); nor a stored fuel/app.js, which is another app's file. The page then says
+ *     not this app's (fuel-…); nor a stored fuel/overload.js, which is another app's file. The page then says
  *     "Overload did not finish starting" and that what was logged is still on the phone.
  * Stylesheets that are slow to arrive (two of them): after 8 s the page stops waiting for them, the app
  * starts, and they apply when they arrive.
@@ -32,7 +32,7 @@ const run = T.runner('train-rescue');
 const { need, same } = run;
 const fx = lib.loadFixture('v28-state-small');
 const HTML = fs.readFileSync(path.join(lib.REPO, 'index.html'), 'utf8');
-const APP = fs.readFileSync(path.join(lib.REPO, 'app.js'), 'utf8');
+const APP = fs.readFileSync(path.join(lib.REPO, 'overload.js'), 'utf8');
 const EXTRA_CSS = 'body { --rescue-test: 1; }';
 
 // The page of a later release: the repo's page with another release number and one more stylesheet.
@@ -43,14 +43,14 @@ function pageOf(v) {
 // The files a page asks for (scripts and stylesheets), as paths without the release.
 const FILES = [...pageOf('9.9').matchAll(/(?:src|href)="\.\/([^"?]+)\?v=9\.9"/g)].map((m) => m[1]);
 
-// A phone whose page is release `v`, with app.js of that release failing to load.
+// A phone whose page is release `v`, with overload.js of that release failing to load.
 async function phone(browser, v, seed) {
   const p = await lib.newPhone(browser, { timezoneId: fx.meta.tz, now: fx.meta.now });
   if (seed) await lib.seedV28(p.context, fx);
   await p.context.route('**/blank.html', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>blank</title>' }));
   await p.context.route('**/extra.css*', (r) => r.fulfill({ contentType: 'text/css', body: EXTRA_CSS }));
   await p.context.route('**/index.html', (r) => r.fulfill({ contentType: 'text/html', body: pageOf(v) }));
-  await p.context.route('**/app.js?v=' + v, (r) => r.abort());
+  await p.context.route('**/overload.js?v=' + v, (r) => r.abort());
   return p;
 }
 // Puts stored copies into Cache Storage: [{ cache, url, from }] copies a file of the server, [{ cache, url, body }] stores text.
@@ -65,8 +65,8 @@ async function store(page, base, entries) {
     }
   }, entries);
 }
-// A whole release in a cache: every file of the page under ?v=<v>; `appBody` replaces app.js.
-const release = (base, cache, v, appBody) => FILES.map((f) => (f === 'app.js' && appBody != null ? { cache, url: base + '/' + f + '?v=' + v, body: appBody } : { cache, url: base + '/' + f + '?v=' + v, from: base + '/' + f }));
+// A whole release in a cache: every file of the page under ?v=<v>; `appBody` replaces overload.js.
+const release = (base, cache, v, appBody) => FILES.map((f) => (f === 'overload.js' && appBody != null ? { cache, url: base + '/' + f + '?v=' + v, body: appBody } : { cache, url: base + '/' + f + '?v=' + v, from: base + '/' + f }));
 const versionShown = async (page) => { await lib.openTab(page, 'settings'); return T.text(page, '#app p.version'); };
 // Waits for the rescue to give up (its last word) and returns what the page says.
 async function gaveUp(page, base) {
@@ -78,7 +78,7 @@ async function gaveUp(page, base) {
 async function rescues(browser, server) {
   const base = server.url, name = 'rescue';
   await run.step(name, 'the test page asks for the app\'s scripts and two stylesheets', async () => {
-    need(FILES.includes('app.js') && FILES.filter((f) => /\.css$/.test(f)).length >= 2 && FILES.filter((f) => /\.js$/.test(f)).length >= 4, 'files: ' + FILES.join(', '));
+    need(FILES.includes('overload.js') && FILES.filter((f) => /\.css$/.test(f)).length >= 2 && FILES.filter((f) => /\.js$/.test(f)).length >= 4, 'files: ' + FILES.join(', '));
     need(!FILES.some((f) => /food\.js/.test(f)), 'the page asks for food.js');
     return FILES.join(', ');
   });
@@ -94,7 +94,7 @@ async function rescues(browser, server) {
       same(got.sheets, FILES.filter((f) => /\.css$/.test(f)).length, 'stylesheets added from stored copies');
       need(!got.note && got.workouts === fx.state.workouts.length, 'the app did not draw the saved data');
       need((await versionShown(page)) === 'Overload · v3.0', 'the app that started is not 3.0');
-      // connector.js of the release whose app.js failed finds no app to plug into and stops: that one error is expected.
+      // connector.js of the release whose overload.js failed finds no app to plug into and stops: that one error is expected.
       const errors = p.pageErrors.filter((e) => !/Cannot read properties of undefined \(reading 'lib'\)/.test(e));
       need(errors.length === 0, 'page errors: ' + errors.join(' | ').slice(0, 300));
       return got.scripts + ' scripts and ' + got.sheets + ' stylesheets from the stored 3.0';
@@ -116,7 +116,7 @@ async function rescues(browser, server) {
     ['a release with another first number (2.8) is never used', '3.1', (b) => release(b, 'overload-v23', '2.8', 'window.__decoy = true;')],
     ['a newer release is not used', '3.1', (b) => release(b, 'overload-v26', '3.2', 'window.__decoy = true;')],
     ['copies in a cache that is not this app\'s are not used', '3.1', (b) => release(b, 'fuel-v1', '3.0', 'window.__decoy = true;')],
-    ['a stored fuel/app.js is not taken for this app\'s', '3.1', (b) => [{ cache: 'overload-v24', url: b + '/fuel/app.js?v=3.0', body: 'window.__decoy = true;' }].concat(release(b, 'overload-v24', '3.0').filter((e) => !/\/app\.js\?/.test(e.url)))]
+    ['a stored fuel/overload.js is not taken for this app\'s', '3.1', (b) => [{ cache: 'overload-v24', url: b + '/fuel/overload.js?v=3.0', body: 'window.__decoy = true;' }].concat(release(b, 'overload-v24', '3.0').filter((e) => !/\/overload\.js\?/.test(e.url)))]
   ];
   for (const [title, v, entries] of refused) {
     await run.step(name, title, async () => {

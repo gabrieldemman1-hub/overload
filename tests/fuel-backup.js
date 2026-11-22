@@ -15,7 +15,13 @@
  *     automatic copies;
  *   - Today reminds of a backup after two weeks without one (cloud sync off), and warns from 70% of storage;
  *   - when the phone refuses to store (setItem throws) the banner shows, the app keeps running on what is in
- *     memory, Export still works, and the banner goes when saving works again.
+ *     memory, Export still works, and the banner goes when saving works again;
+ *   - Reset, Restore and an import wait for their automatic copy: when it cannot be stored (IndexedDB does not
+ *     answer, or refuses it) nothing is erased, replaced or added, and a sheet says so and offers Export;
+ *   - a lost connection to the copies is opened again by the next copy, in the same session;
+ *   - the storage meter and Today's warning count a log that cloud sync brought down (setState);
+ *   - Export through the share sheet is noted only when the share went through (a double tap, a cancel, a
+ *     share the phone refuses).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -320,6 +326,230 @@ async function download(page, click) {
         need(st.diary[TODAY].length === 12 && st.diary[TODAY].some((e) => e.name === 'Late soup'), 'the food from the failed save was not saved with the next one');
         F.assertClean(p, 'storage full');
         return '12 entries saved';
+      });
+      await p.close();
+    }
+
+    // ---------------------------------------------------------------- an automatic copy that cannot be stored (F1)
+    // Reset, Restore and an import each promise a copy of what is here first, and it is the only way back. When
+    // IndexedDB does not answer (Safari can leave the open request unanswered; backup.js gives up after 2 s),
+    // or refuses the copy, nothing may be erased, replaced or added: the app says so and offers Export.
+    {
+      const nocopy = (t, fn) => run.step('a copy that cannot be stored', t, fn);
+      const p = await phoneWith(browser, HELD_TEXT);
+      await p.context.addInitScript(() => {
+        const real = IDBFactory.prototype.open;
+        window.__idbStuck = true;   // an open request that is never answered, until the test says otherwise
+        IDBFactory.prototype.open = function () { if (window.__idbStuck) return { set onsuccess(f) {}, set onerror(f) {}, set onupgradeneeded(f) {}, set onblocked(f) {} }; return real.apply(this, arguments); };
+      });
+      let pg = null;
+      const sheetMsg = () => F.text(pg, '#sheet:not([hidden]) .banner.warn');
+      await nocopy('Reset while IndexedDB does not answer: nothing is erased; a sheet says why and offers Export', async () => {
+        pg = await F.open(p, server);
+        await lib.openTab(pg, 'settings');
+        const asked = pg.dialogs.length;
+        await pg.click('[data-action="reset"]');
+        await pg.waitForSelector('#sheet:not([hidden]) .banner.warn', { timeout: 8000 });
+        const qs = pg.dialogs.slice(asked), msg = await sheetMsg();
+        need(qs.length === 2 && /The latest copy stays in Settings > Automatic copies/.test(qs[1]), 'the questions: ' + qs.join(' / '));
+        need(msg === 'The automatic copy could not be stored, so nothing was erased. Export a backup first, then try again.', 'the sheet says: ' + msg);
+        await lib.sleep(300);
+        need((await F.storedText(pg)) === HELD_TEXT, 'the stored data changed');
+        same(await F.live(pg), HELD, 'the data in memory');
+        need(!/Reset/.test((await pg.evaluate(() => document.querySelector('#toast').textContent)) || ''), 'the toast says it was reset');
+        const dl = await download(pg, () => pg.click('#sheet [data-action="export"]'));
+        need(JSON.stringify(JSON.parse(dl.text)) === HELD_TEXT, 'the export from the sheet is not the stored data');
+        need(/Last export: today/.test(await F.text(pg, '#last-export')), 'the export was not noted');
+        await F.closeSheet(pg);
+        return msg;
+      });
+      await nocopy('once IndexedDB answers again, Reset keeps its copy and erases', async () => {
+        await pg.evaluate(() => { window.__idbStuck = false; });
+        await pg.click('[data-action="reset"]');
+        await F.toast(pg, /Reset: the food diary is empty/);
+        const c = await F.copy(pg, 'before-reset');
+        need(c && c.text === HELD_TEXT, 'the copy "Before reset" is ' + (c ? 'not the data that was here' : 'missing'));
+        need(Object.keys((await F.stored(pg)).diary).length === 0, 'the diary was not emptied');
+        return 'before-reset holds ' + c.days + ' food days';
+      });
+      await p.close();
+
+      // The copy is refused (it never resolves true) while IndexedDB itself answers: Restore and import.
+      const q = await phoneWith(browser, HELD_TEXT);
+      const refuse = (page) => page.evaluate(() => { window.__overloadBackup.take = () => Promise.resolve(false); });
+      await nocopy('Restore while the copy of what is here cannot be stored: nothing is replaced', async () => {
+        pg = await F.open(q, server);
+        need(await F.copy(pg, 'day-' + TODAY), 'no copy of today to restore');
+        await F.quickAdd(pg, 1, 'Logged after the copy', 333, 9, 9, 9);   // so the copy differs from what is here
+        const now = await F.storedText(pg);
+        await refuse(pg);
+        await lib.openTab(pg, 'settings');
+        await pg.waitForSelector('#safety-copies [data-action="restore-copy"][data-id="day-' + TODAY + '"]');
+        await pg.click('#safety-copies [data-action="restore-copy"][data-id="day-' + TODAY + '"]');
+        await pg.waitForSelector('#sheet:not([hidden]) .banner.warn', { timeout: 8000 });
+        const msg = await sheetMsg();
+        need(msg === 'The automatic copy could not be stored, so nothing was replaced. Export a backup first, then try again.', 'the sheet says: ' + msg);
+        need(await F.count(pg, '#sheet [data-action="export"]') === 1, 'the sheet offers no Export');
+        await lib.sleep(300);
+        need((await F.storedText(pg)) === now && /Logged after the copy/.test(now), 'the stored data was replaced');
+        await F.closeSheet(pg);
+        return msg;
+      });
+      await nocopy('an import while the copy cannot be stored: nothing is added; the import sheet says why and offers Export', async () => {
+        const more = JSON.parse(await F.storedText(pg));
+        more.diary[TODAY] = more.diary[TODAY].concat([{ id: 'fueltestnew1', food: null, meal: 3, qty: null, unit: null, amt: '', name: 'Only in the file', brand: '', kcal: 50, p: 1, c: 1, f: 1, at: fx.meta.now }]);
+        const file = tmp.file('fuel-backup-more.json', JSON.stringify(more));
+        const now = await F.storedText(pg), asked = pg.dialogs.length;
+        await F.chooseFile(pg, '.backup-btns [data-action="import"]', file);
+        await pg.waitForSelector('#sheet:not([hidden]) #fuel-import-msg', { timeout: 8000 });
+        need(/A copy of what Fuel holds now is kept first/.test(pg.dialogs[asked] || ''), 'the question did not promise the copy: ' + pg.dialogs[asked]);
+        const msg = await F.text(pg, '#fuel-import-msg');
+        need(msg === 'The automatic copy could not be stored, so nothing was brought in. Export a backup first, then try again.', 'the sheet says: ' + msg);
+        need(await F.count(pg, '#sheet [data-action="export"]') === 1, 'the sheet offers no Export');
+        await lib.sleep(300);
+        need((await F.storedText(pg)) === now && !/Only in the file/.test(await F.storedText(pg)), 'something was added');
+        await F.closeSheet(pg);
+        return msg;
+      });
+      await nocopy('cloud sync brings something while the copy is stored: Reset erases nothing, and says so', async () => {
+        // A stand-in for setState arriving from cloud sync in the moment between the question and the copy.
+        await pg.evaluate((day) => {
+          window.__overloadBackup.take = (kind) => {
+            if (kind === 'reset') { const O = window.__overload, s = JSON.parse(JSON.stringify(O.state)); s.diary[day] = s.diary[day].concat([{ id: 'fromcloud1', food: null, meal: 0, qty: null, unit: null, amt: '', name: 'From the other phone', brand: '', kcal: 10, p: 0, c: 0, f: 0, at: Date.now() }]); O.setState(s); }
+            return Promise.resolve(true);
+          };
+        }, TODAY);
+        await lib.openTab(pg, 'settings');
+        await pg.click('[data-action="reset"]');
+        const t = await F.toast(pg, /changed just now/);
+        need(t === 'The food log changed just now. Nothing was erased.', 'the toast says: ' + t);
+        const st = await F.stored(pg);
+        need(Object.keys(st.diary).length === COUNTS.foodDays && st.diary[TODAY].some((e) => e.id === 'fromcloud1'), 'the data was erased, or what arrived is not there');
+        F.assertClean(q, 'a copy that cannot be stored');
+        return t;
+      });
+      await q.close();
+    }
+
+    // ---------------------------------------------------------------- the connection to the copies is lost (U6)
+    // An iPhone drops the IndexedDB connection of an app that comes back from the background. The next copy must
+    // open it again instead of failing for the rest of the session. Here the open connection is closed from outside.
+    {
+      const lost = (t, fn) => run.step('a lost connection to the copies', t, fn);
+      const p = await phoneWith(browser, HELD_TEXT);
+      await p.context.addInitScript(() => {
+        const real = IDBFactory.prototype.open;
+        window.__dbs = [];
+        IDBFactory.prototype.open = function () { const r = real.apply(this, arguments); r.addEventListener('success', () => window.__dbs.push(r.result)); return r; };
+      });
+      let pg = null;
+      const cut = () => pg.evaluate(() => { const n = window.__dbs.length; window.__dbs.forEach((d) => d.close()); return n; });
+      await lost('after the connection is lost, the next copy is stored and the list reads', async () => {
+        pg = await F.open(p, server);
+        need(await F.copy(pg, 'day-' + TODAY), 'no copy at start');
+        const n = await cut();
+        const took = await pg.evaluate(() => window.__overloadBackup.take('import', '{"v":1,"app":"fuel","diary":{}}'));
+        need(took === true, 'take() after the connection was lost resolved ' + took);
+        const ids = (await F.copies(pg)).map((m) => m.id).sort();
+        same(ids, ['before-import', 'day-' + TODAY], 'the copies listed');
+        await cut();
+        await lib.openTab(pg, 'settings');
+        await pg.waitForFunction(() => { const c = document.querySelector('#safety-copies'); return c && !/Looking for copies/.test(c.textContent); }, null, { timeout: 5000 });
+        need(await F.count(pg, '#safety-copies .copy-row') === 2, 'Settings lists: ' + await F.text(pg, '#safety-copies'));
+        return n + ' connection(s) closed; copy stored, ' + ids.length + ' listed';
+      });
+      await lost('Reset after the connection is lost keeps its copy', async () => {
+        await cut();
+        await pg.click('[data-action="reset"]');
+        await F.toast(pg, /Reset: the food diary is empty/);
+        const c = await F.copy(pg, 'before-reset');
+        need(c && c.text === HELD_TEXT, 'the copy "Before reset" is ' + (c ? 'not the data' : 'missing'));
+        F.assertClean(p, 'a lost connection');
+        return 'before-reset: ' + c.days + ' food days';
+      });
+      await p.close();
+    }
+
+    // ---------------------------------------------------------------- the storage meter after cloud sync (F4)
+    // Cloud sync brings the log down through setState. The meter and Today's warning count the app's data from
+    // what was last stored, so setState must note that, as save() does.
+    {
+      const meter = (t, fn) => run.step('storage meter after cloud sync', t, fn);
+      const p = await newPhone(browser);
+      await meter('a big log arriving through setState: Settings and Today count it', async () => {
+        const pg = await F.open(p, server);
+        await pg.click('[data-action="fuel-fresh"]'); await pg.waitForSelector('.f-meal');
+        // the account holds about two years: the fixture's 110 days repeated
+        const big = F.fuelStateFrom(fx.state), days = Object.keys(big.diary);
+        for (let k = 1; k <= 6; k++) days.forEach((d) => { const [y, m, dd] = d.split('-').map(Number); const nd = new Date(Date.UTC(y, m - 1, dd - 110 * k)).toISOString().slice(0, 10); big.diary[nd] = big.diary[d].map((e) => Object.assign({}, e, { id: e.id + 'k' + k })); });
+        await pg.evaluate((s) => window.__overload.setState(s), big);
+        await lib.sleep(300);
+        const real = await pg.evaluate(() => { let n = 0; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += k.length + localStorage.getItem(k).length; } return n; });
+        const pct = Math.round(real / 2500000 * 100);
+        need(pct >= 70, 'this check needs a log over 70% of the storage, it is ' + pct + '%');
+        const notice = await F.text(pg, '#today-notices .notice');
+        need(new RegExp('Storage is ' + pct + '% full').test(notice || ''), 'Today says: ' + notice);
+        await lib.openTab(pg, 'settings');
+        const shown = await pg.evaluate(() => document.querySelector('.vol-n').textContent);
+        need(shown === pct + '%', 'Settings shows ' + shown + ', the storage is ' + pct + '% used');
+        F.assertClean(p, 'storage meter');
+        return real.toLocaleString() + ' characters: ' + shown + ' in Settings, and Today warns';
+      });
+      await p.close();
+    }
+
+    // ---------------------------------------------------------------- the share sheet (Export JSON)
+    // Stand-ins for navigator.canShare and navigator.share that follow the Web Share standard: share() stays
+    // pending while its sheet is open, a second call meanwhile is rejected with InvalidStateError, a cancel
+    // rejects with AbortError, and a call that no tap started is rejected with NotAllowedError. Only a share that
+    // went through counts as an export (same fault as U5/T1 in the training app).
+    {
+      const share = (t, fn) => run.step('export through the share sheet', t, fn);
+      const p = await phoneWith(browser, HELD_TEXT);
+      await p.context.addInitScript(() => {
+        let open = null;
+        window.__shares = []; window.__refuse = false;
+        navigator.canShare = () => true;
+        navigator.share = (data) => {
+          if (window.__refuse) { window.__shares.push('refused: NotAllowedError'); return Promise.reject(new DOMException('Not allowed', 'NotAllowedError')); }
+          if (open) { window.__shares.push('second: InvalidStateError'); return Promise.reject(new DOMException('An earlier share has not yet completed.', 'InvalidStateError')); }
+          window.__shares.push('sheet open: ' + data.files[0].name);
+          return new Promise((resolve, reject) => { open = { resolve, reject }; });
+        };
+        window.__endShare = (how) => { const o = open; open = null; if (!o) return false; if (how === 'save') o.resolve(); else o.reject(new DOMException('Share canceled', 'AbortError')); return true; };
+      });
+      const pg = await F.open(p, server);
+      const downloads = [];
+      pg.on('download', (d) => downloads.push(d.suggestedFilename()));
+      const lastExport = async () => (await lib.readStorage(pg, 'fuel.backup') || {}).lastExport || null;
+      await lib.openTab(pg, 'settings');
+      await share('Export JSON tapped twice, then the share sheet cancelled: nothing is noted, nothing downloaded', async () => {
+        await pg.click('.backup-btns [data-action="export"]');
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(300);
+        need(await pg.evaluate(() => window.__endShare('cancel')), 'no share sheet was open');
+        await lib.sleep(300);
+        const calls = await pg.evaluate(() => window.__shares);
+        need(downloads.length === 0, 'a download started: ' + downloads.join(', ') + ' (share calls: ' + calls.join(', ') + ')');
+        need((await lastExport()) === null && /No export from this phone yet/.test(await F.text(pg, '#last-export')), 'the export is noted: ' + await F.text(pg, '#last-export'));
+        return 'share calls: ' + calls.join(', ');
+      });
+      await share('a share the phone refuses (NotAllowedError): nothing is noted, nothing downloaded', async () => {
+        await pg.evaluate(() => { window.__refuse = true; });
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(300);
+        await pg.evaluate(() => { window.__refuse = false; });
+        need(downloads.length === 0 && (await lastExport()) === null, 'downloads: ' + downloads.length + ', last export: ' + await lastExport());
+        return (await pg.evaluate(() => window.__shares)).slice(-1)[0];
+      });
+      await share('a share that goes through is noted', async () => {
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(200);
+        need(await pg.evaluate(() => window.__endShare('save')), 'no share sheet was open');
+        await pg.waitForFunction(() => /Last export: today/.test(document.querySelector('#last-export').textContent), null, { timeout: 3000 });
+        need(downloads.length === 0 && (await lastExport()) > 0, 'downloads: ' + downloads.length);
+        F.assertClean(p, 'share sheet');
+        return await F.text(pg, '#last-export');
       });
       await p.close();
     }

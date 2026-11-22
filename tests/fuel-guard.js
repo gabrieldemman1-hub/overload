@@ -9,6 +9,8 @@
  *   - a Safari tab (standalone false): "Add Fuel to your Home Screen" with Share and Add to Home Screen;
  *     nothing is stored, nothing registered, cloud sync is told to wait; "Use it here anyway" goes on, for
  *     that tab only;
+ *   - a Safari tab that already holds Fuel's data: the same screen says so before its steps and offers Export;
+ *     the Home Screen app's Welcome names a Fuel backup under Choose a file, and takes that file;
  *   - a Home Screen app that holds Overload's data and none of Fuel's (the page was opened inside the
  *     installed Overload): the same instructions with Open in Safari and Copy link; nothing is stored, no
  *     worker, Overload's data is neither read into Fuel nor changed;
@@ -69,6 +71,7 @@ const body = (page) => F.text(page, '#app');
         const t = await body(page);
         for (const s of ['Add Fuel to your Home Screen', 'Tap Share in Safari\'s toolbar', 'Choose Add to Home Screen', 'Open Fuel from its new icon', 'Use it here anyway']) need(t.includes(s), 'the screen does not say "' + s + '": ' + t);
         need(!/Open in Safari|Welcome|Bring it from Overload/.test(t), 'the screen offers more than it should: ' + t);
+        need(!/This Safari tab holds/.test(t) && (await F.count(page, '#app [data-action="export"]')) === 0, 'the screen speaks of data this tab does not hold: ' + t);
         need((await F.screen(page)) !== 'food' && !(await page.isVisible('.tabbar')), 'the diary or the tab bar is there');
         return t.slice(0, 60);
       });
@@ -114,6 +117,56 @@ const body = (page) => F.text(page, '#app');
       });
       await step('no error', async () => { F.assertClean(phone, label); });
       await phone.close();
+    }
+
+    // ---------------------------------------------------------------- a Safari tab that already holds Fuel's data
+    // "Use it here anyway" was tapped on an earlier visit and food was logged in the tab. The Home Screen app the
+    // screen leads to has a storage of its own and starts empty: the screen must say so before its steps, and
+    // offer the backup that the new app's Welcome takes (dev/notes/review-findings.md, F2).
+    {
+      const label = 'Safari tab with Fuel data', step = (t, fn) => run.step(label, t, fn);
+      const tab = await phoneAs(browser, false, seedFuel);
+      const tmp = F.tempDir();
+      let page = null, file = null, held = null;
+      await step('the screen says the tab holds a food log and offers Export, before the steps', async () => {
+        page = await F.open(tab, server);
+        held = await F.storedText(page);
+        need((await F.screen(page)) === 'install', 'the screen is ' + (await F.screen(page)));
+        const t = await body(page);
+        need(/This Safari tab holds the food log you kept here: 110 days, 1,576 entries\. The Home Screen app starts empty, so export a backup first and choose that file in the app\./.test(t), 'the screen reads: ' + t);
+        const order = await page.evaluate(() => { const all = [...document.querySelectorAll('#app *')], at = (s) => all.indexOf(document.querySelector('#app ' + s)); return [at('.banner.warn'), at('[data-action="export"]'), at('.install-steps')]; });
+        need(order[0] >= 0 && order[0] < order[1] && order[1] < order[2], 'the message, the Export button and the steps are not in that order: ' + order.join(', '));
+        return t.match(/This Safari tab holds[^.]*\./)[0];
+      });
+      await step('Export gives the tab\'s data as a Fuel backup; nothing else is stored, no worker registered', async () => {
+        const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#app [data-action="export"]')]);
+        const text = require('fs').readFileSync(await dl.path(), 'utf8');
+        need(/^fuel-backup-2026-11-21\.json$/.test(dl.suggestedFilename()) && JSON.stringify(JSON.parse(text)) === held, 'the file ' + dl.suggestedFilename() + ' is not the stored data');
+        file = tmp.file(dl.suggestedFilename(), text);
+        await lib.sleep(400);
+        need((await F.storedText(page)) === held && (await F.screen(page)) === 'install', 'the stored data or the screen changed');
+        const all = await everything(page);
+        same([all.local, all.registered, all.caches], [['fuel.backup', 'fuel.state.v1'], [], []], 'what is stored and registered after the export');
+        need((await lib.readStorage(page, 'fuel.backup')).lastExport > 0, 'the export was not noted');
+        return dl.suggestedFilename() + ', ' + text.length.toLocaleString() + ' characters';
+      });
+      const app = await phoneAs(browser, true);
+      await step('the Home Screen app\'s Welcome names a Fuel backup under Choose a file, and takes that file', async () => {
+        const home = await F.open(app, server);
+        need((await F.screen(home)) === 'welcome', 'the screen is ' + (await F.screen(home)));
+        const sub = await F.text(home, '#app [data-action="fuel-file"] .sub');
+        need(/a Fuel backup/.test(sub), 'Choose a file says: ' + sub);
+        await F.chooseFile(home, '#app [data-action="fuel-file"]', file);
+        await F.toast(home, /Brought in/);
+        const st = await F.stored(home), was = JSON.parse(held);
+        same(st.diary, was.diary, 'the diary in the Home Screen app');
+        same(st.food, was.food, 'the saved foods, meals and targets in the Home Screen app');
+        need((await F.screen(home)) === 'food', 'the screen is ' + (await F.screen(home)));
+        return 'Choose a file: "' + sub + '"; ' + Object.keys(st.diary).length + ' days brought in';
+      });
+      await step('no error', async () => { F.assertClean(tab, label + ' (Safari)'); F.assertClean(app, label + ' (Home Screen)'); });
+      tmp.rm();
+      await tab.close(); await app.close();
     }
 
     // ---------------------------------------------------------------- inside the installed Overload

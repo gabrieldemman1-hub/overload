@@ -20,7 +20,9 @@
  *     goes up without doubling anything.
  *   - Nothing is uploaded while the first server read has not worked; an upload the cloud refuses is sent
  *     again; a day whose name is not a date or an entry without an id is never sent; a note left behind on a
- *     phone that lost its data deletes nothing; Reset and Restore while signed in change the account's copy.
+ *     phone that lost its data deletes nothing, also when the sync module arrives after Start fresh was tapped
+ *     (and when the note cannot be removed at start); Reset and Restore while signed in change the account's
+ *     copy; with a second phone signed in, the Reset question says what that phone does, and its advice works.
  *   - Changes made while signed out are sent after signing in again.
  *   - A training app signed in to the same account at the same time (v2.8 in a storage of its own, and this
  *     tree's root app in the same storage as Fuel) is not affected by Fuel and does not affect it.
@@ -118,6 +120,25 @@ async function openOverload(phone) {
   return page;
 }
 async function closeFuel(phone) { await phone.fuel.close(); phone.pages = phone.pages.filter((p) => !p.isClosed()); phone.fuel = null; }
+// A slow network for the sync module: the three Firebase files are held back until release(). fuel.js and
+// food.js (classic scripts) have drawn the screen long before; the module runs only once its imports arrive.
+// (A route added later is asked first; fallback hands the request on to the fake cloud's.)
+const SDK = /^https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js(\?.*)?$/;
+async function holdSdk(phone) {
+  let held = true; const waiting = [];
+  await phone.context.route(SDK, async (route) => { if (held) await new Promise((r) => waiting.push(r)); return route.fallback(); });
+  return { release() { held = false; waiting.splice(0).forEach((r) => r()); } };
+}
+// Fuel, started, before its sync module has run (the page's load event waits for the module, so not openApp).
+async function openFuelEarly(phone) {
+  const page = await phone.context.newPage();
+  page.dialogs = [];
+  page.on('dialog', (d) => { page.dialogs.push(d.type() + ': ' + d.message()); d.accept().catch(() => {}); });
+  await page.goto(ORIGIN + F.PAGE, { waitUntil: 'commit' });
+  await page.waitForFunction(() => !!window.__overload && !!window.__overloadFood, null, { timeout: 15000 });
+  phone.pages.push(page); phone.fuel = page;
+  return page;
+}
 
 // Lets the phones and the cloud come to rest: push timers fire (one second after a save), writes arrive, the
 // other phones' listeners run, and so on until nothing new is logged. False when they never stop.
@@ -719,7 +740,51 @@ async function accountRun(browser, v28, setUpOnly) {
     return Object.keys(want.diary).length + ' days back on the phone, no write';
   });
 
-  await guard('the same when he was signed out, taps Start fresh and then signs in: the note is not believed, nothing is deleted', async () => {
+  // The same with the sign-in remembered and a slow network: the sync module runs only once its imports have
+  // arrived, and he can tap Start fresh on Welcome before that (dev/notes/review-findings.md, S2; the
+  // reviewer's r8). Start fresh saves an empty diary, so by the time the module looks, saved data exists.
+  // Twice: as it is, and with the note that cannot be removed at start, which leaves cloud sync's own guard
+  // (window.__overload.startedWithData) as the only thing between the old note and the account.
+  for (const stuck of [false, true]) {
+    await guard('signed in, saved data lost, the sync module late, Start fresh tapped before it runs' + (stuck ? ', and the note cannot be removed at start' : '') + ': nothing is deleted', async () => {
+      const days = JSON.stringify(cloud.snapshot(FUEL_DAYS)), core = cloud.get(FUEL_META).core, want = travels(await F.live(b));
+      need((await noteOf(b)).uid === 'U1' && (await b.evaluate(() => !!window.__overloadSync.user)), 'B is not signed in with a note');
+      if (stuck) {
+        // From the next page on: the phone refuses to remove the note while a test key says so.
+        await B.context.addInitScript(() => {
+          const real = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (k) { if (k === 'fuel.sync.v1' && localStorage.getItem('test.keepnote')) throw new DOMException('refused', 'SecurityError'); return real.call(this, k); };
+        });
+        await b.evaluate(() => localStorage.setItem('test.keepnote', '1'));
+      }
+      await b.evaluate((k) => localStorage.removeItem(k), F.KEY);
+      await closeFuel(B);
+      const sdk = await holdSdk(B), mark = cloud.mark();
+      let note = null;
+      try {
+        b = await openFuelEarly(B);
+        need((await F.screen(b)) === 'welcome' && !(await b.evaluate(() => !!window.__overloadSync)), 'this check needs Welcome before the sync module runs');
+        note = await noteOf(b);
+        if (stuck) need(note && note.uid === 'U1', 'this check needs the note to be left in storage');
+        await b.click('[data-action="fuel-fresh"]');
+        await b.waitForSelector('.f-meal');
+        need((await F.stored(b)) !== null && Object.keys((await F.stored(b)).diary).length === 0, 'Start fresh did not save an empty diary');
+      } finally {
+        sdk.release();   // whatever happened above: the next checks need the module
+        if (stuck) await b.evaluate(() => localStorage.removeItem('test.keepnote')).catch(() => {});
+      }
+      await b.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+      await rest(world);
+      const ws = cloud.writes({ from: mark });
+      need(!ws.some((w) => w.type === 'delete'), 'days were deleted in the account: ' + brief(ws.filter((w) => w.type === 'delete')));
+      need(JSON.stringify(cloud.snapshot(FUEL_DAYS)) === days && cloud.get(FUEL_META).core === core, 'the account changed: ' + brief(ws));
+      need(cloud.reads({ who: 'B', from: mark }).some((r) => r.path === FUEL_META && r.via === 'get'), 'the account was not read first (the note was trusted)');
+      same(travels(await F.live(b)), want, 'B\'s data once the module ran');
+      return 'at Welcome the note was ' + (note ? 'still stored' : 'gone') + '; ' + Object.keys(want.diary).length + ' days back on the phone; writes: ' + brief(ws);
+    });
+  }
+
+  await guard('the same when he was signed out, taps Start fresh and then signs in: the note left behind is gone at start, nothing is deleted', async () => {
     const days = JSON.stringify(cloud.snapshot(FUEL_DAYS)), core = cloud.get(FUEL_META).core, want = travels(await F.live(b));
     await signOutInSettings(b);
     need((await noteOf(b)).uid === 'U1', 'B has no note');
@@ -728,9 +793,10 @@ async function accountRun(browser, v28, setUpOnly) {
     const mark = cloud.mark();
     b = await openFuel(B);
     need((await F.screen(b)) === 'welcome', 'the screen is ' + await F.screen(b));
+    need((await noteOf(b)) === null, 'the note is still stored next to no saved data');
     await b.click('[data-action="fuel-fresh"]');
     await b.waitForSelector('.f-meal');
-    need((await noteOf(b)).uid === 'U1' && Object.keys((await F.stored(b)).diary).length === 0, 'this check needs the old note next to an empty diary');
+    need(Object.keys((await F.stored(b)).diary).length === 0, 'this check needs an empty diary');
     await signInInSettings(b);
     await rest(world);
     const ws = cloud.writes({ from: mark });
@@ -937,11 +1003,15 @@ async function clipboardRun(browser, docs) {
   // A Reset replaces the data without deletion records, and a day leaves a phone only through those: so a
   // second signed-in phone keeps its log and uploads it again. (With one phone the account is emptied: see
   // the run "one phone".)
-  await step('Reset on one phone while another is signed in: the other keeps its food log, and it returns to the account', async () => {
+  // The question says so (dev/notes/review-findings.md, S3), and the next step does what it advises.
+  await step('Reset on one phone while another is signed in: the question says the other keeps its copy and sends it back; it does', async () => {
     const d = D.fuel, had = await F.live(d), mark = cloud.mark();
     await lib.openTab(c, 'settings');
+    const asked = c.dialogs.length;
     await c.click('[data-action="reset"]');
     await F.toast(c, /Reset/);
+    const q = c.dialogs.slice(asked).join(' / ');
+    need(/the food log in your account \(owner@example\.com\) is erased too\. Another phone signed in to this account keeps its own copy and sends it back\. Sign out on that phone first, and reset it before you sign in there again\./.test(q), 'the question reads: ' + q.replace(/\n+/g, ' | '));
     await rest(world);
     const ws = cloud.writes({ from: mark });
     need(ws.filter((w) => w.who === 'C' && w.type === 'delete').length === COUNTS.foodDays, 'the reset did not delete the days in the account: ' + brief(ws));
@@ -956,6 +1026,30 @@ async function clipboardRun(browser, docs) {
     need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
     const t = now.food.targets;
     return 'the log is back on both and in the account; targets on both are now ' + JSON.stringify(t) + ', units ' + now.settings.units + ', theme ' + now.settings.theme;
+  });
+
+  // Signing the other phone out alone is not enough: at its next sign-in it sends its copy back (its note is kept
+  // on sign-out). Reset there while signed out forgets the note, and its next sign-in takes the account's copy.
+  await step('as the question advises: sign out on the other phone and reset it, then Reset here; the log does not come back, also not when it signs in again', async () => {
+    const d = D.fuel, mark = cloud.mark();
+    await F.closeSheet(d);   // the import sheet of the paste above
+    await signOutInSettings(d);
+    await d.click('[data-action="reset"]');
+    await F.toast(d, /Reset/);
+    await lib.openTab(c, 'settings');
+    await c.click('[data-action="reset"]');
+    await F.toast(c, /Reset/);
+    await rest(world);
+    need(cloud.paths(FUEL_DAYS).length === 0, cloud.paths(FUEL_DAYS).length + ' days in the account after the reset');
+    await signInInSettings(d);
+    await rest(world);
+    const sc = await F.live(c), sd = await F.live(d), core = coreOfCloud(cloud);
+    need(cloud.paths(FUEL_DAYS).length === 0 && Object.keys(core.food.foods).length === 0 && Object.keys(core.food.meals).length === 0, 'the account holds ' + cloud.paths(FUEL_DAYS).length + ' days, ' + Object.keys(core.food.foods).length + ' saved foods');
+    for (const [name, st] of [['C', sc], ['D', sd]]) need(Object.keys(st.diary).length === 0 && Object.keys(st.food.foods).length === 0 && Object.keys(st.food.meals).length === 0, name + ' holds ' + Object.keys(st.diary).length + ' days, ' + Object.keys(st.food.foods).length + ' saved foods');
+    need(!!(await F.copy(d, 'before-reset')), 'the other phone kept no copy of its log');
+    onlyFuelPaths(cloud, mark);
+    need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
+    return 'the account and both phones are empty; writes: ' + brief(cloud.writes({ from: mark }));
   });
 
   await step('no write or delete below meta/state, workouts or foodDays; no page error', async () => {
