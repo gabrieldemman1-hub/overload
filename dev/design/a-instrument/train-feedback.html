@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en" data-app="overload" data-theme="dark" data-shot-scroll="184">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overload: feedback after an exercise</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><svg class="brand-mark"><use href="icons.svg#i-mark-overload"/></svg><span>Chest &amp; Back</span></div>
+    <div class="topbar-right">
+      <span class="num">2/6</span><span class="muted">·</span><span class="num" id="elapsed">31:40</span>
+      <button class="icon-btn" aria-label="Workout menu"><svg class="ic"><use href="icons.svg#i-more"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main id="app" class="screen">
+
+  <div class="row between base"><span class="label">Sets done</span><span class="num n-readout">6<span class="muted"> / 19</span></span></div>
+  <div class="meter steps mt8" style="--n:19;--v:31.58%" role="progressbar" aria-valuenow="6" aria-valuemin="0" aria-valuemax="19" aria-label="Sets done"></div>
+
+  <div class="deload-bar">
+    <button class="deload-toggle" data-action="toggle-deload" aria-pressed="false"><span class="sw"></span>Deload session</button>
+    <button class="btn small subtle" data-action="add-entry"><svg class="ic s"><use href="icons.svg#i-plus"/></svg>Exercise</button>
+  </div>
+
+  <div class="card ex-card done compact" data-card="0">
+    <button class="ex-fold" data-action="open-entry" data-e="0">
+      <span class="ex-fold-tick"><svg class="ic"><use href="icons.svg#i-check"/></svg></span>
+      <span class="grow"><span class="ex-fold-name">Incline Dumbbell Press</span><span class="ex-fold-sub">3 sets · next <span class="num">65</span> lb</span></span>
+      <span class="pill pr"><svg class="ic"><use href="icons.svg#i-trophy"/></svg>PR</span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+
+  <!-- The exercise just finished: what was done, how it felt, what happens next time -->
+  <div class="card ex-card done" data-card="1">
+    <div class="ex-head">
+      <div class="ex-kicker label"><span class="idx">02</span><span>Chest · Machine</span><span class="grow"></span><span class="pill solid"><svg class="ic"><use href="icons.svg#i-check"/></svg>Done</span></div>
+      <div class="ex-name">Machine Chest Press</div>
+      <div class="ex-last"><span class="label">Today</span><span class="num">150×12 · 150×12 · 150×12</span></div>
+      <div class="ex-last" style="margin-top:4px"><span class="label">Reps left</span><span class="num">2 · 1 · 0</span></div>
+    </div>
+    <div class="ex-body">
+      <div class="prompt" style="margin-top:0;padding-top:0;border-top:0">
+        <div class="prompt-q">How was it? <span class="hint">Adjusts your sets.</span></div>
+
+        <div class="label choice-label" id="q-pump">Pump</div>
+        <div class="choice-grid" role="group" aria-labelledby="q-pump">
+          <button class="choice" aria-pressed="false">Low / none</button>
+          <button class="choice on" aria-pressed="true">Moderate</button>
+          <button class="choice" aria-pressed="false">Amazing</button>
+        </div>
+
+        <div class="label choice-label" id="q-joint">Joint pain</div>
+        <div class="choice-grid" role="group" aria-labelledby="q-joint">
+          <button class="choice on" aria-pressed="true">None</button>
+          <button class="choice" aria-pressed="false">A little</button>
+          <button class="choice" aria-pressed="false">Moderate</button>
+          <button class="choice" aria-pressed="false">A lot</button>
+        </div>
+
+        <div class="label choice-label" id="q-work">Workload</div>
+        <div class="choice-grid" role="group" aria-labelledby="q-work">
+          <button class="choice" aria-pressed="false">Easy</button>
+          <button class="choice on" aria-pressed="true">Pretty good</button>
+          <button class="choice" aria-pressed="false">Pushed my limits</button>
+          <button class="choice" aria-pressed="false">Too much</button>
+        </div>
+      </div>
+
+      <div class="next-box">
+        <div class="label">Next time</div>
+        <div class="big">
+          <span class="num n-big">155<span class="u">lb</span></span>
+          <span class="dim">goal <span class="num" style="font-size:17px;color:var(--ink)">10</span></span>
+          <span class="grow"></span>
+          <span class="pill green"><svg class="ic"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span>
+        </div>
+        <ul>
+          <li>Every set hit 12 → weight up one jump (5 lb), goal back to 10</li>
+          <li>Recovered, moderate pump, no joint pain → keep 3 sets</li>
+        </ul>
+      </div>
+
+      <div class="card-actions">
+        <button class="btn small subtle" data-action="reopen-entry"><svg class="ic s"><use href="icons.svg#i-edit"/></svg>Edit</button>
+        <button class="btn small subtle" data-action="close-entry">Hide</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card ex-card compact" data-card="2">
+    <button class="ex-fold" data-action="open-entry" data-e="2">
+      <span class="ex-fold-tick todo">03</span>
+      <span class="grow"><span class="ex-fold-name">Cable Fly</span><span class="ex-fold-sub">3 × 10–12 @ <span class="num">30</span> lb · goal 11</span></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+  <div class="card ex-card compact" data-card="3">
+    <button class="ex-fold" data-action="open-entry" data-e="3">
+      <span class="ex-fold-tick todo">04</span>
+      <span class="grow"><span class="ex-fold-name">Lat Pulldown</span><span class="ex-fold-sub">3 × 10–12 @ <span class="num">130</span> lb · goal 10</span></span>
+      <span class="pill green"><svg class="ic"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+  <div class="card ex-card compact" data-card="4">
+    <button class="ex-fold" data-action="open-entry" data-e="4">
+      <span class="ex-fold-tick todo">05</span>
+      <span class="grow"><span class="ex-fold-name">Chest-Supported Row</span><span class="ex-fold-sub">3 × 10–12 @ <span class="num">90</span> lb · goal 12</span></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+  <div class="card ex-card compact" data-card="5">
+    <button class="ex-fold" data-action="open-entry" data-e="5">
+      <span class="ex-fold-tick todo">06</span>
+      <span class="grow"><span class="ex-fold-name">Seated Cable Row</span><span class="ex-fold-sub">4 × 10–12 @ <span class="num">120</span> lb · goal 11</span></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+
+  <div class="btn-row mt16">
+    <button class="btn subtle" data-action="discard-workout" style="flex:0 0 auto">Discard</button>
+    <button class="btn ghost big" data-action="finish-workout">Finish workout</button>
+  </div>
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-screen="today"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-dumbbell"/></svg></span>Today</button>
+  <button class="tab" data-screen="program"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-plan"/></svg></span>Program</button>
+  <button class="tab" data-screen="history"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-chart-line"/></svg></span>History</button>
+  <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-sliders"/></svg></span>Settings</button>
+</nav>
+
+</body>
+</html>

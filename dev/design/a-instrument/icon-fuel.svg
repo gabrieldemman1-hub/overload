@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Fuel">
+  <!-- Fuel app icon. Full-bleed square: iOS applies its own corner mask. A gauge in five segments, three lit, needle on the mark. -->
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c1f22"/><stop offset="1" stop-color="#08090a"/></linearGradient></defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <path d="M252.2 756.0A300 300 0 0 1 218.1 545.7" fill="none" stroke="#c4f03a" stroke-width="100"/>
+  <path d="M229.4 505.4A300 300 0 0 1 367.5 343.1" fill="none" stroke="#c4f03a" stroke-width="100"/>
+  <path d="M405.5 325.6A300 300 0 0 1 618.5 325.6" fill="none" stroke="#c4f03a" stroke-width="100"/>
+  <path d="M656.5 343.1A300 300 0 0 1 794.6 505.4" fill="none" stroke="#4a5057" stroke-width="100"/>
+  <path d="M805.9 545.7A300 300 0 0 1 771.8 756.0" fill="none" stroke="#4a5057" stroke-width="100"/>
+  <path d="M512 606L598.0 419.9" stroke="#f2f3f4" stroke-width="40" stroke-linecap="round"/>
+  <circle cx="512" cy="606" r="46" fill="#f2f3f4"/>
+</svg>

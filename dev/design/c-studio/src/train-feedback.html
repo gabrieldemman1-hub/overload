@@ -1,0 +1,82 @@
+<!--{"app":"overload","tab":"today","title":"Overload: after an exercise","actions":"<span class=\"topbar-meta\" aria-label=\"Workout time\">{{timer sm}}26:48</span><button class=\"icon-btn\" aria-label=\"Workout options\">{{more}}</button>"}-->
+<div class="wo-head">
+  <h1 class="title">Chest &amp; Back</h1>
+  <p class="wo-count"><b>2</b> of 6</p>
+</div>
+<div class="segs" role="img" aria-label="2 of 6 exercises done"><i class="done"></i><i class="done"></i><i></i><i></i><i></i><i></i></div>
+
+<button class="ex-fold">
+  <span class="ex-fold-tick">{{check sm}}</span>
+  <span class="row-body">
+    <span class="row-title">Lat Pulldown</span>
+    <span class="row-sub num">Next 140 lb, goal 12</span>
+  </span>
+  <span class="tag pr">{{trophy xs}}PR</span>
+  {{chev-down row-chev}}
+</button>
+
+<!-- Just finished: the result first, then the three questions -->
+<section class="card ex">
+  <div class="ex-head">
+    <h2 class="ex-name">Machine Chest Press</h2>
+    <span class="tag pr">{{trophy xs}}PR</span>
+  </div>
+  <p class="ex-goal num">150 lb × <b>12, 12, 12</b> · rep PR at 150 lb</p>
+
+  <div class="next-box mt-3">
+    {{up}}
+    <div>
+      <p class="headline">Next time: <b>155 lb</b>, goal 10</p>
+      <p class="note mt-1" style="font-size:15px">Every set hit 12, so the weight goes up one jump. 3 sets stay.</p>
+    </div>
+  </div>
+
+  <div class="fb-q lead-q">
+    <p class="heading" style="font-size:17px">How was it? <span class="small muted" style="font-weight:400;letter-spacing:0">Optional, adjusts your sets</span></p>
+  </div>
+  <div class="fb-q">
+    <p class="eyebrow">Pump</p>
+    <div class="choices" style="--cols:3" role="group" aria-label="Pump">
+      <button class="choice">Low / none</button><button class="choice on" aria-pressed="true">Moderate</button><button class="choice">Amazing</button>
+    </div>
+  </div>
+  <div class="fb-q">
+    <p class="eyebrow">Joint pain</p>
+    <div class="choices four" role="group" aria-label="Joint pain">
+      <button class="choice on" aria-pressed="true">None</button><button class="choice">A little</button><button class="choice">Moderate</button><button class="choice">A lot</button>
+    </div>
+  </div>
+  <div class="fb-q">
+    <p class="eyebrow">Workload</p>
+    <div class="choices" role="group" aria-label="Workload">
+      <button class="choice">Easy</button><button class="choice on" aria-pressed="true">Pretty good</button><button class="choice">Pushed my limits</button><button class="choice">Too much</button>
+    </div>
+  </div>
+
+  <div class="btn-row mt-5">
+    <button class="btn" style="flex:0 0 auto">Edit sets</button>
+    <button class="btn ink">Next: Seated Cable Row</button>
+  </div>
+</section>
+
+<button class="ex-fold todo">
+  <span class="ex-fold-n">3</span>
+  <span class="row-body"><span class="row-title">Seated Cable Row</span><span class="row-sub num">3 × 10–12 at 130 lb · goal 10</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="ex-fold todo">
+  <span class="ex-fold-n">4</span>
+  <span class="row-body"><span class="row-title">Incline Dumbbell Press</span><span class="row-sub num">3 × 10–12 at 55 lb each · goal 11</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="ex-fold todo">
+  <span class="ex-fold-n">5</span>
+  <span class="row-body"><span class="row-title">Cable Fly</span><span class="row-sub num">3 × 10–12 at 30 lb · goal 12</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="ex-fold todo">
+  <span class="ex-fold-n">6</span>
+  <span class="row-body"><span class="row-title">Chest-Supported Row</span><span class="row-sub num">3 × 10–12 at 90 lb · goal 10</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="btn ink lg block mt-6">Finish workout</button>

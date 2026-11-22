@@ -1,0 +1,96 @@
+<!--{"app":"overload","title":"Studio: components","raw":true}-->
+<main class="sheet-page">
+  <p class="eyebrow">Studio · components</p>
+  <h1 class="display mt-2">One system, two accents.</h1>
+  <p class="lead mt-3">Every component in ui.css that the eleven screens do not already show, in its states.</p>
+
+  <section class="section">
+    <div class="section-head"><h2>Buttons</h2><span class="small muted">48 px, 56 px large, 36 px small</span></div>
+    <div class="card">
+      <button class="btn primary lg block">{{play sm}}Start workout</button>
+      <div class="btn-row mt-3"><button class="btn primary">Primary</button><button class="btn ink">Ink</button></div>
+      <div class="btn-row mt-2"><button class="btn">Tonal</button><button class="btn ghost">Ghost</button><button class="btn link">Link</button></div>
+      <div class="btn-row mt-2"><button class="btn danger">{{trash sm}}Delete</button><button class="btn primary" disabled>Disabled</button></div>
+      <div class="flex wrap mt-3"><button class="btn sm">{{plus sm}}Set</button><button class="btn sm primary">Small</button><button class="btn sm ink">Done</button><button class="icon-btn">{{more}}</button><button class="icon-btn fill">{{close}}</button><button class="icon-btn accent">{{plus}}</button><button class="icon-btn primary">{{check}}</button></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Inputs</h2></div>
+    <div class="card">
+      <label class="field"><span class="field-label">Exercise name</span><input class="input" value="Machine Chest Press"></label>
+      <label class="field mt-4"><span class="field-label">Note</span><input class="input" placeholder="Seat height, handle, pin"></label>
+      <div class="btn-row mt-4">
+        <label class="numfield" style="flex:1.7"><input inputmode="decimal" value="182.4" aria-label="Body weight"><span>lb</span></label>
+        <label class="numfield" style="flex:1"><input inputmode="numeric" value="7" aria-label="Hours asleep"><span>h</span></label>
+        <label class="numfield" style="flex:1"><input inputmode="numeric" value="12" aria-label="Minutes asleep"><span>m</span></label>
+      </div>
+      <div class="search mt-4">{{search}}<input placeholder="Search foods" aria-label="Search"><button class="icon-btn" aria-label="Scan">{{barcode}}</button></div>
+      <div class="flex between mt-4"><span>Weight jump</span><span class="stepper"><button aria-label="Less">{{minus sm}}</button><span class="val">2.5<small>lb</small></span><button aria-label="More">{{plus sm}}</button></span></div>
+      <div class="seg mt-4"><button class="on">System</button><button>Light</button><button>Dark</button></div>
+      <div class="flex between mt-4"><span>Reps in reserve</span><span class="flex gap-3"><button class="toggle" role="switch" aria-checked="false" aria-label="Off"></button><button class="toggle on" role="switch" aria-checked="true" aria-label="On"></button></span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Pills, tags, choices</h2></div>
+    <div class="card">
+      <div class="flex wrap"><span class="pill">Chest</span><span class="pill accent">{{flame sm}}14-day streak</span><span class="pill pos">{{check xs}}In range</span><span class="pill warn">Weigh-in due</span><span class="pill neg">Not saved</span><span class="pill line">Machine</span></div>
+      <div class="flex wrap mt-3"><span class="tag pr">{{trophy xs}}PR</span><span class="tag accent">Today</span><span class="tag">Deload</span><span class="tag">Warm-up</span></div>
+      <div class="choices mt-4" style="--cols:3"><button class="choice">Low / none</button><button class="choice on">Moderate</button><button class="choice">Amazing</button></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Set row states</h2><span class="small muted">warm-up, done, next, to come</span></div>
+    <div class="card">
+      <div class="flex between"><p class="eyebrow">Warm-up</p><button class="btn link sm">Clear</button></div>
+      <div class="warmup"><span class="set-n">W1</span><span class="grow"><b class="strong">75</b> lb × <b class="strong">8</b></span><button class="tick sm on" aria-label="Warm-up 1 done">{{check}}</button></div>
+      <div class="warmup"><span class="set-n">W2</span><span class="grow"><b class="strong">105</b> lb × <b class="strong">5</b></span><button class="tick sm" aria-label="Warm-up 2">{{check}}</button></div>
+      <div class="sets mt-3">
+        <div class="set-head" aria-hidden="true"><span>Set</span><span>lb</span><span>Reps</span><span></span></div>
+        <div class="set done"><span class="set-n">1</span><label class="numfield"><input value="150" aria-label="Weight"></label><label class="numfield"><input value="11" aria-label="Reps"></label><button class="tick on" aria-label="Done">{{check}}</button></div>
+        <div class="rir"><span class="rir-label">Reps left</span><button>3+</button><button class="on">2</button><button>1</button><button>0</button></div>
+        <div class="set next"><span class="set-n">2</span><label class="numfield"><input value="150" aria-label="Weight"></label><label class="numfield"><input placeholder="12" aria-label="Reps, goal 12"><span>goal</span></label><button class="tick" aria-label="Log 12">{{check}}</button></div>
+        <div class="rir idle"><span class="rir-label">Reps left</span><button disabled>3+</button><button disabled>2</button><button disabled>1</button><button disabled>0</button></div>
+        <div class="set"><span class="set-n">3</span><label class="numfield"><input value="150" aria-label="Weight"></label><label class="numfield"><input placeholder="12" aria-label="Reps, goal 12"><span>goal</span></label><button class="tick" aria-label="Log 12">{{check}}</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Banner, toast, empty</h2></div>
+    <div class="banner">{{info}}<div><b>Weigh-in due.</b> Your last one was two days ago.</div></div>
+    <div class="banner accent mt-2">{{up}}<div><b>Recovery is 31%.</b> Hold the weights today and keep the reps.</div></div>
+    <div class="banner warn mt-2">{{export}}<div><b>No backup for 14 days.</b> Export a copy to Files.<br><button class="btn sm">Export now</button></div></div>
+    <div class="banner neg mt-2">{{info}}<div><b>Not saved on this phone.</b> Storage is full. Export before you close the app.</div></div>
+    <div class="toast mt-4">{{check sm}}<span>Lat Pulldown finished</span><button class="btn">Undo</button></div>
+    <div class="card mt-4"><div class="empty">{{calendar}}<b>Rest day.</b>Nothing scheduled. Start any day if you feel like lifting.<button class="btn sm">Start a different day</button></div></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><h2>Progress</h2></div>
+    <div class="card">
+      <div class="flex between small"><span class="soft">Chest, sets this week</span><span class="strong num">12 of 10–20</span></div>
+      <div class="bar ink mt-2" style="--v:60%"><i></i></div>
+      <div class="flex between small mt-4"><span class="soft">Calories</span><span class="strong num">1,391 of 2,600</span></div>
+      <div class="bar thick mt-2" style="--v:53.5%"><i></i></div>
+      <div class="flex between small mt-4"><span class="soft">Carbs, over target</span><span class="strong num">304 of 280 g</span></div>
+      <div class="bar over mt-2" style="--v:100%"><i></i></div>
+      <div class="flex mt-5 gap-4">
+        <div class="ring-wrap"><svg class="ring" width="72" height="72" viewBox="0 0 72 72" style="--ring-w:7"><circle class="ring-track" cx="36" cy="36" r="31" pathLength="100"/><circle class="ring-val" cx="36" cy="36" r="31" pathLength="100" stroke-dasharray="70 100"/></svg><span class="ring-label">1:24</span></div>
+        <div class="ring-wrap" data-app="fuel"><svg class="ring" width="72" height="72" viewBox="0 0 72 72" style="--ring-w:7"><circle class="ring-track" cx="36" cy="36" r="31" pathLength="100"/><circle class="ring-val" cx="36" cy="36" r="31" pathLength="100" stroke-dasharray="54 100"/></svg><span class="ring-label">54%</span></div>
+        <p class="small muted">Rings are two SVG circles with pathLength 100. Ember in Overload, herb in Fuel.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" data-app="fuel">
+    <div class="section-head"><h2>The same, in Fuel</h2><span class="small muted">data-app="fuel"</span></div>
+    <div class="card">
+      <button class="btn primary lg block">Add to Dinner</button>
+      <div class="flex wrap mt-3"><span class="pill accent">{{leaf sm}}On target</span><span class="tag accent">Today</span><button class="toggle on" role="switch" aria-checked="true" aria-label="On"></button><button class="icon-btn accent">{{plus}}</button><button class="btn link">Undo</button></div>
+      <div class="added mt-3">{{check sm}}<span><b>Added: White rice, cooked</b><small>200 g · 260 kcal · to Dinner</small></span><button class="btn link sm">Undo</button></div>
+    </div>
+  </section>
+</main>

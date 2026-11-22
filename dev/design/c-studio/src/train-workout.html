@@ -1,0 +1,124 @@
+<!--{"app":"overload","tab":"today","title":"Overload: workout in progress","screen":"has-dock","actions":"<span class=\"topbar-meta\" aria-label=\"Workout time\">{{timer sm}}24:10</span><button class=\"icon-btn\" aria-label=\"Workout options\">{{more}}</button>"}-->
+<div class="wo-head">
+  <h1 class="title">Chest &amp; Back</h1>
+  <p class="wo-count"><b>2</b> of 6</p>
+</div>
+<div class="segs" role="img" aria-label="Exercise 2 of 6"><i class="done"></i><i class="now"></i><i></i><i></i><i></i><i></i></div>
+
+<!-- Finished exercise, folded to one row -->
+<button class="ex-fold">
+  <span class="ex-fold-tick">{{check sm}}</span>
+  <span class="row-body">
+    <span class="row-title" style="display:block">Lat Pulldown</span>
+    <span class="row-sub num" style="display:block">Next 140 lb, goal 12</span>
+  </span>
+  <span class="tag pr">{{trophy xs}}PR</span>
+  {{chev-down row-chev}}
+</button>
+
+<!-- Open exercise -->
+<section class="card ex">
+  <div class="ex-head">
+    <h2 class="ex-name">Machine Chest Press</h2>
+    <button class="icon-btn" aria-label="Exercise options">{{more}}</button>
+  </div>
+  <p class="ex-goal">3 sets × 10–12 at <b>150 lb</b> · goal <b>12 reps</b></p>
+  <div class="ex-facts">
+    <p class="ex-fact">{{clock sm}}<span class="num">Last time: 150 × 12, 11, 11</span></p>
+    <p class="ex-fact">{{edit sm}}<span class="note">Seat 4, pin 7</span></p>
+  </div>
+
+  <div class="sets">
+    <div class="set-head" aria-hidden="true"><span>Set</span><span>lb</span><span>Reps</span><span></span></div>
+    <div class="set done">
+      <span class="set-n">1</span>
+      <label class="numfield"><input inputmode="decimal" value="150" aria-label="Set 1 weight, lb"></label>
+      <label class="numfield"><input inputmode="numeric" value="12" aria-label="Set 1 reps"></label>
+      <button class="tick on" aria-pressed="true" aria-label="Set 1 done">{{check}}</button>
+    </div>
+    <div class="rir">
+      <span class="rir-label">Reps left</span>
+      <button>3+</button><button class="on" aria-pressed="true">2</button><button>1</button><button>0</button>
+    </div>
+    <div class="set done">
+      <span class="set-n">2</span>
+      <label class="numfield"><input inputmode="decimal" value="150" aria-label="Set 2 weight, lb"></label>
+      <label class="numfield"><input inputmode="numeric" value="12" aria-label="Set 2 reps"></label>
+      <button class="tick on" aria-pressed="true" aria-label="Set 2 done">{{check}}</button>
+    </div>
+    <div class="rir">
+      <span class="rir-label">Reps left</span>
+      <button>3+</button><button>2</button><button class="on" aria-pressed="true">1</button><button>0</button>
+    </div>
+    <div class="set next">
+      <span class="set-n">3</span>
+      <label class="numfield"><input inputmode="decimal" value="150" aria-label="Set 3 weight, lb"></label>
+      <label class="numfield"><input inputmode="numeric" placeholder="12" aria-label="Set 3 reps, goal 12"><span>goal</span></label>
+      <button class="tick" aria-pressed="false" aria-label="Set 3: log 12 reps">{{check}}</button>
+    </div>
+    <div class="rir idle" aria-hidden="true">
+      <span class="rir-label">Reps left</span>
+      <button disabled>3+</button><button disabled>2</button><button disabled>1</button><button disabled>0</button>
+    </div>
+  </div>
+
+  <div class="ex-tools">
+    <div class="stepper" role="group" aria-label="Sets">
+      <button aria-label="Remove a set">{{minus sm}}</button>
+      <span class="val">3<small>sets</small></span>
+      <button aria-label="Add a set">{{plus sm}}</button>
+    </div>
+    <button class="btn sm">{{flame sm}}Warm-up</button>
+    <button class="btn sm">{{swap sm}}Swap</button>
+  </div>
+  <button class="btn block mt-4">Finish exercise</button>
+</section>
+
+<!-- Still to come -->
+<button class="ex-fold todo">
+  <span class="ex-fold-n">3</span>
+  <span class="row-body"><span class="row-title" style="display:block">Seated Cable Row</span><span class="row-sub num" style="display:block">3 × 10–12 at 130 lb · goal 10</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="ex-fold todo">
+  <span class="ex-fold-n">4</span>
+  <span class="row-body"><span class="row-title" style="display:block">Incline Dumbbell Press</span><span class="row-sub num" style="display:block">3 × 10–12 at 55 lb each · goal 11</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="ex-fold todo">
+  <span class="ex-fold-n">5</span>
+  <span class="row-body"><span class="row-title" style="display:block">Cable Fly</span><span class="row-sub num" style="display:block">3 × 10–12 at 30 lb · goal 12</span></span>
+  {{chev-down row-chev}}
+</button>
+<button class="ex-fold todo">
+  <span class="ex-fold-n">6</span>
+  <span class="row-body"><span class="row-title" style="display:block">Chest-Supported Row</span><span class="row-sub num" style="display:block">3 × 10–12 at 90 lb · goal 10</span></span>
+  {{chev-down row-chev}}
+</button>
+
+<section class="card mt-3">
+  <div class="row" style="padding:0;min-height:0">
+    <span class="row-lead">{{pulse}}</span>
+    <span class="row-body"><span class="row-title" style="display:block">Incline treadmill walk</span><span class="row-sub num" style="display:block">Last time: 20 min · incline 10 · 3.2 mph</span></span>
+    <span class="row-val">20:00</span>
+  </div>
+  <div class="btn-row mt-4">
+    <label class="numfield" style="flex:1"><input inputmode="decimal" value="10" aria-label="Incline"><span>incline</span></label>
+    <label class="numfield" style="flex:1"><input inputmode="decimal" value="3.2" aria-label="Speed"><span>mph</span></label>
+  </div>
+  <div class="btn-row mt-3"><button class="btn">{{play sm}}Start 20:00</button><button class="btn ghost" style="flex:0 0 auto">Done</button></div>
+</section>
+
+<button class="btn ink lg block mt-6">Finish workout</button>
+<!--overlay-->
+<div class="dock-wrap">
+  <div class="restbar" role="timer" aria-label="Rest timer, 1 minute 24 seconds left">
+    <svg class="ring rest-ring" viewBox="0 0 52 52" style="--ring-w:5"><circle class="ring-track" cx="26" cy="26" r="22" pathLength="100"/><circle class="ring-val" cx="26" cy="26" r="22" pathLength="100" stroke-dasharray="70 100"/></svg>
+    <div class="rest-body">
+      <div class="rest-time">1:24</div>
+      <div class="rest-label">Set 3 of 3 next</div>
+    </div>
+    <button class="btn" aria-label="Add 30 seconds">+30s</button>
+    <button class="btn skip">Skip</button>
+  </div>
+</div>

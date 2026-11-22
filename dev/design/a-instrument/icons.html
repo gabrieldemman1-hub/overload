@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en" data-app="overload" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Instrument: app icons and icon set</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+<style>
+  /* Page-only styles for this specimen sheet */
+  .appicon { display: block; border-radius: 22.37%; }              /* the iOS corner mask, near enough */
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .pair figure { margin: 0; }
+  .pair figcaption { margin-top: 10px; }
+  .wall { border-radius: 18px; padding: 18px 14px 14px; display: grid; grid-template-columns: repeat(4, 1fr); justify-items: center; }
+  .wall.dark { background: radial-gradient(120% 140% at 20% 0%, #2b3a55 0%, #141a2a 55%, #0b0d14 100%); color: #fff; }
+  .wall.light { background: radial-gradient(120% 140% at 80% 0%, #f4e9dc 0%, #dfe7ee 55%, #cfd9e2 100%); color: #15171a; }
+  .wall .app { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0; }
+  .wall .app img, .wall .app i { width: 60px; height: 60px; border-radius: 13.4px; display: block; }
+  .wall .app i.p1 { background: linear-gradient(160deg, #9fb4c9, #6b8097); }
+  .wall .app i.p2 { background: linear-gradient(160deg, #f6f4ef, #d9d5cb); }
+  .sizes { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .sizes img { display: block; }
+  .icogrid { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--rule); border-left: 1px solid var(--rule); }
+  .ico { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 68px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); color: var(--ink); }
+  .ico span { font-family: var(--font-num); font-size: 9.5px; letter-spacing: -0.02em; color: var(--ink-3); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><svg class="brand-mark"><use href="icons.svg#i-mark-overload"/></svg><span>Icons</span></div>
+    <div class="topbar-right"><svg class="brand-mark"><use href="icons.svg#i-mark-fuel"/></svg></div>
+  </div>
+</header>
+
+<main class="screen" style="padding-bottom:calc(var(--safe-bottom) + 32px)">
+
+  <div class="group-title first">App icons · 1024 px masters</div>
+  <div class="pair mt12">
+    <figure>
+      <img class="appicon" src="icon-overload.svg" alt="Overload app icon" width="171" height="171" style="width:100%;height:auto">
+      <figcaption><b>Overload</b><div class="small muted">Plates going up along the bar. The next one is lit.</div></figcaption>
+    </figure>
+    <figure>
+      <img class="appicon" src="icon-fuel.svg" alt="Fuel app icon" width="171" height="171" style="width:100%;height:auto">
+      <figcaption><b>Fuel</b><div class="small muted">A gauge in five segments. Three lit, needle on the mark.</div></figcaption>
+    </figure>
+  </div>
+
+  <div class="group-title">Home Screen · 60 px</div>
+  <div class="wall dark mt12">
+    <div class="app"><i class="p1"></i>Weather</div>
+    <div class="app"><img src="icon-overload.svg" alt="">Overload</div>
+    <div class="app"><img src="icon-fuel.svg" alt="">Fuel</div>
+    <div class="app"><i class="p2"></i>Notes</div>
+  </div>
+  <div class="wall light mt12">
+    <div class="app"><i class="p1"></i>Weather</div>
+    <div class="app"><img src="icon-overload.svg" alt="">Overload</div>
+    <div class="app"><img src="icon-fuel.svg" alt="">Fuel</div>
+    <div class="app"><i class="p2"></i>Notes</div>
+  </div>
+
+  <div class="group-title">Small sizes · 40, 29, 20 px</div>
+  <div class="sizes mt12">
+    <img class="appicon" src="icon-overload.svg" alt="" width="40" height="40"><img class="appicon" src="icon-overload.svg" alt="" width="29" height="29"><img class="appicon" src="icon-overload.svg" alt="" width="20" height="20">
+    <span style="width:12px"></span>
+    <img class="appicon" src="icon-fuel.svg" alt="" width="40" height="40"><img class="appicon" src="icon-fuel.svg" alt="" width="29" height="29"><img class="appicon" src="icon-fuel.svg" alt="" width="20" height="20">
+  </div>
+
+  <div class="group-title">Top-bar marks · 22 px, shown at 44</div>
+  <div class="row mt12" style="gap:16px">
+    <svg class="brand-mark" style="width:44px;height:44px"><use href="icons.svg#i-mark-overload"/></svg>
+    <svg class="brand-mark" style="width:44px;height:44px"><use href="icons.svg#i-mark-fuel"/></svg>
+    <span class="small muted">The small glyph that leads every screen title. The lit part takes the app's accent.</span>
+  </div>
+
+  <div class="group-title">Icon set · 24 px grid · 1.5 px stroke</div>
+  <div class="icogrid mt12">
+<!--BEGIN ICONSHEET-->
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-dumbbell"/></svg><span>dumbbell</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-plan"/></svg><span>plan</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-list"/></svg><span>list</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-chart-line"/></svg><span>chart-line</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-sliders"/></svg><span>sliders</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-gauge"/></svg><span>gauge</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-chart-bar"/></svg><span>chart-bar</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-plus"/></svg><span>plus</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-minus"/></svg><span>minus</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-check"/></svg><span>check</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-check-bold"/></svg><span>check-bold</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-close"/></svg><span>close</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-chev-r"/></svg><span>chev-r</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-chev-l"/></svg><span>chev-l</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-chev-d"/></svg><span>chev-d</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-chev-u"/></svg><span>chev-u</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-more"/></svg><span>more</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-search"/></svg><span>search</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-barcode"/></svg><span>barcode</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-swap"/></svg><span>swap</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-trash"/></svg><span>trash</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-edit"/></svg><span>edit</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-copy"/></svg><span>copy</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-undo"/></svg><span>undo</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-play"/></svg><span>play</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-share"/></svg><span>share</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-link"/></svg><span>link</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-cloud"/></svg><span>cloud</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-download"/></svg><span>download</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-export"/></svg><span>export</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-clipboard"/></svg><span>clipboard</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-file"/></svg><span>file</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-timer"/></svg><span>timer</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-trophy"/></svg><span>trophy</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-flame"/></svg><span>flame</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-bolt"/></svg><span>bolt</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-scale"/></svg><span>scale</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-moon"/></svg><span>moon</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-pulse"/></svg><span>pulse</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-target"/></svg><span>target</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-note"/></svg><span>note</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-calendar"/></svg><span>calendar</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-star"/></svg><span>star</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-star-fill"/></svg><span>star-fill</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-stack"/></svg><span>stack</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-info"/></svg><span>info</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-warn"/></svg><span>warn</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-arrow-up"/></svg><span>arrow-up</span></div>
+    <div class="ico"><svg class="ic"><use href="icons.svg#i-arrow-down"/></svg><span>arrow-down</span></div>
+<!--END ICONSHEET-->
+  </div>
+
+  <div class="group-title">Sizes in use</div>
+  <div class="row mt12" style="gap:20px;align-items:flex-end">
+    <span class="row" style="gap:8px"><svg class="ic l"><use href="icons.svg#i-timer"/></svg><span class="label">32</span></span>
+    <span class="row" style="gap:8px"><svg class="ic"><use href="icons.svg#i-timer"/></svg><span class="label">24</span></span>
+    <span class="row" style="gap:8px"><svg class="ic m"><use href="icons.svg#i-timer"/></svg><span class="label">20</span></span>
+    <span class="row" style="gap:8px"><svg class="ic s"><use href="icons.svg#i-timer"/></svg><span class="label">16</span></span>
+    <span class="grow"></span>
+    <span class="pill pr"><svg class="ic"><use href="icons.svg#i-trophy"/></svg>PR</span>
+  </div>
+  <p class="small muted mt8">Smaller sizes get a heavier stroke so the line stays near 1.4 px on screen.</p>
+</main>
+
+</body>
+</html>

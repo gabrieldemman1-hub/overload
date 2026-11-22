@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Instrument: contact sheet</title>
+<style>
+  body { margin: 0; padding: 28px; font: 600 12px/1.3 -apple-system, "Inter", system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+  body.dark { background: #1b1d20; color: #aab0b7; } body.light { background: #dcdcd6; color: #474b51; }
+  h1 { font-size: 13px; margin: 0 0 14px; letter-spacing: .14em; } h1 + .row { margin-bottom: 28px; }
+  .row { display: flex; gap: 20px; }
+  figure { margin: 0; } figcaption { margin-top: 8px; }
+  img { display: block; width: 200px; height: auto; border-radius: 18px; }
+  body.dark img { box-shadow: 0 0 0 1px #33373c; } body.light img { box-shadow: 0 0 0 1px #c2c2bb; }
+</style>
+</head>
+<body>
+<script>
+  var theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+  document.body.className = theme;
+  var rows = [['Overload: training', ['train-today', 'train-workout', 'train-feedback', 'train-history', 'train-program', 'train-settings']],
+              ['Fuel: diet', ['fuel-today', 'fuel-add', 'fuel-amount', 'fuel-trends', 'fuel-welcome']]];
+  document.body.innerHTML = rows.map(function (r) {
+    return '<h1>' + r[0] + ' / ' + theme + '</h1><div class="row">' + r[1].map(function (n) {
+      return '<figure><img src="../shots/' + n + '-' + theme + '.png" alt="' + n + '"><figcaption>' + n + '</figcaption></figure>'; }).join('') + '</div>';
+  }).join('');
+</script>
+</body>
+</html>

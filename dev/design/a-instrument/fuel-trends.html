@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en" data-app="fuel" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fuel: Trends</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><svg class="brand-mark"><use href="icons.svg#i-mark-fuel"/></svg><span>Trends</span></div>
+    <div class="topbar-right"><span class="num">6 – 19 NOV</span></div>
+  </div>
+</header>
+
+<main id="app" class="screen">
+
+  <!-- The headline: average of the days you logged, against the target -->
+  <div class="row between" style="align-items:flex-end">
+    <div>
+      <div class="label">Average, last 14 days</div>
+      <div class="num n-hero" style="margin-top:8px">2,459<span class="u">kcal</span></div>
+    </div>
+    <div style="text-align:right;padding-bottom:4px">
+      <div class="num n-value">95%</div>
+      <div class="tiny muted" style="margin-top:2px">of 2,600 target</div>
+    </div>
+  </div>
+
+  <!-- 14 days of calories against the target -->
+  <svg class="chart mt16" viewBox="0 0 326 170" role="img" aria-label="Calories per day for the last 14 days against a 2,600 kcal target. Four days went over; Saturday the 14th was not logged; today stands at 1,322.">
+    <line class="grid" x1="34" x2="322" y1="100" y2="100"/><line class="grid" x1="34" x2="322" y1="56" y2="56"/><line class="grid" x1="34" x2="322" y1="12" y2="12"/>
+    <text class="lbl" x="0" y="103.5">1,000</text><text class="lbl" x="0" y="59.5">2,000</text><text class="lbl" x="0" y="15.5">3,000</text>
+    <!--BEGIN TRENDBARS-->
+    <path class="bar" d="M38.3 144.0V36.9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>6 Nov: 2,480 kcal</title></path>
+    <text class="lbl" x="44.3" y="156" text-anchor="middle">F</text>
+    <text class="lbl" x="44.3" y="168" text-anchor="middle">6</text>
+    <rect class="bar" x="58.9" y="30.6" width="12" height="113.4"><title>7 Nov: 2,710 kcal</title></rect>
+    <path class="bar over" d="M58.9 28.6V26.8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V28.6z"><title>7 Nov: 110 kcal over</title></path>
+    <text class="lbl" x="64.9" y="156" text-anchor="middle">S</text>
+    <path class="bar" d="M79.4 144.0V42.6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>8 Nov: 2,350 kcal</title></path>
+    <text class="lbl" x="85.4" y="156" text-anchor="middle">S</text>
+    <path class="bar" d="M100.0 144.0V32.0a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>9 Nov: 2,590 kcal</title></path>
+    <text class="lbl" x="106.0" y="156" text-anchor="middle">M</text>
+    <text class="lbl" x="106.0" y="168" text-anchor="middle">9</text>
+    <rect class="bar" x="120.6" y="30.6" width="12" height="113.4"><title>10 Nov: 2,620 kcal</title></rect>
+    <path class="bar over" d="M120.6 28.6V27.6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V28.6z"><title>10 Nov: 20 kcal over</title></path>
+    <text class="lbl" x="126.6" y="156" text-anchor="middle">T</text>
+    <path class="bar" d="M141.1 144.0V38.6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>11 Nov: 2,440 kcal</title></path>
+    <text class="lbl" x="147.1" y="156" text-anchor="middle">W</text>
+    <rect class="bar" x="161.7" y="30.6" width="12" height="113.4"><title>12 Nov: 2,905 kcal</title></rect>
+    <path class="bar over" d="M161.7 28.6V18.2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V28.6z"><title>12 Nov: 305 kcal over</title></path>
+    <text class="lbl" x="167.7" y="156" text-anchor="middle">T</text>
+    <path class="bar" d="M182.3 144.0V35.6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>13 Nov: 2,510 kcal</title></path>
+    <text class="lbl" x="188.3" y="156" text-anchor="middle">F</text>
+    <rect class="bar none" x="202.9" y="141.0" width="12" height="3" rx="1"><title>14 Nov: not logged</title></rect>
+    <text class="lbl" x="208.9" y="156" text-anchor="middle">S</text>
+    <path class="bar" d="M223.4 144.0V41.3a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>15 Nov: 2,380 kcal</title></path>
+    <text class="lbl" x="229.4" y="156" text-anchor="middle">S</text>
+    <rect class="bar" x="244.0" y="30.6" width="12" height="113.4"><title>16 Nov: 2,640 kcal</title></rect>
+    <path class="bar over" d="M244.0 28.6V27.6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V28.6z"><title>16 Nov: 40 kcal over</title></path>
+    <text class="lbl" x="250.0" y="156" text-anchor="middle">M</text>
+    <text class="lbl" x="250.0" y="168" text-anchor="middle">16</text>
+    <path class="bar" d="M264.6 144.0V32.9a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>17 Nov: 2,570 kcal</title></path>
+    <text class="lbl" x="270.6" y="156" text-anchor="middle">T</text>
+    <path class="bar" d="M285.1 144.0V38.2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>18 Nov: 2,450 kcal</title></path>
+    <text class="lbl" x="291.1" y="156" text-anchor="middle">W</text>
+    <path class="bar now" d="M305.7 144.0V87.8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2V144.0z"><title>19 Nov: 1,322 kcal</title></path>
+    <text class="lbl strong" x="311.7" y="156" text-anchor="middle">T</text>
+    <text class="lbl" x="311.7" y="168" text-anchor="middle">19</text>
+<!--END TRENDBARS-->
+    <line class="axis" x1="34" x2="322" y1="144" y2="144"/>
+    <line class="target" x1="34" x2="322" y1="29.6" y2="29.6"/>
+  </svg>
+  <div class="legend">
+    <span><span class="swatch s2"></span>Logged</span>
+    <span><span class="swatch over"></span>Over target</span>
+    <span><span class="swatch now"></span>Today so far</span>
+    <span><span class="swatch dash"></span>Target 2,600</span>
+  </div>
+
+  <!-- This week next to last week: averages per logged day -->
+  <div class="group-title">Daily average</div>
+  <table class="cmp mt8">
+    <thead><tr><th></th><th scope="col">This week</th><th scope="col">Last week</th></tr></thead>
+    <tbody>
+      <tr><td>Calories</td><td><span class="num">2,246</span></td><td class="prev"><span class="num">2,574</span></td></tr>
+      <tr><td>Protein <span class="of">/ 190 g</span></td><td><span class="num">172</span></td><td class="prev"><span class="num">184</span></td></tr>
+      <tr><td>Carbs <span class="of">/ 280 g</span></td><td><span class="num">233</span></td><td class="prev"><span class="num">271</span></td></tr>
+      <tr><td>Fat <span class="of">/ 80 g</span></td><td><span class="num">67</span></td><td class="prev"><span class="num">81</span></td></tr>
+      <tr><td>Days logged</td><td><span class="num">4</span><span class="of">of 4</span></td><td class="prev"><span class="num">6</span><span class="of">of 7</span></td></tr>
+    </tbody>
+  </table>
+  <p class="tiny muted mt8">This week includes today, which is not finished: its averages will rise.</p>
+
+  <!-- Days logged -->
+  <div class="group-title">Days logged</div>
+  <div class="row mt12" style="gap:16px">
+    <div class="ring-wrap">
+      <svg class="ring l" viewBox="0 0 36 36" role="img" aria-label="13 of 14 days logged"><circle class="ring-track" cx="18" cy="18" r="15"/><circle class="ring-fill" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="92.9 100"/></svg>
+      <span class="num">13</span>
+    </div>
+    <div class="grow">
+      <div><span class="num n-value">13</span><span class="dim"> of 14 days</span></div>
+      <div class="small muted" style="margin-top:2px">Missed Sat, Nov 14. Longest run: 8 days.</div>
+    </div>
+  </div>
+</main>
+
+<nav class="tabbar">
+  <button class="tab" data-screen="today"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-gauge"/></svg></span>Today</button>
+  <button class="tab active" data-screen="trends"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-chart-bar"/></svg></span>Trends</button>
+  <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-sliders"/></svg></span>Settings</button>
+</nav>
+
+</body>
+</html>

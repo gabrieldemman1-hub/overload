@@ -1,0 +1,3727 @@
+{
+ "today": "2026-11-21",
+ "log": [
+  {
+   "day": 0,
+   "date": "2026-08-01",
+   "what": "setup",
+   "days": [
+    "Push",
+    "Pull",
+    "Legs",
+    "Upper",
+    "Lower",
+    "Arms & Abs"
+   ],
+   "schedule": [
+    "Push",
+    "Pull",
+    null,
+    "Legs",
+    "Upper",
+    "Lower",
+    null
+   ]
+  },
+  {
+   "day": 0,
+   "date": "2026-08-01",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 2,
+   "date": "2026-08-03",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 3,
+   "date": "2026-08-04",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 4,
+   "date": "2026-08-05",
+   "what": "saved meal",
+   "name": "Usual breakfast",
+   "items": 6
+  },
+  {
+   "day": 5,
+   "date": "2026-08-06",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 6,
+   "date": "2026-08-07",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 7,
+   "date": "2026-08-08",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Best set ever: 100 × 11",
+    "Most reps at 100: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 7,
+   "date": "2026-08-08",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Best set ever: 130 × 12",
+    "Most reps at 130: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 7,
+   "date": "2026-08-08",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 90 × 12",
+    "Most reps at 90: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 7,
+   "date": "2026-08-08",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 10,
+   "date": "2026-08-11",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Best set ever: 140 × 10",
+    "Most reps at 140: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 10,
+   "date": "2026-08-11",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Best set ever: 110 × 11",
+    "Most reps at 110: 11 (was 8)"
+   ]
+  },
+  {
+   "day": 10,
+   "date": "2026-08-11",
+   "what": "PR",
+   "ex": "Seated Cable Row",
+   "prs": [
+    "Best set ever: 130 × 10",
+    "Most reps at 130: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 10,
+   "date": "2026-08-11",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Best set ever: 40 × 13",
+    "Most reps at 40: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 10,
+   "date": "2026-08-11",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Best set ever: 30 × 10",
+    "Most reps at 30: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 10,
+   "date": "2026-08-11",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 18,
+   "cardio": false
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Best set ever: 225 × 9",
+    "Most reps at 225: 9 (was 8)"
+   ]
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Best set ever: 205 × 10",
+    "Most reps at 205: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Best set ever: 360 × 13",
+    "Most reps at 360: 13 (was 10)"
+   ]
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Best set ever: 90 × 10",
+    "Most reps at 90: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Best set ever: 180 × 13",
+    "Most reps at 180: 13 (was 11)"
+   ]
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 17,
+   "cardio": false
+  },
+  {
+   "day": 12,
+   "date": "2026-08-13",
+   "what": "custom food typed in",
+   "name": "Mom's lasagna",
+   "id": "cv6244zzsrdxu"
+  },
+  {
+   "day": 13,
+   "date": "2026-08-14",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Best set ever: 100 × 10",
+    "Most reps at 100: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 13,
+   "date": "2026-08-14",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Best set ever: 75 × 11",
+    "Most reps at 75: 11 (was 9)"
+   ]
+  },
+  {
+   "day": 13,
+   "date": "2026-08-14",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Best set ever: 180 × 10",
+    "Most reps at 180: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Best set ever: 225 × 12",
+    "Most reps at 225: 12 (was 9)"
+   ]
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Best set ever: 100 × 12",
+    "Most reps at 100: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Heaviest ever: 135 lb × 11"
+   ]
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 90 × 13",
+    "Most reps at 90: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Heaviest ever: 85 lb × 11"
+   ]
+  },
+  {
+   "day": 14,
+   "date": "2026-08-15",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 15,
+   "date": "2026-08-16",
+   "what": "entry moved with the Meal buttons",
+   "name": "Grapes",
+   "from": 3,
+   "to": 2,
+   "id": "an769ib0031x"
+  },
+  {
+   "day": 16,
+   "date": "2026-08-17",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Best set ever: 185 × 10",
+    "Most reps at 185: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 16,
+   "date": "2026-08-17",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Best set ever: 135 × 10",
+    "Most reps at 135: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 16,
+   "date": "2026-08-17",
+   "what": "PR",
+   "ex": "Seated Dumbbell Shoulder Press",
+   "prs": [
+    "Best set ever: 50 × 10",
+    "Most reps at 50: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 16,
+   "date": "2026-08-17",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 30 × 13",
+    "Most reps at 30: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 16,
+   "date": "2026-08-17",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 20 × 14",
+    "Most reps at 20: 14 (was 12)"
+   ]
+  },
+  {
+   "day": 16,
+   "date": "2026-08-17",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "custom food typed in",
+   "name": "Sourdough, corner bakery",
+   "id": "cvvpk4s5y0vtb"
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Best set ever: 140 × 11",
+    "Most reps at 140: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "PR",
+   "ex": "Seated Cable Row",
+   "prs": [
+    "Best set ever: 130 × 11",
+    "Most reps at 130: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Best set ever: 40 × 14",
+    "Most reps at 40: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "PR",
+   "ex": "EZ-Bar Curl",
+   "prs": [
+    "Best set ever: 70 × 10",
+    "Most reps at 70: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Best set ever: 30 × 12",
+    "Most reps at 30: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 17,
+   "date": "2026-08-18",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 18,
+   "date": "2026-08-19",
+   "what": "workout",
+   "name": "Arms & Abs",
+   "deload": false,
+   "sets": 15,
+   "cardio": false
+  },
+  {
+   "day": 19,
+   "date": "2026-08-20",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Best set ever: 205 × 11",
+    "Most reps at 205: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 19,
+   "date": "2026-08-20",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Best set ever: 90 × 11",
+    "Most reps at 90: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 19,
+   "date": "2026-08-20",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Best set ever: 135 × 12",
+    "Most reps at 135: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 19,
+   "date": "2026-08-20",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 21,
+   "date": "2026-08-22",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Best set ever: 180 × 12",
+    "Most reps at 180: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 21,
+   "date": "2026-08-22",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Best set ever: 135 × 13",
+    "Most reps at 135: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 21,
+   "date": "2026-08-22",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Heaviest ever: 95 lb × 12"
+   ]
+  },
+  {
+   "day": 21,
+   "date": "2026-08-22",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Best set ever: 85 × 12",
+    "Most reps at 85: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 21,
+   "date": "2026-08-22",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 22,
+   "date": "2026-08-23",
+   "what": "saved meal",
+   "name": "Post-workout shake",
+   "items": 2
+  },
+  {
+   "day": 23,
+   "date": "2026-08-24",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Best set ever: 135 × 12",
+    "Most reps at 135: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 23,
+   "date": "2026-08-24",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 30 × 14",
+    "Most reps at 30: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 23,
+   "date": "2026-08-24",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 20 × 15",
+    "Most reps at 20: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 23,
+   "date": "2026-08-24",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Best set ever: 50 × 13",
+    "Most reps at 50: 13 (was 11)"
+   ]
+  },
+  {
+   "day": 23,
+   "date": "2026-08-24",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 24,
+   "date": "2026-08-25",
+   "what": "back-filled yesterday",
+   "name": "Ice cream, vanilla"
+  },
+  {
+   "day": 24,
+   "date": "2026-08-25",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Best set ever: 110 × 12",
+    "Most reps at 110: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 24,
+   "date": "2026-08-25",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Heaviest ever: 45 lb × 12"
+   ]
+  },
+  {
+   "day": 24,
+   "date": "2026-08-25",
+   "what": "PR",
+   "ex": "EZ-Bar Curl",
+   "prs": [
+    "Best set ever: 70 × 11",
+    "Most reps at 70: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 24,
+   "date": "2026-08-25",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Best set ever: 30 × 13",
+    "Most reps at 30: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 24,
+   "date": "2026-08-25",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 26,
+   "date": "2026-08-27",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Best set ever: 225 × 10",
+    "Most reps at 225: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 26,
+   "date": "2026-08-27",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Best set ever: 360 × 14",
+    "Most reps at 360: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 26,
+   "date": "2026-08-27",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Best set ever: 90 × 12",
+    "Most reps at 90: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 26,
+   "date": "2026-08-27",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Heaviest ever: 140 lb × 12"
+   ]
+  },
+  {
+   "day": 26,
+   "date": "2026-08-27",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Best set ever: 180 × 14",
+    "Most reps at 180: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 26,
+   "date": "2026-08-27",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 27,
+   "date": "2026-08-28",
+   "what": "custom food from an unknown barcode",
+   "name": "Protein cookie, double chocolate",
+   "id": "b0850031234567"
+  },
+  {
+   "day": 27,
+   "date": "2026-08-28",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Best set ever: 100 × 11",
+    "Most reps at 100: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 27,
+   "date": "2026-08-28",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Best set ever: 75 × 12",
+    "Most reps at 75: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 27,
+   "date": "2026-08-28",
+   "what": "PR",
+   "ex": "Assisted Dips",
+   "prs": [
+    "Most reps at 50: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 27,
+   "date": "2026-08-28",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Best set ever: 25 × 12",
+    "Most reps at 25: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 27,
+   "date": "2026-08-28",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 28,
+   "date": "2026-08-29",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Heaviest ever: 230 lb × 12"
+   ]
+  },
+  {
+   "day": 28,
+   "date": "2026-08-29",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Heaviest ever: 105 lb × 9"
+   ]
+  },
+  {
+   "day": 28,
+   "date": "2026-08-29",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Heaviest ever: 145 lb × 10"
+   ]
+  },
+  {
+   "day": 28,
+   "date": "2026-08-29",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Heaviest ever: 90 lb × 10"
+   ]
+  },
+  {
+   "day": 28,
+   "date": "2026-08-29",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 29,
+   "date": "2026-08-30",
+   "what": "entry amount edited",
+   "name": "Broccoli, cooked",
+   "id": "icd8mxg8nd0q"
+  },
+  {
+   "day": 30,
+   "date": "2026-08-31",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Best set ever: 185 × 11",
+    "Most reps at 185: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 30,
+   "date": "2026-08-31",
+   "what": "PR",
+   "ex": "Seated Dumbbell Shoulder Press",
+   "prs": [
+    "Best set ever: 50 × 12",
+    "Most reps at 50: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 30,
+   "date": "2026-08-31",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 30 × 16",
+    "Most reps at 30: 16 (was 14)"
+   ]
+  },
+  {
+   "day": 30,
+   "date": "2026-08-31",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 20 × 16",
+    "Most reps at 20: 16 (was 15)"
+   ]
+  },
+  {
+   "day": 30,
+   "date": "2026-08-31",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Heaviest ever: 52.5 lb × 12"
+   ]
+  },
+  {
+   "day": 30,
+   "date": "2026-08-31",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 31,
+   "date": "2026-09-01",
+   "what": "swap",
+   "from": "Lat Pulldown",
+   "to": "Wide-Grip Lat Pulldown",
+   "kept": false
+  },
+  {
+   "day": 31,
+   "date": "2026-09-01",
+   "what": "PR",
+   "ex": "Seated Cable Row",
+   "prs": [
+    "Best set ever: 130 × 12",
+    "Most reps at 130: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 31,
+   "date": "2026-09-01",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 15,
+   "cardio": true
+  },
+  {
+   "day": 31,
+   "date": "2026-09-01",
+   "what": "entry moved with the Meal buttons",
+   "name": "Banana",
+   "from": 3,
+   "to": 1,
+   "id": "i8db1iuzl6j7"
+  },
+  {
+   "day": 37,
+   "date": "2026-09-07",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Heaviest ever: 140 lb × 11"
+   ]
+  },
+  {
+   "day": 37,
+   "date": "2026-09-07",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Heaviest ever: 35 lb × 10"
+   ]
+  },
+  {
+   "day": 37,
+   "date": "2026-09-07",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 20 × 17",
+    "Most reps at 20: 17 (was 16)"
+   ]
+  },
+  {
+   "day": 37,
+   "date": "2026-09-07",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 17,
+   "cardio": false
+  },
+  {
+   "day": 38,
+   "date": "2026-09-08",
+   "what": "entry dragged to another meal",
+   "name": "Ground beef 93/7, cooked",
+   "id": "ky5b1ktepnj2",
+   "meal": 0,
+   "at": 1788885271151.5
+  },
+  {
+   "day": 38,
+   "date": "2026-09-08",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Best set ever: 140 × 12",
+    "Most reps at 140: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 38,
+   "date": "2026-09-08",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Heaviest ever: 115 lb × 11"
+   ]
+  },
+  {
+   "day": 38,
+   "date": "2026-09-08",
+   "what": "PR",
+   "ex": "EZ-Bar Curl",
+   "prs": [
+    "Best set ever: 70 × 12",
+    "Most reps at 70: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 38,
+   "date": "2026-09-08",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Best set ever: 30 × 14",
+    "Most reps at 30: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 38,
+   "date": "2026-09-08",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 11,
+   "cardio": true
+  },
+  {
+   "day": 40,
+   "date": "2026-09-10",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Best set ever: 225 × 11",
+    "Most reps at 225: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 40,
+   "date": "2026-09-10",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 40,
+   "date": "2026-09-10",
+   "what": "entry deleted",
+   "name": "Ice cream, vanilla",
+   "id": "sl1rnl30bb7o"
+  },
+  {
+   "day": 41,
+   "date": "2026-09-11",
+   "what": "PR",
+   "ex": "Incline Dumbbell Press",
+   "prs": [
+    "Best set ever: 65 × 11",
+    "Most reps at 65: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 41,
+   "date": "2026-09-11",
+   "what": "PR",
+   "ex": "Pull-Ups",
+   "prs": [
+    "Most reps at 0: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 41,
+   "date": "2026-09-11",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Best set ever: 100 × 12",
+    "Most reps at 100: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 41,
+   "date": "2026-09-11",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Best set ever: 75 × 13",
+    "Most reps at 75: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 41,
+   "date": "2026-09-11",
+   "what": "PR",
+   "ex": "Assisted Dips",
+   "prs": [
+    "Most reps at 50: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 41,
+   "date": "2026-09-11",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 42,
+   "date": "2026-09-12",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Best set ever: 230 × 13",
+    "Most reps at 230: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 42,
+   "date": "2026-09-12",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Best set ever: 105 × 11",
+    "Most reps at 105: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 42,
+   "date": "2026-09-12",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Heaviest ever: 100 lb × 10"
+   ]
+  },
+  {
+   "day": 42,
+   "date": "2026-09-12",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 42,
+   "date": "2026-09-12",
+   "what": "template saved",
+   "name": "PPL + Upper/Lower v1"
+  },
+  {
+   "day": "Pull",
+   "date": "2026-09-12",
+   "what": "program changed",
+   "when": "evening",
+   "type": "replaceInDay",
+   "out": "Seated Cable Row",
+   "in": "T-Bar Row"
+  },
+  {
+   "day": 43,
+   "date": "2026-09-13",
+   "what": "edit amount skipped"
+  },
+  {
+   "day": 44,
+   "date": "2026-09-14",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Best set ever: 185 × 12",
+    "Most reps at 185: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 44,
+   "date": "2026-09-14",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Best set ever: 140 × 12",
+    "Most reps at 140: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 44,
+   "date": "2026-09-14",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 35 × 12",
+    "Most reps at 35: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 44,
+   "date": "2026-09-14",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 20 × 18",
+    "Most reps at 20: 18 (was 17)"
+   ]
+  },
+  {
+   "day": 44,
+   "date": "2026-09-14",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Heaviest ever: 55 lb × 10"
+   ]
+  },
+  {
+   "day": 44,
+   "date": "2026-09-14",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 21,
+   "cardio": true
+  },
+  {
+   "day": 45,
+   "date": "2026-09-15",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Best set ever: 140 × 13",
+    "Most reps at 140: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 45,
+   "date": "2026-09-15",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Best set ever: 115 × 12",
+    "Most reps at 115: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 45,
+   "date": "2026-09-15",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Best set ever: 45 × 13",
+    "Most reps at 45: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 45,
+   "date": "2026-09-15",
+   "what": "PR",
+   "ex": "EZ-Bar Curl",
+   "prs": [
+    "Heaviest ever: 75 lb × 10"
+   ]
+  },
+  {
+   "day": 45,
+   "date": "2026-09-15",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Best set ever: 30 × 15",
+    "Most reps at 30: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 45,
+   "date": "2026-09-15",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 20,
+   "cardio": true
+  },
+  {
+   "day": 46,
+   "date": "2026-09-16",
+   "what": "quick add with macros only",
+   "name": "Quick add",
+   "id": "g6lrlegib450"
+  },
+  {
+   "day": 47,
+   "date": "2026-09-17",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Best set ever: 225 × 12",
+    "Most reps at 225: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 47,
+   "date": "2026-09-17",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Best set ever: 205 × 12",
+    "Most reps at 205: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 47,
+   "date": "2026-09-17",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Best set ever: 90 × 13",
+    "Most reps at 90: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 47,
+   "date": "2026-09-17",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Best set ever: 145 × 12",
+    "Most reps at 145: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 47,
+   "date": "2026-09-17",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Best set ever: 180 × 15",
+    "Most reps at 180: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 47,
+   "date": "2026-09-17",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 48,
+   "date": "2026-09-18",
+   "what": "PR",
+   "ex": "Incline Dumbbell Press",
+   "prs": [
+    "Best set ever: 65 × 12",
+    "Most reps at 65: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 48,
+   "date": "2026-09-18",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Heaviest ever: 105 lb × 11"
+   ]
+  },
+  {
+   "day": 48,
+   "date": "2026-09-18",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Heaviest ever: 80 lb × 10"
+   ]
+  },
+  {
+   "day": 48,
+   "date": "2026-09-18",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Best set ever: 25 × 14",
+    "Most reps at 25: 14 (was 12)"
+   ]
+  },
+  {
+   "day": 48,
+   "date": "2026-09-18",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 20,
+   "cardio": false
+  },
+  {
+   "day": 48,
+   "date": "2026-09-18",
+   "what": "entry moved with the Meal buttons",
+   "name": "Olive oil",
+   "from": 2,
+   "to": 3,
+   "id": "8ibiuueonbic"
+  },
+  {
+   "day": 49,
+   "date": "2026-09-19",
+   "what": "WHOOP added recovery to a typed night",
+   "night": {
+    "date": "2026-09-19",
+    "total": 395,
+    "rem": 85,
+    "deep": 60,
+    "recovery": 55,
+    "rhr": 53,
+    "hrv": 57,
+    "perf": 69
+   }
+  },
+  {
+   "day": 49,
+   "date": "2026-09-19",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Heaviest ever: 185 lb × 11"
+   ]
+  },
+  {
+   "day": 49,
+   "date": "2026-09-19",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Heaviest ever: 235 lb × 12"
+   ]
+  },
+  {
+   "day": 49,
+   "date": "2026-09-19",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Best set ever: 90 × 12",
+    "Most reps at 90: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 49,
+   "date": "2026-09-19",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 21,
+   "cardio": true
+  },
+  {
+   "day": 50,
+   "date": "2026-09-20",
+   "what": "saved meal renamed",
+   "when": "evening",
+   "type": "renameMeal",
+   "from": "Post-workout shake",
+   "to": "Shake + banana"
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Heaviest ever: 145 lb × 11"
+   ]
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Best set ever: 115 × 13",
+    "Most reps at 115: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "PR",
+   "ex": "T-Bar Row",
+   "prs": [
+    "Best set ever: 90 × 10",
+    "Most reps at 90: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Best set ever: 45 × 14",
+    "Most reps at 45: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "PR",
+   "ex": "EZ-Bar Curl",
+   "prs": [
+    "Best set ever: 75 × 11",
+    "Most reps at 75: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Heaviest ever: 35 lb × 10"
+   ]
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 52,
+   "date": "2026-09-22",
+   "what": "exported a backup"
+  },
+  {
+   "day": 53,
+   "date": "2026-09-23",
+   "what": "PR",
+   "ex": "Skull Crushers",
+   "prs": [
+    "Best set ever: 60 × 11",
+    "Most reps at 60: 9 (was 8)"
+   ]
+  },
+  {
+   "day": 53,
+   "date": "2026-09-23",
+   "what": "PR",
+   "ex": "Cable Rope Hammer Curl",
+   "prs": [
+    "Best set ever: 45 × 12",
+    "Most reps at 45: 12 (was 9)"
+   ]
+  },
+  {
+   "day": 53,
+   "date": "2026-09-23",
+   "what": "PR",
+   "ex": "Overhead Triceps Extension",
+   "prs": [
+    "Best set ever: 45 × 12",
+    "Most reps at 45: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 53,
+   "date": "2026-09-23",
+   "what": "PR",
+   "ex": "Hanging Leg Raise",
+   "prs": [
+    "Most reps at 0: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 53,
+   "date": "2026-09-23",
+   "what": "workout",
+   "name": "Arms & Abs",
+   "deload": false,
+   "sets": 15,
+   "cardio": true
+  },
+  {
+   "day": 54,
+   "date": "2026-09-24",
+   "what": "saved meal",
+   "name": "Chicken rice bowl",
+   "items": 4
+  },
+  {
+   "day": 54,
+   "date": "2026-09-24",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Best set ever: 360 × 15",
+    "Most reps at 360: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 54,
+   "date": "2026-09-24",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Heaviest ever: 95 lb × 10"
+   ]
+  },
+  {
+   "day": 54,
+   "date": "2026-09-24",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Best set ever: 180 × 16",
+    "Most reps at 180: 16 (was 15)"
+   ]
+  },
+  {
+   "day": 54,
+   "date": "2026-09-24",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 15,
+   "cardio": false
+  },
+  {
+   "day": 55,
+   "date": "2026-09-25",
+   "what": "back-filled yesterday",
+   "name": "Premier Protein Shake, Chocolate"
+  },
+  {
+   "day": 55,
+   "date": "2026-09-25",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Best set ever: 80 × 11",
+    "Most reps at 80: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 55,
+   "date": "2026-09-25",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 20,
+   "cardio": true
+  },
+  {
+   "day": 56,
+   "date": "2026-09-26",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Best set ever: 185 × 12",
+    "Most reps at 185: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 56,
+   "date": "2026-09-26",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Best set ever: 105 × 12",
+    "Most reps at 105: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 56,
+   "date": "2026-09-26",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 100 × 12",
+    "Most reps at 100: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 56,
+   "date": "2026-09-26",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Best set ever: 90 × 13",
+    "Most reps at 90: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 56,
+   "date": "2026-09-26",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 20,
+   "cardio": true
+  },
+  {
+   "day": 57,
+   "date": "2026-09-27",
+   "what": "entry deleted",
+   "name": "Protein cookie, double chocolate",
+   "id": "26u02ftlg730"
+  },
+  {
+   "day": 58,
+   "date": "2026-09-28",
+   "what": "workout",
+   "name": "Push",
+   "deload": true,
+   "sets": 12,
+   "cardio": true
+  },
+  {
+   "day": 59,
+   "date": "2026-09-29",
+   "what": "deload switched on mid-workout",
+   "toast": "Deload on · next-time plans put back for 1 finished exercise"
+  },
+  {
+   "day": 59,
+   "date": "2026-09-29",
+   "what": "workout",
+   "name": "Pull",
+   "deload": true,
+   "sets": 12,
+   "cardio": true
+  },
+  {
+   "day": 60,
+   "date": "2026-09-30",
+   "what": "entry dragged to another spot in its meal",
+   "name": "Tuna, canned in water",
+   "id": "cepi1sodp2i7",
+   "meal": 1,
+   "at": 1790797684659.5
+  },
+  {
+   "day": 60,
+   "date": "2026-09-30",
+   "what": "PR",
+   "ex": "Barbell Curl",
+   "prs": [
+    "Best set ever: 65 × 10",
+    "Most reps at 65: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 61,
+   "date": "2026-10-01",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Heaviest ever: 230 lb × 12"
+   ]
+  },
+  {
+   "day": 61,
+   "date": "2026-10-01",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Heaviest ever: 210 lb × 12"
+   ]
+  },
+  {
+   "day": 61,
+   "date": "2026-10-01",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Heaviest ever: 370 lb × 15"
+   ]
+  },
+  {
+   "day": 61,
+   "date": "2026-10-01",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Heaviest ever: 150 lb × 9"
+   ]
+  },
+  {
+   "day": 61,
+   "date": "2026-10-01",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Heaviest ever: 185 lb × 14"
+   ]
+  },
+  {
+   "day": 61,
+   "date": "2026-10-01",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 14,
+   "cardio": true
+  },
+  {
+   "day": 61,
+   "date": "2026-09-30",
+   "what": "workout deleted from History",
+   "id": "arj2i2wk7q86"
+  },
+  {
+   "day": 62,
+   "date": "2026-10-02",
+   "what": "PR",
+   "ex": "Incline Dumbbell Press",
+   "prs": [
+    "Heaviest ever: 70 lb × 9"
+   ]
+  },
+  {
+   "day": 62,
+   "date": "2026-10-02",
+   "what": "PR",
+   "ex": "Assisted Dips",
+   "prs": [
+    "Most reps at 50: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 62,
+   "date": "2026-10-02",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Best set ever: 25 × 15",
+    "Most reps at 25: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 62,
+   "date": "2026-10-02",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 20,
+   "cardio": true
+  },
+  {
+   "day": 62,
+   "date": "2026-10-02",
+   "what": "entry amount edited",
+   "name": "Broccoli, cooked",
+   "id": "kqhuampdc4gt"
+  },
+  {
+   "day": 63,
+   "date": "2026-10-03",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Best set ever: 185 × 13",
+    "Most reps at 185: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 63,
+   "date": "2026-10-03",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Heaviest ever: 240 lb × 12"
+   ]
+  },
+  {
+   "day": 63,
+   "date": "2026-10-03",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Heaviest ever: 110 lb × 9"
+   ]
+  },
+  {
+   "day": 63,
+   "date": "2026-10-03",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 100 × 13",
+    "Most reps at 100: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 63,
+   "date": "2026-10-03",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Heaviest ever: 95 lb × 10"
+   ]
+  },
+  {
+   "day": 63,
+   "date": "2026-10-03",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 64,
+   "date": "2026-10-04",
+   "what": "night edited by hand",
+   "night": {
+    "date": "2026-10-04",
+    "total": 387,
+    "rem": 73,
+    "deep": 68,
+    "recovery": 17,
+    "rhr": 54,
+    "hrv": 75,
+    "perf": 77
+   }
+  },
+  {
+   "day": 64,
+   "date": "2026-10-04",
+   "what": "meal cleared",
+   "entries": 2
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Most reps at 190: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Best set ever: 145 × 11",
+    "Most reps at 145: 11 (was 8)"
+   ]
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "PR",
+   "ex": "Seated Dumbbell Shoulder Press",
+   "prs": [
+    "Most reps at 55: 8 (was 6)"
+   ]
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 35 × 13",
+    "Most reps at 35: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 20 × 19",
+    "Most reps at 20: 19 (was 18)"
+   ]
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Best set ever: 55 × 11",
+    "Most reps at 55: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 65,
+   "date": "2026-10-05",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 20,
+   "cardio": false
+  },
+  {
+   "day": 67,
+   "date": "2026-10-07",
+   "what": "label corrected on a listed product",
+   "id": "u1903553",
+   "name": "Quest Bar, Cookies & Cream"
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "copied the day before",
+   "entries": 15
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Heaviest ever: 235 lb × 11"
+   ]
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Heaviest ever: 215 lb × 12"
+   ]
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Heaviest ever: 380 lb × 15"
+   ]
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Best set ever: 95 × 13",
+    "Most reps at 95: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Best set ever: 150 × 12",
+    "Most reps at 150: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Best set ever: 185 × 16",
+    "Most reps at 185: 16 (was 15)"
+   ]
+  },
+  {
+   "day": 68,
+   "date": "2026-10-08",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "PR",
+   "ex": "Incline Dumbbell Press",
+   "prs": [
+    "Best set ever: 70 × 11",
+    "Most reps at 70: 11 (was 9)"
+   ]
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Best set ever: 105 × 12",
+    "Most reps at 105: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Best set ever: 80 × 12",
+    "Most reps at 80: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "PR",
+   "ex": "Assisted Dips",
+   "prs": [
+    "Most reps at 50: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Best set ever: 25 × 16",
+    "Most reps at 25: 16 (was 15)"
+   ]
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 24,
+   "cardio": false
+  },
+  {
+   "day": 69,
+   "date": "2026-10-09",
+   "what": "entry moved with the Meal buttons",
+   "name": "Banana",
+   "from": 3,
+   "to": 0,
+   "id": "mjp7s8m5a4xy"
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "WHOOP added recovery to a typed night",
+   "night": {
+    "date": "2026-10-10",
+    "total": 380,
+    "rem": 95,
+    "deep": 80,
+    "recovery": 33,
+    "rhr": 54,
+    "hrv": 41,
+    "perf": 75
+   }
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Heaviest ever: 190 lb × 12"
+   ]
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Heaviest ever: 245 lb × 11"
+   ]
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Best set ever: 110 × 12",
+    "Most reps at 110: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Heaviest ever: 105 lb × 10"
+   ]
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Best set ever: 95 × 12",
+    "Most reps at 95: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 70,
+   "date": "2026-10-10",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 21,
+   "cardio": true
+  },
+  {
+   "day": 71,
+   "date": "2026-10-11",
+   "what": "entry deleted",
+   "name": "Starbucks Cold Brew, Black",
+   "id": "qkfxio2tf4dq"
+  },
+  {
+   "day": 72,
+   "date": "2026-10-11",
+   "what": "weigh-in deleted"
+  },
+  {
+   "day": 72,
+   "date": "2026-10-12",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Best set ever: 190 × 12",
+    "Most reps at 190: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 72,
+   "date": "2026-10-12",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Best set ever: 145 × 12",
+    "Most reps at 145: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 72,
+   "date": "2026-10-12",
+   "what": "PR",
+   "ex": "Seated Dumbbell Shoulder Press",
+   "prs": [
+    "Best set ever: 55 × 10",
+    "Most reps at 55: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 72,
+   "date": "2026-10-12",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Best set ever: 55 × 12",
+    "Most reps at 55: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 72,
+   "date": "2026-10-12",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 21,
+   "cardio": false
+  },
+  {
+   "day": 72,
+   "date": "2026-10-12",
+   "what": "exercise deleted",
+   "name": "Machine Preacher Curl (old gym)",
+   "id": "u7e7dg5o04m7",
+   "sessions": 2
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "copied a meal to today",
+   "entries": 5
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Best set ever: 145 × 13",
+    "Most reps at 145: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Most reps at 120: 11 (was 8)"
+   ]
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "PR",
+   "ex": "T-Bar Row",
+   "prs": [
+    "Best set ever: 90 × 12",
+    "Most reps at 90: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Best set ever: 50 × 10",
+    "Most reps at 50: 10 (was 8)"
+   ]
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "PR",
+   "ex": "Hammer Curl",
+   "prs": [
+    "Best set ever: 35 × 11",
+    "Most reps at 35: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 73,
+   "date": "2026-10-13",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 17,
+   "cardio": true
+  },
+  {
+   "day": 74,
+   "date": "2026-10-14",
+   "what": "custom food typed in",
+   "name": "Office birthday cake",
+   "id": "cf3hokowtfo19"
+  },
+  {
+   "day": 77,
+   "date": "2026-10-17",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Best set ever: 190 × 13",
+    "Most reps at 190: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 77,
+   "date": "2026-10-17",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Best set ever: 245 × 13",
+    "Most reps at 245: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 77,
+   "date": "2026-10-17",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Heaviest ever: 155 lb × 9"
+   ]
+  },
+  {
+   "day": 77,
+   "date": "2026-10-17",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 105 × 11",
+    "Most reps at 105: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 77,
+   "date": "2026-10-17",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 20,
+   "cardio": true
+  },
+  {
+   "day": 77,
+   "date": "2026-10-17",
+   "what": "favorite removed",
+   "id": "u168878"
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Best set ever: 190 × 13",
+    "Most reps at 190: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Best set ever: 145 × 13",
+    "Most reps at 145: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "PR",
+   "ex": "Seated Dumbbell Shoulder Press",
+   "prs": [
+    "Best set ever: 55 × 11",
+    "Most reps at 55: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Heaviest ever: 22.5 lb × 14"
+   ]
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Best set ever: 55 × 13",
+    "Most reps at 55: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 22,
+   "cardio": true
+  },
+  {
+   "day": 79,
+   "date": "2026-10-19",
+   "what": "entry amount edited",
+   "name": "Broccoli, cooked",
+   "id": "t44np78sgrvo"
+  },
+  {
+   "day": 80,
+   "date": "2026-10-20",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Best set ever: 120 × 12",
+    "Most reps at 120: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 80,
+   "date": "2026-10-20",
+   "what": "PR",
+   "ex": "T-Bar Row",
+   "prs": [
+    "Best set ever: 90 × 13",
+    "Most reps at 90: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 80,
+   "date": "2026-10-20",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 15,
+   "cardio": true
+  },
+  {
+   "day": 81,
+   "date": "2026-10-21",
+   "what": "quick add with 0 kcal",
+   "name": "Black coffee, cafe",
+   "id": "88k57tm45qcf"
+  },
+  {
+   "day": 81,
+   "date": "2026-10-21",
+   "what": "PR",
+   "ex": "Barbell Curl",
+   "prs": [
+    "Best set ever: 65 × 12",
+    "Most reps at 65: 12 (was 9)"
+   ]
+  },
+  {
+   "day": 81,
+   "date": "2026-10-21",
+   "what": "PR",
+   "ex": "Skull Crushers",
+   "prs": [
+    "Best set ever: 60 × 12",
+    "Most reps at 60: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 81,
+   "date": "2026-10-21",
+   "what": "PR",
+   "ex": "Cable Rope Hammer Curl",
+   "prs": [
+    "Best set ever: 45 × 13",
+    "Most reps at 45: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 81,
+   "date": "2026-10-21",
+   "what": "PR",
+   "ex": "Hanging Leg Raise",
+   "prs": [
+    "Most reps at 0: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 81,
+   "date": "2026-10-21",
+   "what": "workout",
+   "name": "Arms & Abs",
+   "deload": false,
+   "sets": 15,
+   "cardio": false
+  },
+  {
+   "day": 82,
+   "date": "2026-10-21",
+   "what": "night deleted"
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "workout discarded",
+   "id": "kutkk1jrl9vw"
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Best set ever: 235 × 12",
+    "Most reps at 235: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Best set ever: 215 × 13",
+    "Most reps at 215: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Heaviest ever: 100 lb × 12"
+   ]
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Heaviest ever: 190 lb × 14"
+   ]
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 82,
+   "date": "2026-10-22",
+   "what": "custom food deleted",
+   "id": "cf3hokowtfo19",
+   "name": "Office birthday cake",
+   "entriesLeft": 2
+  },
+  {
+   "day": 83,
+   "date": "2026-10-23",
+   "what": "PR",
+   "ex": "Incline Dumbbell Press",
+   "prs": [
+    "Best set ever: 70 × 12",
+    "Most reps at 70: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 83,
+   "date": "2026-10-23",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Best set ever: 105 × 13",
+    "Most reps at 105: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 83,
+   "date": "2026-10-23",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Heaviest ever: 85 lb × 10"
+   ]
+  },
+  {
+   "day": 83,
+   "date": "2026-10-23",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Heaviest ever: 30 lb × 8"
+   ]
+  },
+  {
+   "day": 83,
+   "date": "2026-10-23",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 24,
+   "cardio": true
+  },
+  {
+   "day": 83,
+   "date": "2026-10-23",
+   "what": "entry deleted",
+   "name": "Banana",
+   "id": "5dhm3je4z3v2"
+  },
+  {
+   "day": 86,
+   "date": "2026-10-26",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Heaviest ever: 195 lb × 10"
+   ]
+  },
+  {
+   "day": 86,
+   "date": "2026-10-26",
+   "what": "swap",
+   "from": "Seated Dumbbell Shoulder Press",
+   "to": "Machine Shoulder Press",
+   "kept": false
+  },
+  {
+   "day": 86,
+   "date": "2026-10-26",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 35 × 14",
+    "Most reps at 35: 14 (was 13)"
+   ]
+  },
+  {
+   "day": 86,
+   "date": "2026-10-26",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 22.5 × 15",
+    "Most reps at 22.5: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 86,
+   "date": "2026-10-26",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Heaviest ever: 57.5 lb × 11"
+   ]
+  },
+  {
+   "day": 86,
+   "date": "2026-10-26",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 23,
+   "cardio": true
+  },
+  {
+   "day": 87,
+   "date": "2026-10-27",
+   "what": "PR",
+   "ex": "Lat Pulldown",
+   "prs": [
+    "Heaviest ever: 150 lb × 12"
+   ]
+  },
+  {
+   "day": 87,
+   "date": "2026-10-27",
+   "what": "PR",
+   "ex": "T-Bar Row",
+   "prs": [
+    "Heaviest ever: 95 lb × 10"
+   ]
+  },
+  {
+   "day": 87,
+   "date": "2026-10-27",
+   "what": "PR",
+   "ex": "Face Pull",
+   "prs": [
+    "Best set ever: 50 × 11",
+    "Most reps at 50: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 87,
+   "date": "2026-10-27",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 14,
+   "cardio": true
+  },
+  {
+   "day": 87,
+   "date": "2026-10-26",
+   "what": "workout edited later",
+   "workout": "o33hkp6zz66o",
+   "ex": "Flat Barbell Bench Press",
+   "from": 19,
+   "to": 9,
+   "toast": "Workout updated · next time recalculated for Flat Barbell Bench Press",
+   "prescChanged": true
+  },
+  {
+   "day": 88,
+   "date": "2026-10-28",
+   "what": "back-filled yesterday",
+   "name": "Almonds"
+  },
+  {
+   "day": 90,
+   "date": "2026-10-30",
+   "what": "PR",
+   "ex": "Machine Shoulder Press",
+   "prs": [
+    "Heaviest ever: 110 lb × 12"
+   ]
+  },
+  {
+   "day": 90,
+   "date": "2026-10-30",
+   "what": "PR",
+   "ex": "One-Arm Dumbbell Row",
+   "prs": [
+    "Best set ever: 85 × 12",
+    "Most reps at 85: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 90,
+   "date": "2026-10-30",
+   "what": "PR",
+   "ex": "Assisted Dips",
+   "prs": [
+    "Most reps at 45: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 90,
+   "date": "2026-10-30",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 25,
+   "cardio": true
+  },
+  {
+   "day": 90,
+   "date": "2026-10-30",
+   "what": "entry moved with the Meal buttons",
+   "name": "Chipotle chicken bowl",
+   "from": 1,
+   "to": 2,
+   "id": "39ym02ax39cy"
+  },
+  {
+   "day": 91,
+   "date": "2026-10-31",
+   "what": "entry dragged to another meal",
+   "name": "Chicken breast, cooked (roasted)",
+   "id": "869r67vitwn5",
+   "meal": 0,
+   "at": 1793464810308
+  },
+  {
+   "day": 91,
+   "date": "2026-10-31",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Heaviest ever: 250 lb × 12"
+   ]
+  },
+  {
+   "day": 91,
+   "date": "2026-10-31",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Heaviest ever: 115 lb × 10"
+   ]
+  },
+  {
+   "day": 91,
+   "date": "2026-10-31",
+   "what": "PR",
+   "ex": "Leg Extension",
+   "prs": [
+    "Best set ever: 155 × 12",
+    "Most reps at 155: 12 (was 10)"
+   ]
+  },
+  {
+   "day": 91,
+   "date": "2026-10-31",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 105 × 12",
+    "Most reps at 105: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 91,
+   "date": "2026-10-31",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 92,
+   "date": "2026-11-01",
+   "what": "food dropped from a saved meal",
+   "name": "Chicken rice bowl"
+  },
+  {
+   "day": 93,
+   "date": "2026-11-02",
+   "what": "meal cleared",
+   "entries": 2
+  },
+  {
+   "day": 93,
+   "date": "2026-11-02",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Best set ever: 35 × 15",
+    "Most reps at 35: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 93,
+   "date": "2026-11-02",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 22.5 × 16",
+    "Most reps at 22.5: 16 (was 15)"
+   ]
+  },
+  {
+   "day": 93,
+   "date": "2026-11-02",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Best set ever: 57.5 × 12",
+    "Most reps at 57.5: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 93,
+   "date": "2026-11-02",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 21,
+   "cardio": true
+  },
+  {
+   "day": 95,
+   "date": "2026-11-04",
+   "what": "WHOOP added recovery to a typed night",
+   "night": {
+    "date": "2026-11-04",
+    "total": 380,
+    "rem": 95,
+    "deep": 65,
+    "recovery": 57,
+    "rhr": 59,
+    "hrv": 54,
+    "perf": 80
+   }
+  },
+  {
+   "day": 96,
+   "date": "2026-11-05",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Heaviest ever: 240 lb × 10"
+   ]
+  },
+  {
+   "day": 96,
+   "date": "2026-11-05",
+   "what": "swap",
+   "from": "Lying Leg Curl",
+   "to": "Seated Leg Curl",
+   "kept": true
+  },
+  {
+   "day": 96,
+   "date": "2026-11-05",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Best set ever: 190 × 15",
+    "Most reps at 190: 15 (was 14)"
+   ]
+  },
+  {
+   "day": 96,
+   "date": "2026-11-05",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 19,
+   "cardio": true
+  },
+  {
+   "day": 97,
+   "date": "2026-11-06",
+   "what": "PR",
+   "ex": "Pull-Ups",
+   "prs": [
+    "Most reps at 0: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 97,
+   "date": "2026-11-06",
+   "what": "PR",
+   "ex": "Assisted Dips",
+   "prs": [
+    "Most reps at 45: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 97,
+   "date": "2026-11-06",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 25,
+   "cardio": false
+  },
+  {
+   "day": 97,
+   "date": "2026-11-06",
+   "what": "entry deleted",
+   "name": "Grapes",
+   "id": "vmlq1svrbt61"
+  },
+  {
+   "day": 98,
+   "date": "2026-11-07",
+   "what": "PR",
+   "ex": "Hack Squat",
+   "prs": [
+    "Heaviest ever: 195 lb × 11"
+   ]
+  },
+  {
+   "day": 98,
+   "date": "2026-11-07",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Heaviest ever: 110 lb × 9"
+   ]
+  },
+  {
+   "day": 98,
+   "date": "2026-11-07",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 22,
+   "cardio": false
+  },
+  {
+   "day": 98,
+   "date": "2026-11-07",
+   "what": "entry amount edited",
+   "name": "Tomato, raw",
+   "id": "h21hqccyr3lr"
+  },
+  {
+   "day": 100,
+   "date": "2026-11-08",
+   "what": "weigh-in deleted"
+  },
+  {
+   "day": 100,
+   "date": "2026-11-09",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Best set ever: 195 × 13",
+    "Most reps at 195: 13 (was 11)"
+   ]
+  },
+  {
+   "day": 100,
+   "date": "2026-11-09",
+   "what": "PR",
+   "ex": "Smith Machine Incline Press",
+   "prs": [
+    "Heaviest ever: 150 lb × 12"
+   ]
+  },
+  {
+   "day": 100,
+   "date": "2026-11-09",
+   "what": "PR",
+   "ex": "Seated Dumbbell Shoulder Press",
+   "prs": [
+    "Most reps at 45: 14 (was 12)"
+   ]
+  },
+  {
+   "day": 100,
+   "date": "2026-11-09",
+   "what": "PR",
+   "ex": "Dumbbell Lateral Raise",
+   "prs": [
+    "Best set ever: 22.5 × 17",
+    "Most reps at 22.5: 17 (was 16)"
+   ]
+  },
+  {
+   "day": 100,
+   "date": "2026-11-09",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Heaviest ever: 60 lb × 10"
+   ]
+  },
+  {
+   "day": 100,
+   "date": "2026-11-09",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 21,
+   "cardio": true
+  },
+  {
+   "day": 103,
+   "date": "2026-11-11",
+   "what": "night deleted"
+  },
+  {
+   "day": 103,
+   "date": "2026-11-12",
+   "what": "PR",
+   "ex": "Romanian Deadlift",
+   "prs": [
+    "Heaviest ever: 220 lb × 11"
+   ]
+  },
+  {
+   "day": 103,
+   "date": "2026-11-12",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Best set ever: 380 × 16",
+    "Most reps at 380: 16 (was 15)"
+   ]
+  },
+  {
+   "day": 103,
+   "date": "2026-11-12",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 103,
+   "date": "2026-11-12",
+   "what": "exported a backup"
+  },
+  {
+   "day": 104,
+   "date": "2026-11-13",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Best set ever: 30 × 10",
+    "Most reps at 30: 10 (was 9)"
+   ]
+  },
+  {
+   "day": 104,
+   "date": "2026-11-13",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 26,
+   "cardio": true
+  },
+  {
+   "day": 105,
+   "date": "2026-11-14",
+   "what": "PR",
+   "ex": "Hip Thrust",
+   "prs": [
+    "Best set ever: 250 × 13",
+    "Most reps at 250: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 105,
+   "date": "2026-11-14",
+   "what": "PR",
+   "ex": "Seated Leg Curl",
+   "prs": [
+    "Best set ever: 115 × 11",
+    "Most reps at 115: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 105,
+   "date": "2026-11-14",
+   "what": "PR",
+   "ex": "Seated Calf Raise",
+   "prs": [
+    "Best set ever: 110 × 11",
+    "Most reps at 110: 11 (was 9)"
+   ]
+  },
+  {
+   "day": 105,
+   "date": "2026-11-14",
+   "what": "PR",
+   "ex": "Cable Crunch",
+   "prs": [
+    "Heaviest ever: 100 lb × 10"
+   ]
+  },
+  {
+   "day": 105,
+   "date": "2026-11-14",
+   "what": "workout",
+   "name": "Lower",
+   "deload": false,
+   "sets": 22,
+   "cardio": true
+  },
+  {
+   "day": 106,
+   "date": "2026-11-15",
+   "what": "entry deleted",
+   "name": "Almonds",
+   "id": "8h5amr38voaj"
+  },
+  {
+   "day": 107,
+   "date": "2026-11-16",
+   "what": "PR",
+   "ex": "Flat Barbell Bench Press",
+   "prs": [
+    "Heaviest ever: 200 lb × 11"
+   ]
+  },
+  {
+   "day": 107,
+   "date": "2026-11-16",
+   "what": "PR",
+   "ex": "Cable Fly",
+   "prs": [
+    "Heaviest ever: 40 lb × 9"
+   ]
+  },
+  {
+   "day": 107,
+   "date": "2026-11-16",
+   "what": "PR",
+   "ex": "Triceps Pushdown",
+   "prs": [
+    "Best set ever: 60 × 12",
+    "Most reps at 60: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 107,
+   "date": "2026-11-16",
+   "what": "workout",
+   "name": "Push",
+   "deload": false,
+   "sets": 21,
+   "cardio": true
+  },
+  {
+   "day": 107,
+   "date": "2026-11-16",
+   "what": "entry moved with the Meal buttons",
+   "name": "RXBAR Chocolate Sea Salt",
+   "from": 3,
+   "to": 2,
+   "id": "cj1meoewoncc"
+  },
+  {
+   "day": 108,
+   "date": "2026-11-17",
+   "what": "PR",
+   "ex": "Chest-Supported Row",
+   "prs": [
+    "Heaviest ever: 125 lb × 10"
+   ]
+  },
+  {
+   "day": 108,
+   "date": "2026-11-17",
+   "what": "PR",
+   "ex": "T-Bar Row",
+   "prs": [
+    "Best set ever: 95 × 12",
+    "Most reps at 95: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 108,
+   "date": "2026-11-17",
+   "what": "PR",
+   "ex": "EZ-Bar Curl",
+   "prs": [
+    "Best set ever: 75 × 12",
+    "Most reps at 75: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 108,
+   "date": "2026-11-17",
+   "what": "workout",
+   "name": "Pull",
+   "deload": false,
+   "sets": 14,
+   "cardio": false
+  },
+  {
+   "day": 108,
+   "date": "2026-11-17",
+   "what": "entry amount edited",
+   "name": "Ground turkey 93/7, cooked",
+   "id": "8etn842gf054"
+  },
+  {
+   "day": 109,
+   "date": "2026-11-18",
+   "what": "entry dragged to another spot in its meal",
+   "name": "Chicken breast, cooked (roasted)",
+   "id": "33grjdsw67ac",
+   "meal": 1,
+   "at": 1795032782437.5
+  },
+  {
+   "day": 110,
+   "date": "2026-11-19",
+   "what": "PR",
+   "ex": "Back Squat",
+   "prs": [
+    "Best set ever: 240 × 12",
+    "Most reps at 240: 12 (was 11)"
+   ]
+  },
+  {
+   "day": 110,
+   "date": "2026-11-19",
+   "what": "PR",
+   "ex": "Leg Press",
+   "prs": [
+    "Heaviest ever: 390 lb × 14"
+   ]
+  },
+  {
+   "day": 110,
+   "date": "2026-11-19",
+   "what": "PR",
+   "ex": "Lying Leg Curl",
+   "prs": [
+    "Best set ever: 100 × 13",
+    "Most reps at 100: 13 (was 12)"
+   ]
+  },
+  {
+   "day": 110,
+   "date": "2026-11-19",
+   "what": "PR",
+   "ex": "Standing Calf Raise",
+   "prs": [
+    "Heaviest ever: 195 lb × 13"
+   ]
+  },
+  {
+   "day": 110,
+   "date": "2026-11-19",
+   "what": "workout",
+   "name": "Legs",
+   "deload": false,
+   "sets": 18,
+   "cardio": true
+  },
+  {
+   "day": 110,
+   "date": "2026-11-19",
+   "what": "entry deleted",
+   "name": "Apple",
+   "id": "k95jw2u4dkmz"
+  },
+  {
+   "day": 111,
+   "date": "2026-11-20",
+   "what": "PR",
+   "ex": "Incline Dumbbell Curl",
+   "prs": [
+    "Best set ever: 30 × 11",
+    "Most reps at 30: 11 (was 10)"
+   ]
+  },
+  {
+   "day": 111,
+   "date": "2026-11-20",
+   "what": "workout",
+   "name": "Upper",
+   "deload": false,
+   "sets": 26,
+   "cardio": true
+  },
+  {
+   "day": 112,
+   "date": "2026-11-21",
+   "what": "workout in progress",
+   "name": "Lower",
+   "sets": 22,
+   "ticked": 11,
+   "exercisesDone": 2
+  }
+ ],
+ "dialogs": [
+  {
+   "kind": "prompt",
+   "msg": "Name this template",
+   "answer": "Starter split (default)",
+   "day": 0
+  },
+  {
+   "kind": "confirm",
+   "msg": "Delete this day?",
+   "answer": true,
+   "day": 0
+  },
+  {
+   "kind": "confirm",
+   "msg": "Delete this day?",
+   "answer": true,
+   "day": 0
+  },
+  {
+   "kind": "confirm",
+   "msg": "Delete this day?",
+   "answer": true,
+   "day": 0
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "013764027053",
+   "day": 1
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "036632019585",
+   "day": 1
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "076808011586",
+   "day": 1
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "747479000017",
+   "day": 1
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "011620021958",
+   "day": 1
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "096619533008",
+   "day": 2
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "049000056181",
+   "day": 2
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "048500203781",
+   "day": 3
+  },
+  {
+   "kind": "prompt",
+   "msg": "Name this meal",
+   "answer": "Usual breakfast",
+   "day": 4
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "705599012211",
+   "day": 5
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "811620022057",
+   "day": 5
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "096619723829",
+   "day": 5
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "859162007200",
+   "day": 5
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "643843714118",
+   "day": 6
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "073731071199",
+   "day": 7
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "793573238467",
+   "day": 9
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 10
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 12
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "894700010076",
+   "day": 15
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 18
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "604913100309",
+   "day": 18
+  },
+  {
+   "kind": "prompt",
+   "msg": "Name this meal",
+   "answer": "Post-workout shake",
+   "day": 22
+  },
+  {
+   "kind": "prompt",
+   "msg": "Barcode number (under the bars):",
+   "answer": "850031234567",
+   "day": 27
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 37
+  },
+  {
+   "kind": "confirm",
+   "msg": "1 exercise not done. Finish anyway?",
+   "answer": true,
+   "day": 38
+  },
+  {
+   "kind": "prompt",
+   "msg": "Name this template",
+   "answer": "PPL + Upper/Lower v1",
+   "day": 42
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 48
+  },
+  {
+   "kind": "prompt",
+   "msg": "Rename meal",
+   "answer": "Shake + banana",
+   "day": 50
+  },
+  {
+   "kind": "prompt",
+   "msg": "Name this meal",
+   "answer": "Chicken rice bowl",
+   "day": 54
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 54
+  },
+  {
+   "kind": "confirm",
+   "msg": "4 exercises not done. Finish anyway?",
+   "answer": true,
+   "day": 60
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 60
+  },
+  {
+   "kind": "confirm",
+   "msg": "Delete this workout? Next-time weights for 1 exercise go back to what they were before it.",
+   "answer": true,
+   "day": 61
+  },
+  {
+   "kind": "confirm",
+   "msg": "Remove everything from Breakfast?",
+   "answer": true,
+   "day": 64
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 65
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 69
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 72
+  },
+  {
+   "kind": "confirm",
+   "msg": "Delete this exercise? Its history stays but shows as \"Deleted exercise\".",
+   "answer": true,
+   "day": 72
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 81
+  },
+  {
+   "kind": "confirm",
+   "msg": "Discard this workout? Logged sets will be lost.",
+   "answer": true,
+   "day": 82
+  },
+  {
+   "kind": "confirm",
+   "msg": "Delete \"Office birthday cake\"? Days already logged keep their numbers.",
+   "answer": true,
+   "day": 82
+  },
+  {
+   "kind": "confirm",
+   "msg": "1 exercise not done. Finish anyway?",
+   "answer": true,
+   "day": 91
+  },
+  {
+   "kind": "confirm",
+   "msg": "Remove everything from Breakfast?",
+   "answer": true,
+   "day": 93
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 97
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 98
+  },
+  {
+   "kind": "confirm",
+   "msg": "Log your 25 min incline walk with this workout?\n\nOK logs it. Cancel finishes without cardio.",
+   "answer": false,
+   "day": 108
+  }
+ ]
+}

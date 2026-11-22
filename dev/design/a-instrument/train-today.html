@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" data-app="overload" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overload: Today</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><svg class="brand-mark"><use href="icons.svg#i-mark-overload"/></svg><span>Today</span></div>
+    <div class="topbar-right"><span class="num">THU 19 NOV</span></div>
+  </div>
+</header>
+
+<main id="app" class="screen">
+
+  <!-- The week: a filled mark is a workout done, a hollow one is planned, none is a rest day -->
+  <div class="group-title first">This week<span class="end"><svg class="ic s accent-ink"><use href="icons.svg#i-flame"/></svg><span class="dim"><span class="num">9</span>-day streak</span></span></div>
+  <div class="day-strip">
+    <button class="day-chip done" data-action="select-day" data-i="0" aria-label="Monday, done">M<span class="d">16</span><span class="dot"></span></button>
+    <button class="day-chip done" data-action="select-day" data-i="1" aria-label="Tuesday, done">T<span class="d">17</span><span class="dot"></span></button>
+    <button class="day-chip done" data-action="select-day" data-i="2" aria-label="Wednesday, done">W<span class="d">18</span><span class="dot"></span></button>
+    <button class="day-chip today selected" data-action="select-day" data-i="3" aria-label="Thursday, today">T<span class="d">19</span><span class="dot"></span></button>
+    <button class="day-chip" data-action="select-day" data-i="4" aria-label="Friday, planned">F<span class="d">20</span><span class="dot"></span></button>
+    <button class="day-chip" data-action="select-day" data-i="5" aria-label="Saturday, planned">S<span class="d">21</span><span class="dot"></span></button>
+    <button class="day-chip rest" data-action="select-day" data-i="6" aria-label="Sunday, rest day">S<span class="d">22</span><span class="dot"></span></button>
+  </div>
+
+  <!-- Morning check-in, saved: folded to one line -->
+  <div class="status-line" id="checkin-card">
+    <span class="ex-fold-tick" style="width:22px;height:22px;border-radius:4px" aria-label="Morning check-in done"><svg class="ic" style="width:14px;height:14px"><use href="icons.svg#i-check"/></svg></span>
+    <span class="item"><svg class="ic m"><use href="icons.svg#i-scale"/></svg><span class="num">184.2</span><span class="u">lb</span></span>
+    <span class="item"><svg class="ic m"><use href="icons.svg#i-moon"/></svg><span class="num">7h 12m</span></span>
+    <span class="grow"></span>
+    <button class="btn text small" data-action="checkin-edit">Edit</button>
+  </div>
+
+  <!-- Today's workout -->
+  <section class="card">
+    <div class="row between" style="align-items:flex-start">
+      <div class="grow">
+        <div class="label">Today's workout</div>
+        <h1 class="mt8" style="font-size:28px">Chest &amp; Back</h1>
+      </div>
+      <span class="daytag on" aria-label="Training day A">A</span>
+    </div>
+    <div class="stat-row big mt16">
+      <div class="stat"><div class="v">6</div><div class="k">Exercises</div></div>
+      <div class="stat"><div class="v">19</div><div class="k">Sets</div></div>
+      <div class="stat"><div class="v">58<span class="u">min</span></div><div class="k">Last time</div></div>
+    </div>
+    <button class="btn big block mt16" data-action="start-workout"><svg class="ic m"><use href="icons.svg#i-play"/></svg>Start workout</button>
+    <div class="row between mt8" style="margin-bottom:-8px">
+      <button class="btn text small" data-action="start-deload" style="margin-left:-8px">Start as deload</button>
+      <button class="btn text small" data-action="toggle-others" style="margin-right:-8px">Start a different day</button>
+    </div>
+  </section>
+
+  <!-- What the app will ask for today: weight, then the rep goal -->
+  <div class="group-title">Plan<span class="end">lb × goal</span></div>
+  <div class="list">
+    <button class="list-item" data-action="edit-ex">
+      <span class="grow"><span class="title">Incline Dumbbell Press</span><div class="sub">3 × 10–12 · each hand</div></span>
+      <span class="val"><span class="num n-value">60</span><span class="num dim"> ×12</span></span>
+    </button>
+    <button class="list-item" data-action="edit-ex">
+      <span class="grow"><span class="title">Machine Chest Press</span><div class="sub">3 × 10–12 · seat 4, pin 7</div></span>
+      <span class="val"><span class="num n-value">150</span><span class="num dim"> ×12</span></span>
+    </button>
+    <button class="list-item" data-action="edit-ex">
+      <span class="grow"><span class="title">Cable Fly</span><div class="sub">3 × 10–12</div></span>
+      <span class="val"><span class="num n-value">30</span><span class="num dim"> ×11</span></span>
+    </button>
+    <button class="list-item" data-action="edit-ex">
+      <span class="grow"><span class="title">Lat Pulldown</span><div class="sub">3 × 10–12 · <span class="ok-ink">up 5 lb today</span></div></span>
+      <span class="val"><span class="num n-value">130</span><span class="num dim"> ×10</span></span>
+    </button>
+    <button class="list-item" data-action="edit-ex">
+      <span class="grow"><span class="title">Chest-Supported Row</span><div class="sub">3 × 10–12</div></span>
+      <span class="val"><span class="num n-value">90</span><span class="num dim"> ×12</span></span>
+    </button>
+    <button class="list-item" data-action="edit-ex">
+      <span class="grow"><span class="title">Seated Cable Row</span><div class="sub">4 × 10–12</div></span>
+      <span class="val"><span class="num n-value">120</span><span class="num dim"> ×11</span></span>
+    </button>
+  </div>
+
+  <p class="muted small center mt16">Last workout: Shoulders &amp; Arms · Wed, Nov 18</p>
+
+  <!-- One line the app wants seen: backup is due (cloud sync is off) -->
+  <div class="notice mt16">
+    <svg class="ic m"><use href="icons.svg#i-warn"/></svg>
+    <span>Last backup was 16 days ago.</span>
+    <button class="btn text small accent" data-action="export">Export</button>
+  </div>
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-screen="today"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-dumbbell"/></svg></span>Today</button>
+  <button class="tab" data-screen="program"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-plan"/></svg></span>Program</button>
+  <button class="tab" data-screen="history"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-chart-line"/></svg></span>History</button>
+  <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-sliders"/></svg></span>Settings</button>
+</nav>
+
+</body>
+</html>

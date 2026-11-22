@@ -1,0 +1,35 @@
+<!--{"app":"fuel","title":"Fuel: Welcome","chrome":"none","screen":"bare","appIcons":true}-->
+<svg class="app-icon" width="80" height="80" viewBox="0 0 1024 1024" role="img" aria-label="Fuel"><use href="#app-fuel"/></svg>
+<p class="eyebrow mt-6">Welcome to Fuel</p>
+<h1 class="display mt-2">Bring your food log with you.</h1>
+<p class="lead mt-3">Fuel is the food half of Overload, now its own app. Your days, targets, favorites and saved meals come across in one step.</p>
+
+<div class="mt-6">
+  <button class="option lead-option">
+    <span class="row-lead">{{paste}}</span>
+    <span class="row-body">
+      <span class="row-title">Paste from Overload</span>
+      <span class="row-sub">In Overload, Settings, tap Copy food log. Then tap here. Works offline.</span>
+    </span>
+    {{chev-right row-chev}}
+  </button>
+  <button class="option">
+    <span class="row-lead">{{file}}</span>
+    <span class="row-body">
+      <span class="row-title">Choose a backup file</span>
+      <span class="row-sub">An Overload export from Files or iCloud Drive.</span>
+    </span>
+    {{chev-right row-chev}}
+  </button>
+  <button class="option">
+    <span class="row-lead">{{cloud}}</span>
+    <span class="row-body">
+      <span class="row-title">Sign in to cloud sync</span>
+      <span class="row-sub">Same account as Overload. Your log comes down from the cloud.</span>
+    </span>
+    {{chev-right row-chev}}
+  </button>
+</div>
+
+<button class="btn ghost block mt-4">Start fresh</button>
+<p class="caption muted center">You can bring your log across later from Settings.</p>

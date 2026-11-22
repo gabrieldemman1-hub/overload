@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Overload app icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF3B30"/><stop offset="1" stop-color="#FF8A1F"/></linearGradient>
+    <radialGradient id="hl" cx="0.26" cy="0.16" r="0.85"><stop offset="0" stop-color="#FFF" stop-opacity="0.30"/><stop offset="0.55" stop-color="#FFF" stop-opacity="0"/></radialGradient>
+    <radialGradient id="lo" cx="0.9" cy="1" r="0.7"><stop offset="0" stop-color="#C21500" stop-opacity="0.35"/><stop offset="1" stop-color="#C21500" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#hl)"/>
+  <rect width="1024" height="1024" fill="url(#lo)"/>
+  <!-- A loaded barbell, tilted up to the right: the next session is heavier. Ink on Heat. -->
+  <g transform="rotate(-18 512 512) translate(512 512) scale(0.9) translate(-512 -512)">
+    <g fill="#B32400" opacity="0.28" transform="translate(0 22)">
+      <rect x="92" y="476" width="840" height="72" rx="36"/>
+      <rect x="258" y="296" width="120" height="432" rx="46"/><rect x="646" y="296" width="120" height="432" rx="46"/>
+      <rect x="146" y="368" width="96" height="288" rx="40"/><rect x="782" y="368" width="96" height="288" rx="40"/>
+    </g>
+    <g fill="#1F0A03">
+      <rect x="92" y="476" width="840" height="72" rx="36"/>
+      <rect x="258" y="296" width="120" height="432" rx="46"/><rect x="646" y="296" width="120" height="432" rx="46"/>
+      <rect x="146" y="368" width="96" height="288" rx="40"/><rect x="782" y="368" width="96" height="288" rx="40"/>
+    </g>
+  </g>
+</svg>

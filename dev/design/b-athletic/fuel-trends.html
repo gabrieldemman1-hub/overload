@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-app="fuel">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fuel · Trends</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  // Mockup theme switch: add ?theme=light to the URL. Default is dark.
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body class="">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="g-mark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--m1)"/><stop offset="1" style="stop-color:var(--m2)"/></linearGradient>
+</defs></svg>
+<div class="mock-status" aria-hidden="true"><span>9:41</span><svg viewBox="0 0 68 12"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M31 2.2c2.3 0 4.4.9 6 2.4l-1.3 1.4a6.8 6.8 0 0 0-9.4 0L25 4.6a8.7 8.7 0 0 1 6-2.4zm0 3.8c1.3 0 2.5.5 3.4 1.4L31 11l-3.4-3.6c.9-.9 2.1-1.4 3.4-1.4z"/><rect x="43.5" y="0.5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".45"/><rect x="45.5" y="2.5" width="15" height="7" rx="1.6"/><rect x="65.5" y="4" width="1.8" height="4" rx=".9" opacity=".5"/></svg></div>
+<header class="topbar"><div class="topbar-inner">
+  <div class="brand"><span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-bolt"/></svg></span>Fuel</div>
+  <div class="topbar-right"><span class="pill sync-pill synced"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-cloud"/></svg>Synced</span></div></div></header>
+<main id="app" class="screen ">
+
+<div class="screen-title"><h1>Trends</h1><span class="sub">Nov 6 to 19</span></div>
+
+<section class="card hero lit">
+  <div class="row between"><span class="cap">Average a day · 14 days</span><span class="pill ok lg"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-target"/></svg>On target</span></div>
+  <div class="nowrap mt8"><span class="hero-num">2,599</span> <span class="unit-lg">kcal</span></div>
+  <p class="small muted mt4">Target 2,600. Today is not counted until it ends.</p>
+  <div class="mt16"><svg class="chart" viewBox="0 0 326 196" role="img" aria-label="Calories for the last 14 days against a 2,600 kcal target. Two days over, two days not logged.">
+    <line class="grid" x1="0" x2="288" y1="172" y2="172"/>
+    <path class="bar " d="M3.3 172V63.3a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="10.3" y="189" text-anchor="middle">F</text>
+    <path class="bar over" d="M23.9 172V50a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="30.9" y="189" text-anchor="middle">S</text>
+    <path class="bar " d="M44.4 172V76.2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="51.4" y="189" text-anchor="middle">S</text>
+    <path class="bar " d="M65 172V62.4a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="72" y="189" text-anchor="middle">M</text>
+    <path class="bar " d="M85.6 172V66a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="92.6" y="189" text-anchor="middle">T</text>
+    <rect class="bar none" x="106.1" y="168" width="14" height="4" rx="2"/><text class="lbl" x="113.1" y="189" text-anchor="middle">W</text>
+    <path class="bar " d="M126.7 172V62a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="133.7" y="189" text-anchor="middle">T</text>
+    <path class="bar " d="M147.3 172V60.6a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="154.3" y="189" text-anchor="middle">F</text>
+    <path class="bar over" d="M167.9 172V46a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="174.9" y="189" text-anchor="middle">S</text>
+    <rect class="bar none" x="188.4" y="168" width="14" height="4" rx="2"/><text class="lbl" x="195.4" y="189" text-anchor="middle">S</text>
+    <path class="bar " d="M209 172V61.1a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="216" y="189" text-anchor="middle">M</text>
+    <path class="bar sel" d="M229.6 172V55.7a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="236.6" y="189" text-anchor="middle">T</text>
+    <path class="bar " d="M250.1 172V64.2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl" x="257.1" y="189" text-anchor="middle">W</text>
+    <path class="bar " opacity="0.45" d="M270.7 172V111.7a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4V172z"/><text class="lbl strong" x="277.7" y="189" text-anchor="middle">T</text>
+    <line class="target" x1="0" x2="290" y1="56.6" y2="56.6"/>
+    <text class="lbl strong" x="326" y="60.6" text-anchor="end">2,600</text>
+    <g><rect class="tip-bg" x="184.6" y="20.7" width="104" height="23" rx="11.5"/><text class="tip-tx" x="236.6" y="36.2" text-anchor="middle">Tue 17 · 2,710</text></g>
+  </svg></div>
+  <div class="legend mt8"><span><i class="key sq" style="background:var(--accent)"></i>Within target</span><span><i class="key sq" style="background:var(--danger)"></i>Over by 5%+</span><span><i class="key sq" style="background:var(--track)"></i>Not logged</span></div>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Weekly averages</h2></div>
+  <table class="avg-table">
+    <thead><tr><th></th><th>This week</th><th>Last week</th><th>Target</th></tr></thead>
+    <tbody>
+      <tr><td><span class="k">Calories</span></td><td>2,607<small></small></td><td class="prev">2,628<small></small></td><td class="prev">2,600<small></small></td></tr>
+      <tr><td><span class="k"><i class="dot" style="color:var(--macro-p)"></i>Protein</span></td><td>188<small>g</small></td><td class="prev">181<small>g</small></td><td class="prev">190<small>g</small></td></tr>
+      <tr><td><span class="k"><i class="dot" style="color:var(--macro-c)"></i>Carbs</span></td><td>271<small>g</small></td><td class="prev">280<small>g</small></td><td class="prev">280<small>g</small></td></tr>
+      <tr><td><span class="k"><i class="dot" style="color:var(--macro-f)"></i>Fat</span></td><td>83<small>g</small></td><td class="prev">84<small>g</small></td><td class="prev">80<small>g</small></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Days logged</h2><div class="meta">12 of the last 14 days</div></div><span class="pill accent lg"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-flame"/></svg>4 in a row</span></div>
+  <div class="logdots" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on today"></i></div>
+  <div class="row between tiny muted mt8"><span>Fri, Nov 6</span><span>Today</span></div>
+</section>
+
+</main>
+
+<nav class="tabbar"><button class="tab" data-screen="today"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-fork"/></svg></span>Today</button><button class="tab active" data-screen="trends"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-chart"/></svg></span>Trends</button><button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-gear"/></svg></span>Settings</button></nav>
+<div class="mock-home" aria-hidden="true"></div>
+</body>
+</html>

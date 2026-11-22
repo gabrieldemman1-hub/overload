@@ -1,0 +1,27 @@
+/*
+ * Mock only. Not part of the design system: do not ship.
+ * Fakes the iPhone status bar and home indicator, and sets the safe-area insets a Home Screen app gets
+ * on a notched phone, so the screenshots show the real chrome. In the app these come from env().
+ */
+:root { --safe-top: 47px; --safe-bottom: 34px; }
+.m-status { position: fixed; top: 0; left: 0; right: 0; height: 47px; z-index: 60; display: flex; align-items: center; justify-content: space-between; padding: 12px 28px 0 36px; font: 600 16px/1 var(--font); letter-spacing: -0.01em; color: var(--ink); pointer-events: none; }
+.m-status svg { width: 68px; height: 13px; fill: currentColor; }
+.m-home { position: fixed; bottom: 8px; left: 50%; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: var(--ink); z-index: 60; pointer-events: none; }
+.sheet-open .m-status { color: #F3EDE3; }
+@media (max-width: 359px) { .m-status { padding: 12px 18px 0 24px; } }
+
+/* icons.html only */
+.sheet-page { max-width: 560px; margin: 0 auto; padding: 32px 20px 56px; }
+.app-icon { display: block; border-radius: 22.37%; overflow: hidden; }
+.icon-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.icon-pair figure { margin: 0; }
+.icon-pair figcaption { margin-top: 12px; }
+.wall { border-radius: 28px; padding: 22px 14px 18px; display: grid; grid-template-columns: repeat(4, 1fr); justify-items: center; row-gap: 6px; }
+.wall.day { background: linear-gradient(160deg, #E9DFCB 0%, #DCE5E4 55%, #C9D7E4 100%); color: #1F1B16; }
+.wall.night { background: linear-gradient(160deg, #1B2230 0%, #15161C 55%, #231A17 100%); color: #F3EDE3; }
+.wall figure { margin: 0; display: grid; justify-items: center; gap: 6px; }
+.wall figcaption { font: 500 11.5px/1 var(--font); letter-spacing: -0.01em; }
+.wall .ph { width: 60px; height: 60px; border-radius: 22.37%; }
+.icon-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.icon-cell { display: grid; justify-items: center; gap: 8px; padding: 14px 4px 10px; border-radius: 16px; background: var(--surface); font: 500 11px/1.2 var(--font); color: var(--ink-3); text-align: center; overflow-wrap: anywhere; }
+.icon-cell .i { color: var(--ink); width: 28px; height: 28px; }

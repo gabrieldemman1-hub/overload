@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en" data-app="overload">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overload · Workout</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  // Mockup theme switch: add ?theme=light to the URL. Default is dark.
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body class="has-rest">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="g-mark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--m1)"/><stop offset="1" style="stop-color:var(--m2)"/></linearGradient>
+</defs></svg>
+<div class="mock-status" aria-hidden="true"><span>9:41</span><svg viewBox="0 0 68 12"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M31 2.2c2.3 0 4.4.9 6 2.4l-1.3 1.4a6.8 6.8 0 0 0-9.4 0L25 4.6a8.7 8.7 0 0 1 6-2.4zm0 3.8c1.3 0 2.5.5 3.4 1.4L31 11l-3.4-3.6c.9-.9 2.1-1.4 3.4-1.4z"/><rect x="43.5" y="0.5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".45"/><rect x="45.5" y="2.5" width="15" height="7" rx="1.6"/><rect x="65.5" y="4" width="1.8" height="4" rx=".9" opacity=".5"/></svg></div>
+<header class="topbar"><div class="topbar-inner">
+  <div class="brand"><span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>Push <span class="elapsed">18:42</span></div>
+  <div class="topbar-right"><button class="btn small ghost" data-action="finish">Finish</button></div></div><div class="topbar-progress" aria-label="Workout progress"><i class="done"></i><i class="now"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div></header>
+<main id="app" class="screen in-workout">
+
+<div class="card ex-card done compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-tick"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-check"/></svg></span>
+  <span class="grow"><span class="ex-fold-name">Cable Fly</span><span class="ex-fold-sub">3 sets · next 35 lb</span></span>
+  <span class="pill pr"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-trophy"/></svg>PR</span><svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-r"/></svg>
+</button></div>
+
+<section class="card ex-card" data-card="1">
+  <div class="ex-head">
+    <div class="row between">
+      <div class="grow"><div class="ex-kicker">Chest · Machine · 2 of 5</div><div class="ex-name">Machine Chest Press</div></div>
+      <button class="icon-btn plain" aria-label="Swap, remove, edit exercise"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-more"/></svg></button>
+    </div>
+    <div class="ex-target" aria-label="Target: 150 pounds for 12 reps"><span class="big">150</span><span class="u">lb</span><span class="x">×</span><span class="big">12</span><span class="u">reps · 3 sets of 10–12</span></div>
+    <div class="ex-meta">
+      <span class="ex-note"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-edit"/></svg>Seat 4, pin 7</span>
+      <span class="ex-last"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-clock"/></svg>Last time: 150 × 12, 12, 11</span>
+    </div>
+  </div>
+  <div class="ex-body">
+    <table class="set-table">
+      <thead><tr><th class="n">Set</th><th>lb</th><th>Reps</th><th class="chk"></th></tr></thead>
+      <tbody>
+      <tr class="set-row done">
+        <td class="n">1</td>
+        <td><input class="set-input" type="number" inputmode="decimal" value="150" placeholder="lb" aria-label="Set 1 weight"></td>
+        <td><input class="set-input" type="number" inputmode="numeric" value="12" placeholder="12" aria-label="Set 1 reps"></td>
+        <td class="chk"><button class="check on" aria-label="Set 1 done" aria-pressed="true"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-check"/></svg></button></td>
+      </tr>
+      <tr class="rir-row"><td colspan="4"><div class="rir-pick"><span class="rir-label">Reps left</span><button class="rir-btn">3+</button><button class="rir-btn on">2</button><button class="rir-btn">1</button><button class="rir-btn">0</button></div></td></tr>
+      <tr class="set-row done">
+        <td class="n">2</td>
+        <td><input class="set-input" type="number" inputmode="decimal" value="150" placeholder="lb" aria-label="Set 2 weight"></td>
+        <td><input class="set-input" type="number" inputmode="numeric" value="12" placeholder="12" aria-label="Set 2 reps"></td>
+        <td class="chk"><button class="check on" aria-label="Set 2 done" aria-pressed="true"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-check"/></svg></button></td>
+      </tr>
+      <tr class="rir-row"><td colspan="4"><div class="rir-pick"><span class="rir-label">Reps left</span><button class="rir-btn">3+</button><button class="rir-btn">2</button><button class="rir-btn on">1</button><button class="rir-btn">0</button></div></td></tr>
+      <tr class="set-row next">
+        <td class="n">3</td>
+        <td><input class="set-input" type="number" inputmode="decimal" value="150" placeholder="lb" aria-label="Set 3 weight"></td>
+        <td><input class="set-input" type="number" inputmode="numeric" value="" placeholder="12" aria-label="Set 3 reps"></td>
+        <td class="chk"><button class="check" aria-label="Set 3 done" aria-pressed="false"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-check"/></svg></button></td>
+      </tr>
+      <tr class="rir-row idle" aria-hidden="true"><td colspan="4"><div class="rir-pick"><span class="rir-label">Reps left</span><button class="rir-btn" tabindex="-1" disabled>3+</button><button class="rir-btn" tabindex="-1" disabled>2</button><button class="rir-btn" tabindex="-1" disabled>1</button><button class="rir-btn" tabindex="-1" disabled>0</button></div></td></tr>
+      </tbody>
+    </table>
+    <div class="set-tools">
+      <button class="btn small ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-plus"/></svg>Set</button>
+      <button class="btn small ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-minus"/></svg>Set</button>
+      <button class="btn small ghost">Warm-up</button>
+    </div>
+    <button class="btn block ghost mt12" data-action="finish-entry">Finish exercise</button>
+  </div>
+</section>
+
+<div class="card ex-card compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-n">3</span>
+  <span class="grow"><span class="ex-fold-name">Machine Shoulder Press</span><span class="ex-fold-sub">3 × 10–12 · 90 lb</span></span>
+  <span class="delta good"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span><svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-d"/></svg>
+</button></div>
+<div class="card ex-card compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-n">4</span>
+  <span class="grow"><span class="ex-fold-name">Cable Lateral Raise</span><span class="ex-fold-sub">4 × 12–15 · 15 lb</span></span>
+  <svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-d"/></svg>
+</button></div>
+<div class="card ex-card compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-n">5</span>
+  <span class="grow"><span class="ex-fold-name">Triceps Pushdown</span><span class="ex-fold-sub">3 × 10–12 · 55 lb</span></span>
+  <span class="delta good"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span><svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-d"/></svg>
+</button></div>
+<section class="card" id="cardio-card">
+  <div class="card-head"><div class="row"><span class="tile soft"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-heart"/></svg></span><div><h2>Incline treadmill walk</h2><div class="meta">20 min after lifting</div></div></div></div>
+  <div class="field-row">
+    <div class="field"><label>Incline %</label><input class="input num" type="number" inputmode="decimal" value="10"></div>
+    <div class="field"><label>Speed mph</label><input class="input num" type="number" inputmode="decimal" value="3.2"></div>
+  </div>
+  <div class="btn-row"><button class="btn ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-timer"/></svg>Start 20:00</button><button class="btn subtle">Done</button></div>
+</section>
+<button class="btn lg block ghost" data-action="finish">Finish workout</button>
+
+</main>
+<div id="rest-timer" class="rest-timer" role="timer" aria-label="Rest timer">
+  <div class="rest-timer-inner">
+    <span class="rest-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-timer"/></svg></span>
+    <div><div class="rest-label">Rest</div><div id="rest-time" class="rest-time">1:24</div></div>
+    <div class="rest-actions"><button class="btn ghost small" data-action="rest-add">+30s</button><button class="btn ghost small" data-action="rest-skip">Skip</button></div>
+  </div>
+  <div class="rest-bar"><div id="rest-bar-fill" class="rest-bar-fill" style="width:70%"></div></div>
+</div>
+<nav class="tabbar"><button class="tab active" data-screen="today"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>Today</button><button class="tab" data-screen="program"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-calendar"/></svg></span>Program</button><button class="tab" data-screen="exercises"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-list"/></svg></span>Exercises</button><button class="tab" data-screen="history"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-chart"/></svg></span>History</button><button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-gear"/></svg></span>Settings</button></nav>
+<div class="mock-home" aria-hidden="true"></div>
+</body>
+</html>

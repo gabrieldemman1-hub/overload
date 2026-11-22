@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-app="overload">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overload · Exercise finished</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  // Mockup theme switch: add ?theme=light to the URL. Default is dark.
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body class="">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="g-mark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--m1)"/><stop offset="1" style="stop-color:var(--m2)"/></linearGradient>
+</defs></svg>
+<div class="mock-status" aria-hidden="true"><span>9:41</span><svg viewBox="0 0 68 12"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M31 2.2c2.3 0 4.4.9 6 2.4l-1.3 1.4a6.8 6.8 0 0 0-9.4 0L25 4.6a8.7 8.7 0 0 1 6-2.4zm0 3.8c1.3 0 2.5.5 3.4 1.4L31 11l-3.4-3.6c.9-.9 2.1-1.4 3.4-1.4z"/><rect x="43.5" y="0.5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".45"/><rect x="45.5" y="2.5" width="15" height="7" rx="1.6"/><rect x="65.5" y="4" width="1.8" height="4" rx=".9" opacity=".5"/></svg></div>
+<header class="topbar"><div class="topbar-inner">
+  <div class="brand"><span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>Push <span class="elapsed">24:10</span></div>
+  <div class="topbar-right"><button class="btn small ghost" data-action="finish">Finish</button></div></div><div class="topbar-progress" aria-label="Workout progress"><i class="done"></i><i class="done"></i><i class="now"></i><i class=""></i><i class=""></i><i class=""></i></div></header>
+<main id="app" class="screen in-workout">
+
+<div class="card ex-card done compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-tick"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-check"/></svg></span>
+  <span class="grow"><span class="ex-fold-name">Cable Fly</span><span class="ex-fold-sub">3 sets · next 35 lb</span></span>
+  <span class="pill pr"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-trophy"/></svg>PR</span><svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-r"/></svg>
+</button></div>
+
+<section class="card ex-card done" data-card="1">
+  <div class="ex-head">
+    <div class="row between">
+      <div class="grow"><div class="ex-kicker">Chest · Machine · finished</div><div class="ex-name">Machine Chest Press</div></div>
+      <span class="pill pr is-new"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-trophy"/></svg>PR</span>
+    </div>
+    <div class="ex-presc"><strong>150 lb</strong> × 12, 12, 12 · most reps at 150 lb</div>
+  </div>
+  <div class="ex-body">
+    <div class="next-box up">
+      <div class="row between"><span class="cap">Next time</span><span class="pill ok"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span></div>
+      <div class="next-main"><span class="big">155</span><span class="u">lb</span><span class="headline">goal 10</span></div>
+      <ul><li>Hit 12 on every set → +5 lb, aim for 10</li><li>3 × 10–12, sets follow your answers below</li></ul>
+    </div>
+    <div class="prompt">
+      <div class="prompt-q">How was it? <span class="hint">Optional, adjusts your sets</span></div>
+      <div class="q-label">Pump</div>
+      <div class="choice-grid c3"><button class="choice" aria-pressed="false">Low / none</button><button class="choice on" aria-pressed="true">Moderate</button><button class="choice" aria-pressed="false">Amazing</button></div>
+      <div class="q-label">Joint pain</div>
+      <div class="choice-grid c4"><button class="choice on" aria-pressed="true">None</button><button class="choice" aria-pressed="false">A little</button><button class="choice" aria-pressed="false">Moderate</button><button class="choice" aria-pressed="false">A lot</button></div>
+      <div class="q-label">Workload</div>
+      <div class="choice-grid c4"><button class="choice" aria-pressed="false">Easy</button><button class="choice on" aria-pressed="true">Pretty good</button><button class="choice" aria-pressed="false">Pushed my limits</button><button class="choice" aria-pressed="false">Too much</button></div>
+    </div>
+    <div class="card-actions"><button class="btn small subtle"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-edit"/></svg>Edit sets</button><button class="btn small subtle">Hide</button></div>
+  </div>
+</section>
+
+<div class="card ex-card compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-n">3</span>
+  <span class="grow"><span class="ex-fold-name">Machine Shoulder Press</span><span class="ex-fold-sub">3 × 10–12 · 90 lb</span></span>
+  <span class="delta good"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span><svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-d"/></svg>
+</button></div>
+<div class="card ex-card compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-n">4</span>
+  <span class="grow"><span class="ex-fold-name">Cable Lateral Raise</span><span class="ex-fold-sub">4 × 12–15 · 15 lb</span></span>
+  <svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-d"/></svg>
+</button></div>
+<div class="card ex-card compact"><button class="ex-fold" data-action="open-entry">
+  <span class="ex-fold-n">5</span>
+  <span class="grow"><span class="ex-fold-name">Triceps Pushdown</span><span class="ex-fold-sub">3 × 10–12 · 55 lb</span></span>
+  <span class="delta good"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-arrow-up"/></svg>5 lb</span><svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-d"/></svg>
+</button></div>
+<section class="card" id="cardio-card">
+  <div class="card-head"><div class="row"><span class="tile soft"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-heart"/></svg></span><div><h2>Incline treadmill walk</h2><div class="meta">20 min after lifting</div></div></div></div>
+  <div class="field-row">
+    <div class="field"><label>Incline %</label><input class="input num" type="number" inputmode="decimal" value="10"></div>
+    <div class="field"><label>Speed mph</label><input class="input num" type="number" inputmode="decimal" value="3.2"></div>
+  </div>
+  <div class="btn-row"><button class="btn ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-timer"/></svg>Start 20:00</button><button class="btn subtle">Done</button></div>
+</section>
+<button class="btn lg block ghost" data-action="finish">Finish workout</button>
+
+</main>
+
+<nav class="tabbar"><button class="tab active" data-screen="today"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>Today</button><button class="tab" data-screen="program"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-calendar"/></svg></span>Program</button><button class="tab" data-screen="exercises"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-list"/></svg></span>Exercises</button><button class="tab" data-screen="history"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-chart"/></svg></span>History</button><button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-gear"/></svg></span>Settings</button></nav>
+<div class="mock-home" aria-hidden="true"></div>
+</body>
+</html>

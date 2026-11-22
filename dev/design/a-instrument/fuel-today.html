@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" data-app="fuel" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fuel: Today</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+
+<!--BEGIN TODAY-->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><svg class="brand-mark"><use href="icons.svg#i-mark-fuel"/></svg><span>Today</span></div>
+    <!-- Day switcher -->
+    <div class="topbar-right f-daynav">
+      <button class="icon-btn" data-action="day-prev" aria-label="Previous day"><svg class="ic m"><use href="icons.svg#i-chev-l"/></svg></button>
+      <button class="f-daylabel num" data-action="day-pick" style="letter-spacing:0;font-weight:500;color:var(--ink-2)">THU 19 NOV</button>
+      <button class="icon-btn" data-action="day-next" aria-label="Next day" disabled style="margin-right:-12px"><svg class="ic m"><use href="icons.svg#i-chev-r"/></svg></button>
+    </div>
+  </div>
+</header>
+
+<main id="app" class="screen">
+
+  <!-- The number that matters: what is left today. The dial fills as you eat towards the target. -->
+  <section class="f-sum" aria-label="Calories today">
+    <div class="gauge">
+      <svg viewBox="0 0 320 168" role="img" aria-label="1,322 of 2,600 kcal eaten, 51 percent">
+        <defs>
+          <mask id="gauge-ticks" maskUnits="userSpaceOnUse" x="0" y="0" width="320" height="180">
+            <path d="M20 164a140 140 0 0 1 280 0" fill="none" stroke="#fff" stroke-width="18" pathLength="241" stroke-dasharray="1 3"/>
+          </mask>
+        </defs>
+        <g mask="url(#gauge-ticks)">
+          <path class="gauge-track" d="M20 164a140 140 0 0 1 280 0"/>
+          <path class="gauge-fill" d="M20 164a140 140 0 0 1 280 0" pathLength="100" stroke-dasharray="50.8 100"/>
+        </g>
+        <path class="gauge-rim" d="M38 164a122 122 0 0 1 244 0"/>
+        <path class="gauge-mark" d="M163 42L163.9 7"/>
+      </svg>
+      <div class="gauge-read">
+        <div class="label">kcal left</div>
+        <div class="f-big" style="font-size:64px">1,278</div>
+      </div>
+    </div>
+    <div class="row between small" style="max-width:340px;margin:8px auto 0;padding:0 4px">
+      <span class="num muted" style="font-weight:500">0</span>
+      <span class="dim"><span class="num" style="color:var(--ink)">1,322</span> eaten</span>
+      <button class="btn text small" data-action="set-target" aria-label="Target 2,600 kcal. Change" style="min-width:44px;padding:0;margin:-12px 0;justify-content:flex-end"><span class="num muted" style="font-weight:500">2,600</span></button>
+    </div>
+
+    <div class="f-macros">
+      <div class="f-macro"><div class="k">Protein</div><div class="v">133<span class="muted"> / 190 g</span></div><div class="f-bar"><span style="width:70%"></span></div></div>
+      <div class="f-macro"><div class="k">Carbs</div><div class="v">113<span class="muted"> / 280 g</span></div><div class="f-bar"><span style="width:40.4%"></span></div></div>
+      <div class="f-macro"><div class="k">Fat</div><div class="v">34<span class="muted"> / 80 g</span></div><div class="f-bar"><span style="width:42.5%"></span></div></div>
+    </div>
+  </section>
+
+  <!-- Breakfast -->
+  <section class="f-meal" data-meal="breakfast">
+    <div class="f-meal-head">
+      <h2>Breakfast</h2>
+      <div class="row"><span class="num">525</span><span class="u">kcal</span><button class="icon-btn f-more" data-action="meal-menu" aria-label="Breakfast menu"><svg class="ic"><use href="icons.svg#i-more"/></svg></button></div>
+    </div>
+    <button class="f-row" data-id="b1">
+      <span class="grow"><span class="title">Kodiak Power Waffles</span><div class="sub"><span class="amt">2 waffles (76 g)</span> · P 12 · C 22 · F 7</div></span>
+      <span class="f-rk">190</span>
+    </button>
+    <button class="f-row" data-id="b2">
+      <span class="grow"><span class="title">Eggs, large</span><div class="sub"><span class="amt">3 eggs (150 g)</span> · P 19 · C 1 · F 14</div></span>
+      <span class="f-rk">215</span>
+    </button>
+    <button class="f-row" data-id="b3">
+      <span class="grow"><span class="title">Fairlife milk, 2%</span><div class="sub"><span class="amt">1 cup (240 ml)</span> · P 13 · C 6 · F 5</div></span>
+      <span class="f-rk">120</span>
+    </button>
+    <button class="btn small ghost block f-add" data-action="add-food" data-meal="breakfast"><svg class="ic s"><use href="icons.svg#i-plus"/></svg>Add food</button>
+  </section>
+
+  <!-- Lunch -->
+  <section class="f-meal" data-meal="lunch">
+    <div class="f-meal-head">
+      <h2>Lunch</h2>
+      <div class="row"><span class="num">697</span><span class="u">kcal</span><button class="icon-btn f-more" data-action="meal-menu" aria-label="Lunch menu"><svg class="ic"><use href="icons.svg#i-more"/></svg></button></div>
+    </div>
+    <button class="f-row" data-id="l1">
+      <span class="grow"><span class="title">Chicken breast, cooked (roasted)</span><div class="sub"><span class="amt">200 g</span> · P 62 · C 0 · F 7</div></span>
+      <span class="f-rk">330</span>
+    </button>
+    <button class="f-row" data-id="l2">
+      <span class="grow"><span class="title">Rice, white, cooked</span><div class="sub"><span class="amt">250 g</span> · P 7 · C 70 · F 1</div></span>
+      <span class="f-rk">325</span>
+    </button>
+    <button class="f-row" data-id="l3">
+      <span class="grow"><span class="title">Broccoli, steamed</span><div class="sub"><span class="amt">120 g</span> · P 3 · C 8 · F 0</div></span>
+      <span class="f-rk">42</span>
+    </button>
+    <button class="btn small ghost block f-add" data-action="add-food" data-meal="lunch"><svg class="ic s"><use href="icons.svg#i-plus"/></svg>Add food</button>
+  </section>
+
+  <!-- Dinner: nothing yet -->
+  <section class="f-meal" data-meal="dinner">
+    <div class="f-meal-head">
+      <h2>Dinner</h2>
+      <div class="row"><span class="num muted">0</span><span class="u">kcal</span><button class="icon-btn f-more" data-action="meal-menu" aria-label="Dinner menu"><svg class="ic"><use href="icons.svg#i-more"/></svg></button></div>
+    </div>
+    <div class="empty" style="padding:18px 12px 6px">Nothing logged for dinner yet.</div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn small ghost" data-action="add-food" data-meal="dinner"><svg class="ic s"><use href="icons.svg#i-plus"/></svg>Add food</button>
+      <button class="btn small subtle" data-action="copy-yesterday" data-meal="dinner"><svg class="ic s"><use href="icons.svg#i-copy"/></svg>Copy yesterday</button>
+    </div>
+  </section>
+
+  <!-- Snacks -->
+  <section class="f-meal" data-meal="snacks">
+    <div class="f-meal-head">
+      <h2>Snacks</h2>
+      <div class="row"><span class="num">100</span><span class="u">kcal</span><button class="icon-btn f-more" data-action="meal-menu" aria-label="Snacks menu"><svg class="ic"><use href="icons.svg#i-more"/></svg></button></div>
+    </div>
+    <button class="f-row" data-id="s1">
+      <span class="grow"><span class="title">Greek yogurt, nonfat, plain</span><div class="sub"><span class="amt">170 g</span> · P 17 · C 6 · F 0</div></span>
+      <span class="f-rk">100</span>
+    </button>
+    <button class="btn small ghost block f-add" data-action="add-food" data-meal="snacks"><svg class="ic s"><use href="icons.svg#i-plus"/></svg>Add food</button>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-screen="today"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-gauge"/></svg></span>Today</button>
+  <button class="tab" data-screen="trends"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-chart-bar"/></svg></span>Trends</button>
+  <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-sliders"/></svg></span>Settings</button>
+</nav>
+<!--END TODAY-->
+
+</body>
+</html>

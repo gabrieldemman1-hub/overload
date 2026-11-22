@@ -1,0 +1,187 @@
+/*
+  ATHLETIC: one design system, two apps (Overload = training, Fuel = diet).
+  1. The number is the hero: rounded numerals (ui-rounded), one giant figure per screen, everything else steps down from it.
+  2. Deep neutral surfaces do the calm work. Each app owns exactly one two-stop gradient: Overload "Heat" (red to orange), Fuel "Fresh" (green to lime).
+  3. The gradient means "yours": the primary action, the set you are on, progress, the days you trained or logged. Text on it is always dark ink.
+  4. Every other colour is reserved: green = confirmed (a ticked set, a logged food, a target hit), gold = a record, amber = attention, rose = destructive or over.
+  5. Selection is ink, not colour (inverse chips and segments), so an hour in the gym is black, white, one gradient and a column of green ticks.
+
+  How the blocks work
+  - :root is the dark palette. The second block is the light palette and covers both mechanisms the app uses:
+    data-theme="light" on <html>, or the class system-light when the app follows the phone.
+  - The accent switches with data-app="overload" (default) or data-app="fuel" on <html>. An app block only sets the
+    raw stops (--a1, --a2, ink, text colours for each theme); the theme blocks turn them into the tokens components use.
+*/
+
+:root {
+  /* ---- Type -------------------------------------------------------------------------------- */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Rounded face for numerals and headings. Resolves to SF Pro Rounded on the iPhone; falls back to the UI face elsewhere. */
+  --font-round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Type scale: weight size/line-height family. Use with `font: var(--t-...)`. */
+  --t-hero: 800 64px/1 var(--font-round);      /* the one number of the screen: kcal left, the streak */
+  --t-display: 800 40px/1.05 var(--font-round);/* second-level figures: current weight, body weight */
+  --t-title: 800 30px/1.1 var(--font-round);   /* screen title */
+  --t-h2: 700 20px/1.25 var(--font-round);     /* card title, exercise name */
+  --t-h3: 700 17px/1.3 var(--font-round);      /* row title that needs weight */
+  --t-num: 700 24px/1 var(--font-round);       /* set inputs, stat values */
+  --t-body: 400 16px/1.4 var(--font-ui);
+  --t-sub: 400 14px/1.4 var(--font-ui);
+  --t-small: 400 13px/1.35 var(--font-ui);
+  --t-cap: 700 12px/1.2 var(--font-ui);        /* uppercase labels, with --track-cap */
+  --track-cap: 0.07em;
+
+  /* ---- Space, radius, size ------------------------------------------------------------------ */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+  --gutter: 16px;                 /* screen side padding (12px under 360px wide, see ui.css) */
+
+  --r-xs: 8px;                    /* small marks inside controls */
+  --r-sm: 12px;                   /* chips, small buttons */
+  --r-md: 16px;                   /* inputs, buttons, set-row controls */
+  --r-lg: 22px;                   /* cards */
+  --r-xl: 28px;                   /* hero cards, sheets */
+  --r-full: 999px;
+
+  --tap: 44px;                    /* minimum tap target */
+  --ctl: 52px;                    /* set-row controls: weight, reps, tick */
+  --topbar-h: 52px;
+  --tabbar-h: 60px;
+  --rest-h: 78px;                 /* docked rest timer, including its gap above the tab bar */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* ---- Motion ------------------------------------------------------------------------------ */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-1: 120ms;                 /* press feedback */
+  --dur-2: 240ms;                 /* sheets, fills */
+
+  /* ---- Brand constants: either app may show the other's mark (the "Food has moved" card, Fuel's welcome) ---- */
+  --heat-1: #FF3B30;  --heat-2: #FF8A1F;  --heat-ink: #1F0A03;     /* Overload */
+  --fresh-1: #0FBF63; --fresh-2: #A8EB45; --fresh-ink: #04210F;    /* Fuel */
+
+  /* ---- App accent: Overload "Heat" (default) ----------------------------------------------- */
+  --a1: var(--heat-1);            /* gradient start */
+  --a2: var(--heat-2);            /* gradient end */
+  --a-solid: #FF5A24;             /* flat accent for thin marks (chart lines, rings without gradient) */
+  --a-rgb: 255 90 36;             /* for tints and glows */
+  --a-ink: var(--heat-ink);       /* text and icons on the gradient */
+  --a-text-d: #FF7A52;            /* accent as text on dark surfaces */
+  --a-text-l: #C2310A;            /* accent as text on light surfaces */
+  --a-mark-l: #E8481A;            /* accent for thin marks on light surfaces (3:1 or better on white) */
+  --m1-l: #FF3B30;                /* gradient stops for data marks on light surfaces: deep enough for 3:1 */
+  --m2-l: #E05F00;
+
+  /* ---- Dark palette (default) --------------------------------------------------------------- */
+  --bg: #0B0C10;
+  --bg-2: #111318;                /* wells: tracks, inset blocks */
+  --card: #181A21;
+  --card-2: #21242D;              /* controls on a card */
+  --card-3: #2B2F3A;              /* pressed, raised control */
+  --fill: #272B36;                /* neutral buttons and chips: visible on a card and on the page */
+  --line: #262A34;                /* hairlines */
+  --line-2: #3A3F4D;              /* control borders */
+  --line-3: #6A7182;              /* borders that must be seen (3:1 on card): the empty tick */
+  --text: #F5F6F8;
+  --text-2: #BDC1CC;
+  --text-3: #9096A5;              /* muted, still 4.5:1 on every surface */
+  --inverse-bg: #F5F6F8;          /* selection: chosen chip, chosen segment */
+  --inverse-text: #0B0C10;
+  --track: #2B2F3A;               /* empty part of bars and rings */
+  --bar-bg: rgba(11, 12, 16, 0.84);
+  --scrim: rgba(0, 0, 0, 0.62);
+
+  --accent-grad: linear-gradient(135deg, var(--a1), var(--a2));   /* buttons, the current tab, tiles: always carries ink text */
+  --m1: var(--a1); --m2: var(--a2);
+  --mark-grad: linear-gradient(135deg, var(--m1), var(--m2));     /* data and state marks: rings, bars, trained days */
+  --on-accent: var(--a-ink);
+  --accent: var(--a-solid);
+  --accent-text: var(--a-text-d);
+  --accent-soft: rgb(var(--a-rgb) / 0.16);
+  --accent-wash: rgb(var(--a-rgb) / 0.13);       /* ambient glow behind the screen title */
+  --glow: 0 10px 28px -10px rgb(var(--a-rgb) / 0.7);
+
+  --ok: #34D17A;       --ok-ink: #04210F;  --ok-text: #4ADE8B;     --ok-soft: rgba(52, 209, 122, 0.14);
+  --warn: #FFB224;                         --warn-text: #FFC555;   --warn-soft: rgba(255, 178, 36, 0.14);
+  --danger: #FF4D6D;                       --danger-text: #FF7088; --danger-soft: rgba(255, 77, 109, 0.14);
+  --gold-grad: linear-gradient(135deg, #FFE066, #FFB300);
+  --gold-ink: #2B1B00; --gold-text: #FFD25A; --gold-soft: rgba(255, 200, 60, 0.14);
+
+  /* Chart series. Macros are a fixed categorical trio (validated for colour-blind separation, see README). */
+  --macro-p: #2E8CF0;             /* protein */
+  --macro-c: #C78400;             /* carbs */
+  --macro-f: #E0489E;             /* fat */
+  --sl-deep: #5B6CFF;             /* sleep: deep */
+  --sl-rem: #A78BFA;              /* sleep: REM */
+  --chart-grid: #262A34;
+  --chart-muted: #4A5060;         /* context series: daily dots behind an average line */
+
+  --e-1: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 24px -14px rgba(0, 0, 0, 0.6);
+  --e-2: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 6px rgba(0, 0, 0, 0.45), 0 16px 36px -10px rgba(0, 0, 0, 0.8);
+  --e-3: 0 -10px 44px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+/* Light palette. Applies when the user picks Light, or picks System and the phone is in light mode. */
+:root[data-theme="light"],
+:root:not([data-theme="dark"]).system-light {
+  --bg: #F1F2F5;
+  --bg-2: #E7E9EE;
+  --card: #FFFFFF;
+  --card-2: #F2F3F6;
+  --card-3: #E4E6EC;
+  --fill: #E6E8EE;
+  --line: #E4E6EB;
+  --line-2: #CFD3DB;
+  --line-3: #868C9B;
+  --text: #0E1016;
+  --text-2: #434956;
+  --text-3: #5F6573;
+  --inverse-bg: #0E1016;
+  --inverse-text: #FFFFFF;
+  --track: #ECEEF2;
+  --bar-bg: rgba(241, 242, 245, 0.88);
+  --scrim: rgba(14, 16, 22, 0.46);
+
+  --accent: var(--a-mark-l);
+  --m1: var(--m1-l); --m2: var(--m2-l);
+  --accent-text: var(--a-text-l);
+  --accent-soft: rgb(var(--a-rgb) / 0.12);
+  --accent-wash: rgb(var(--a-rgb) / 0.10);
+  --glow: 0 10px 24px -10px rgb(var(--a-rgb) / 0.55);
+
+  --ok: #14994F;       --ok-ink: #04210F;  --ok-text: #0B6B34;     --ok-soft: rgba(20, 153, 79, 0.12);
+  --warn: #C77700;                         --warn-text: #7A4A00;   --warn-soft: rgba(199, 119, 0, 0.13);
+  --danger: #D92B4B;                       --danger-text: #C01F3F; --danger-soft: rgba(217, 43, 75, 0.10);
+  --gold-ink: #2B1B00; --gold-text: #7A5200; --gold-soft: rgba(255, 190, 40, 0.22);
+
+  --macro-p: #0F6FD1;
+  --macro-c: #A65E00;
+  --macro-f: #C026A8;
+  --sl-deep: #3F4FD6;
+  --sl-rem: #8B6CF0;
+  --chart-grid: #E4E6EB;
+  --chart-muted: #B4B9C5;
+
+  --e-1: 0 1px 2px rgba(16, 20, 30, 0.06), 0 10px 24px -14px rgba(16, 20, 30, 0.2);
+  --e-2: 0 2px 6px rgba(16, 20, 30, 0.08), 0 16px 36px -10px rgba(16, 20, 30, 0.28);
+  --e-3: 0 -10px 44px rgba(16, 20, 30, 0.22);
+
+  color-scheme: light;
+}
+
+/* ---- App accent: Fuel "Fresh" ----------------------------------------------------------------- */
+:root[data-app="fuel"] {
+  --a1: var(--fresh-1);
+  --a2: var(--fresh-2);
+  --a-solid: #2BD06E;
+  --a-rgb: 38 208 110;
+  --a-ink: var(--fresh-ink);
+  --a-text-d: #4ADE8B;
+  --a-text-l: #0B6B34;
+  --a-mark-l: #12974E;
+  --m1-l: #0D9A4F;
+  --m2-l: #45991A;
+}

@@ -1,0 +1,22 @@
+/*
+  Mockups only. NOT part of the app.
+  Fakes the iPhone status bar and home indicator so the safe areas are visible in the screenshots,
+  and holds the few layout helpers that exist only to stage a mockup.
+*/
+:root { --safe-top: 47px; --safe-bottom: 34px; }            /* iPhone 14: 390 x 844 */
+@media (max-width: 359px) { :root { --safe-top: 20px; --safe-bottom: 0px; } }   /* 320 px phones have no notch */
+
+.mock-status {
+  position: fixed; z-index: 100; top: 0; left: 0; right: 0; height: var(--safe-top); pointer-events: none;
+  display: flex; align-items: center; justify-content: space-between; padding: 8px 30px 0 40px;
+  color: var(--text); font: 600 16px/1 var(--font-ui);
+}
+.mock-status svg { height: 12px; width: auto; fill: currentColor; }
+.mock-home { position: fixed; z-index: 100; left: 50%; bottom: 8px; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: var(--text); pointer-events: none; }
+@media (max-width: 359px) {
+  .mock-status { padding: 0 8px 0 12px; font-size: 12px; }
+  .mock-status svg { height: 9px; }
+  .mock-home { display: none; }
+}
+/* A sheet dims the status bar too */
+body.has-sheet .mock-status { color: #fff; }

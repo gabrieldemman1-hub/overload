@@ -1,0 +1,171 @@
+/* INSTRUMENT: design tokens for Overload (training) and Fuel (diet)
+ * 1. The screen is the display of a good piece of gym equipment: graphite faceplate, hairline rules, no decoration.
+ * 2. Numbers are the heroes: every measurement is set in the system monospace, tabular, bigger than the words around it.
+ * 3. Words are quiet: system sans for sentences, small tracked capitals for labels.
+ * 4. One signal colour per app (Overload vermilion, Fuel volt green), only for "this is live / do this next".
+ * 5. Light theme is the same instrument printed on paper: black ink, the same hairlines, the same signal.
+ *
+ * Structure: :root is dark. One light block covers data-theme="light" and the system-light class.
+ * The accent switches with data-app="overload" (default) or data-app="fuel" on <html>.
+ */
+
+:root {
+  /* ---- Type ---------------------------------------------------------- */
+  --font-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-num: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Roboto Mono", monospace;
+
+  /* Type scale (px). Words: label 11, small 13, body 15, title 17, head 22. */
+  --t-label: 11px;      /* tracked capitals: column heads, units, section labels */
+  --t-small: 13px;      /* secondary lines, captions */
+  --t-body: 15px;       /* rows, sentences */
+  --t-title: 17px;      /* row titles that lead, buttons */
+  --t-head: 22px;       /* exercise name, sheet title */
+  /* Numerals: readout 15, value 20, field 24, big 34, hero 56 (64 on the one hero per screen). */
+  --n-readout: 15px;
+  --n-value: 20px;
+  --n-field: 24px;
+  --n-big: 34px;
+  --n-hero: 56px;
+  --track-label: 0.08em;   /* letter-spacing of tracked capitals */
+  --track-num: -0.03em;    /* monospace digits are loose at display sizes: pull them in */
+
+  /* ---- Space: a 4 px grid -------------------------------------------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --gutter: 16px;          /* screen side padding; 12 px under 360 px wide (ui.css) */
+
+  /* ---- Shape ----------------------------------------------------------- */
+  --r-1: 2px;              /* data marks, tags, meter ends */
+  --r-2: 6px;              /* small keys, chips inside a control */
+  --r-3: 10px;             /* inputs, buttons, modules */
+  --r-4: 18px;             /* sheet top corners only */
+  --hair: 1px;             /* every rule and outline */
+  --tap: 44px;             /* smallest tap target */
+  --key: 56px;             /* set-row controls: weight, reps, tick */
+
+  /* ---- Layout ---------------------------------------------------------- */
+  --topbar-h: 48px;
+  --tabbar-h: 56px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --fast: 120ms;
+  --slow: 220ms;
+
+  /* ---- Graphite (dark) -------------------------------------------------- */
+  --bg: #0a0b0c;           /* the faceplate */
+  --panel: #111315;        /* a module set into it: exercise card, sheet */
+  --well: #171a1c;         /* inputs and keys */
+  --well-2: #212528;       /* pressed key, neutral selection */
+  --rule: #23272b;         /* hairline between things you read */
+  --rule-2: #30353a;       /* stronger hairline, meter track */
+  --edge: #636a71;         /* outline of anything you can tap or type in (3:1) */
+  --ink: #f2f3f4;          /* primary text, done ticks, selected segments */
+  --ink-2: #adb3ba;        /* secondary text */
+  --ink-3: #8a9199;        /* labels, units, captions (still 4.5:1) */
+  --ink-4: #5b6168;        /* disabled text, decorative ticks: never the only carrier of meaning */
+
+  /* Signal: Overload vermilion */
+  --accent: #ff5a2e;       /* fills, meters, the live mark */
+  --accent-ink: #ff5a2e;   /* the accent as text or icon on a surface */
+  --on-accent: #0a0b0c;    /* legend on an accent key: always the dark ink */
+  --accent-wash: rgba(255, 90, 46, 0.14);
+  --accent-wash-solid: #2c1611;  /* the wash over --bg, for contrast checks */
+  --accent-line: rgba(255, 90, 46, 0.5);
+
+  /* Status: states only, always with a word or an icon next to them */
+  --ok: #3ddc97;
+  --ok-ink: #3ddc97;
+  --warn: #f2b33d;
+  --warn-ink: #f2b33d;
+  --bad: #ff5c70;
+  --bad-ink: #ff5c70;
+  --ok-wash: rgba(61, 220, 151, 0.13);
+  --warn-wash: rgba(242, 179, 61, 0.13);
+  --bad-wash: rgba(255, 92, 112, 0.13);
+
+  /* Charts: an ordered neutral ramp; the accent marks the one thing that matters */
+  --series-1: #c5cad0;
+  --series-2: #7f868e;
+  --series-3: #474d53;
+  --grid: #23272b;
+
+  /* Layers */
+  --bar-bg: rgba(10, 11, 12, 0.93);        /* top bar, tab bar, rest dock: blurred */
+  --scrim: rgba(0, 0, 0, 0.62);            /* behind a sheet */
+  --shadow-up: 0 -1px 0 var(--rule-2);     /* sheet and dock: an edge, not a glow */
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
+
+/* ---- Paper (light). Applies when the user picks Light, or picks System and the phone is in light mode. */
+:root[data-theme="light"],
+:root:not([data-theme="dark"]).system-light {
+  --bg: #f7f7f4;
+  --panel: #ffffff;
+  --well: #ffffff;
+  --well-2: #ebebe6;
+  --rule: #deddd6;
+  --rule-2: #c9c8c0;
+  --edge: #85857d;
+  --ink: #0e0f11;
+  --ink-2: #474b51;
+  --ink-3: #62666c;
+  --ink-4: #9a9c9d;
+
+  --accent: #f04a1c;
+  --accent-ink: #c2300a;
+  --on-accent: #0a0b0c;
+  --accent-wash: rgba(240, 74, 28, 0.1);
+  --accent-wash-solid: #f6e6df;
+  --accent-line: rgba(194, 48, 10, 0.45);
+
+  --ok: #00997a;
+  --ok-ink: #00694f;
+  --warn: #c27c00;
+  --warn-ink: #835600;
+  --bad: #d42a48;
+  --bad-ink: #b81d3c;
+  --ok-wash: rgba(0, 153, 122, 0.12);
+  --warn-wash: rgba(194, 124, 0, 0.13);
+  --bad-wash: rgba(212, 42, 72, 0.1);
+
+  --series-1: #2b2e33;
+  --series-2: #7c8087;
+  --series-3: #adafb1;
+  --grid: #deddd6;
+
+  --bar-bg: rgba(247, 247, 244, 0.94);
+  --scrim: rgba(14, 15, 17, 0.42);
+  --shadow-up: 0 -1px 0 var(--rule-2), 0 -12px 40px rgba(14, 15, 17, 0.12);
+  --shadow-float: 0 10px 30px rgba(14, 15, 17, 0.18);
+  color-scheme: light;
+}
+
+/* ---- Fuel: the same instrument, a different signal ---------------------- */
+:root[data-app="fuel"] {
+  --accent: #c4f03a;
+  --accent-ink: #c4f03a;
+  --on-accent: #0a0b0c;
+  --accent-wash: rgba(196, 240, 58, 0.12);
+  --accent-wash-solid: #202612;
+  --accent-line: rgba(196, 240, 58, 0.45);
+}
+:root[data-app="fuel"][data-theme="light"],
+:root[data-app="fuel"]:not([data-theme="dark"]).system-light {
+  --accent: #3d8f1f;
+  --accent-ink: #2b6a12;
+  --on-accent: #0a0b0c;
+  --accent-wash: rgba(61, 143, 31, 0.12);
+  --accent-wash-solid: #e1ebda;
+  --accent-line: rgba(43, 106, 18, 0.45);
+}

@@ -1,0 +1,189 @@
+/*
+ * STUDIO: design tokens for Overload (training) and Fuel (diet).
+ *
+ * 1. A training journal and a food diary, typeset like a quiet magazine: warm paper and warm ink, never neutral grey.
+ * 2. Hierarchy comes from type and air. One number per screen is the biggest thing on it; borders are almost absent.
+ * 3. Groups are made by spacing and one-step tone shifts (page, surface, fill), not by outlines or shadows.
+ * 4. One accent per app, used only for: the one primary action, the thing that is current, and an achievement.
+ *    Overload is deep ember, Fuel is fresh herb. Everything that is merely "done" is ink, not colour.
+ * 5. Two plates: a weight plate and a dinner plate. Same system, same components, told apart by accent and glyph.
+ *
+ * How the switches work
+ *   Theme: :root is dark. Light applies with data-theme="light", or with the class system-light when the app
+ *          follows the phone (exactly the mechanism styles.css uses today). One palette block per theme.
+ *   App:   <html data-app="overload"> (default) or <html data-app="fuel">. The app block only points --accent*
+ *          at the ember or herb values of the active theme, so it is written once and never repeated per theme.
+ *          The attribute also works on any element, for the rare card that speaks for the other app.
+ */
+
+/* ---------- Theme-independent tokens ---------- */
+:root {
+  /* Type. System fonts only: SF on the phone. Display sizes ask for the display cut where one exists. */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Display", system-ui, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* The margin-note voice: exercise notes and editorial asides only. New York on iOS. Never for numbers. */
+  --font-note: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, "Liberation Serif", "Times New Roman", serif;
+
+  /* Type scale. Running text never goes below 12.5px; only uppercase labels (eyebrow, tab, tag) go to 10 to 11px at weight 600+. */
+  --t-hero: 64px;      /* the one number of the screen: kcal left, the rest clock */
+  --t-display: 34px;   /* screen title */
+  --t-title: 26px;     /* the card that leads the screen */
+  --t-heading: 20px;   /* card and exercise titles */
+  --t-num: 26px;       /* numbers you type between sets */
+  --t-body: 16px;
+  --t-small: 14px;
+  --t-caption: 12.5px;
+  --t-eyebrow: 11px;   /* uppercase, +0.09em, weight 600 */
+  --track-tight: -0.03em;
+  --track-snug: -0.018em;
+  --track-eyebrow: 0.09em;
+
+  /* Spacing: a 4px scale. Use these and nothing in between. */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px; --s-5: 20px;
+  --s-6: 24px; --s-7: 32px; --s-8: 40px; --s-9: 56px;
+  --gutter: 20px;        /* page side padding (16px under 360px wide) */
+  --card-pad: 20px;
+  --gap-card: 12px;      /* between cards of one group */
+  --gap-section: 32px;   /* between groups: this air is what replaces borders */
+
+  /* Radius */
+  --r-xs: 8px;   /* tags */
+  --r-sm: 12px;  /* small controls, segmented thumbs, chips */
+  --r-md: 16px;  /* inputs, number fields */
+  --r-lg: 24px;  /* cards */
+  --r-xl: 30px;  /* sheets, the rest dock */
+  --r-pill: 999px;
+
+  /* Sizes */
+  --tap: 44px;           /* minimum tap target */
+  --control: 48px;       /* default control height */
+  --control-lg: 56px;    /* primary action and set-row controls */
+  --topbar-h: 48px;
+  --tabbar-h: 58px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* Motion: short and optional. ui.css zeroes these under prefers-reduced-motion. */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-1: 120ms;  /* presses, ticks */
+  --dur-2: 240ms;  /* sheets, toasts */
+}
+
+/* ---------- Dark palette (default): warm off-black ---------- */
+:root {
+  color-scheme: dark;
+
+  --bg: #141210;          /* page */
+  --surface: #1D1A17;     /* card: one step up from the page */
+  --surface-2: #272320;   /* sheet, menu */
+  --thumb: #4D463F;       /* the chosen segment and other raised bits inside a fill: lighter than any fill */
+  --fill: rgba(243, 234, 220, 0.075);   /* quiet control fill: inputs, tonal buttons, chips */
+  --fill-2: rgba(243, 234, 220, 0.14);  /* tracks, pressed fills, idle tick */
+  --line: rgba(243, 234, 220, 0.10);    /* the rare hairline, inside lists only */
+
+  --ink: #F3EDE3;         /* primary text */
+  --ink-2: #C9C0B2;       /* secondary text */
+  --ink-3: #A39B8D;       /* tertiary text, still AA on page, surface and fill */
+  --ink-4: #6F685E;       /* non-text marks at 3:1 (planned-day ring, chevrons, chart baseline); never text */
+  --on-ink: #171411;      /* text on an ink-filled control (selected chip, ticked set) */
+
+  --dock-bg: #37312B;     /* rest timer and toast: the one lifted surface */
+  --dock-ink: #F3EDE3;
+  --dock-ink-2: #C9C0B2;
+  --dock-fill: rgba(243, 234, 220, 0.12);
+
+  --bar-bg: rgba(20, 18, 16, 0.86);     /* top bar and tab bar, behind a blur */
+  --scrim: rgba(8, 6, 5, 0.62);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.30), 0 14px 32px -14px rgba(0, 0, 0, 0.70);
+  --shadow-2: 0 -1px 0 rgba(243, 234, 220, 0.06), 0 -24px 60px -20px rgba(0, 0, 0, 0.80);
+
+  /* Accents, raw. --*-ink is the accent as text or icon on page and surface. */
+  --ember: #E8693C;        --ember-on: #1C0E07;  --ember-ink: #F08158;  --ember-soft: rgba(232, 105, 60, 0.16);  --ember-press: #D25B31;
+  --herb: #93C97F;         --herb-on: #0E1A0B;   --herb-ink: #9FD28B;   --herb-soft: rgba(147, 201, 127, 0.15);  --herb-press: #82B86F;
+  --ember-dock: #E8693C;   --herb-dock: #93C97F;   /* the accent on the dock surface */
+
+  /* States. Always paired with an icon or a word, never colour alone. */
+  --pos: #8FCB9A;   --pos-soft: rgba(143, 203, 154, 0.15);
+  --warn: #E3B55E;  --warn-soft: rgba(227, 181, 94, 0.15);
+  --neg: #F2877E;   --neg-soft: rgba(242, 135, 126, 0.14);
+
+  /* Chart series (marks only, text stays ink). Validated for colour-vision deficiency on --surface. */
+  --viz-1: #BD5235;  --viz-1-soft: rgba(189, 82, 53, 0.24);    /* protein: clay */
+  --viz-2: #AB932B;  --viz-2-soft: rgba(171, 147, 43, 0.24);   /* carbs: wheat */
+  --viz-3: #6A8CD8;  --viz-3-soft: rgba(106, 140, 216, 0.24);  /* fat: blueberry (also deep sleep) */
+  --viz-mute: #5D574F;                                         /* context bars, other sleep */
+}
+
+/* ---------- Light palette: warm paper. Applies when the user picks Light, or System on a light phone. ---------- */
+:root[data-theme="light"],
+:root:not([data-theme="dark"]).system-light {
+  color-scheme: light;
+
+  --bg: #F5F1E8;
+  --surface: #FDFBF6;
+  --surface-2: #FFFEFB;
+  --thumb: #FFFEFB;
+  --fill: rgba(52, 40, 20, 0.065);
+  --fill-2: rgba(52, 40, 20, 0.125);
+  --line: rgba(52, 40, 20, 0.11);
+
+  --ink: #1F1B16;
+  --ink-2: #4F483E;
+  --ink-3: #696155;
+  --ink-4: #8E867A;
+  --on-ink: #FBF8F2;
+
+  --dock-bg: #211D18;      /* in light the dock inverts: the one dark object on the page */
+  --dock-ink: #F7F2E9;
+  --dock-ink-2: #C9C0B2;
+  --dock-fill: rgba(247, 242, 233, 0.14);
+
+  --bar-bg: rgba(245, 241, 232, 0.88);
+  --scrim: rgba(31, 27, 22, 0.40);
+  --shadow-1: 0 1px 2px rgba(60, 45, 20, 0.08), 0 14px 30px -14px rgba(60, 45, 20, 0.30);
+  --shadow-2: 0 -24px 60px -24px rgba(60, 45, 20, 0.35);
+
+  --ember: #B5421D;        --ember-on: #FFF8F1;  --ember-ink: #A63A17;  --ember-soft: rgba(181, 66, 29, 0.10);  --ember-press: #9C3615;
+  --herb: #2F6B3D;         --herb-on: #F6FBF2;   --herb-ink: #2B6338;   --herb-soft: rgba(47, 107, 61, 0.11);  --herb-press: #275A33;
+  --ember-dock: #EC7347;   --herb-dock: #93C97F;   /* the dock is dark in light theme, so it takes the bright accent */
+
+  --pos: #2C6A41;   --pos-soft: rgba(44, 106, 65, 0.11);
+  --warn: #84590A;  --warn-soft: rgba(160, 110, 14, 0.14);
+  --neg: #A8262B;   --neg-soft: rgba(168, 38, 43, 0.09);
+
+  --viz-1: #A8492B;  --viz-1-soft: rgba(168, 73, 43, 0.16);
+  --viz-2: #B38A1E;  --viz-2-soft: rgba(179, 138, 30, 0.18);
+  --viz-3: #4C6FAE;  --viz-3-soft: rgba(76, 111, 174, 0.16);
+  --viz-mute: #CFC8BA;
+}
+
+/* ---------- App accent. Written once: it reads whichever theme's raw values are active. ---------- */
+:root,
+[data-app="overload"] {
+  --accent: var(--ember);            /* fills: primary button, next tick, active ring */
+  --on-accent: var(--ember-on);      /* text and icons on an accent fill */
+  --accent-ink: var(--ember-ink);    /* accent as text or icon on page and surface */
+  --accent-soft: var(--ember-soft);  /* tinted panels: next-time box, today cell */
+  --accent-press: var(--ember-press);
+  --dock-accent: var(--ember-dock);
+}
+[data-app="fuel"] {
+  --accent: var(--herb);
+  --on-accent: var(--herb-on);
+  --accent-ink: var(--herb-ink);
+  --accent-soft: var(--herb-soft);
+  --accent-press: var(--herb-press);
+  --dock-accent: var(--herb-dock);
+}
+
+/* Semantic aliases so screens read by meaning. */
+:root {
+  --viz-protein: var(--viz-1);  --viz-protein-soft: var(--viz-1-soft);
+  --viz-carbs: var(--viz-2);    --viz-carbs-soft: var(--viz-2-soft);
+  --viz-fat: var(--viz-3);      --viz-fat-soft: var(--viz-3-soft);
+  --sleep-deep: var(--viz-3);
+  --sleep-rem: var(--viz-2);
+  --sleep-other: var(--viz-mute);
+}

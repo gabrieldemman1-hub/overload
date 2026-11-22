@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" data-app="overload" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overload: Program</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><svg class="brand-mark"><use href="icons.svg#i-mark-overload"/></svg><span>Program</span></div>
+    <div class="topbar-right"><button class="btn small text" data-action="add-day" style="margin-right:-8px"><svg class="ic s"><use href="icons.svg#i-plus"/></svg>Day</button></div>
+  </div>
+</header>
+
+<main id="app" class="screen">
+
+  <!-- Program holds the plan and the exercise list: one tab instead of two -->
+  <div class="seg block" role="tablist" aria-label="Program sections">
+    <button class="on" role="tab" aria-selected="true">Plan</button>
+    <button role="tab" aria-selected="false">Exercises <span class="num" style="opacity:.7;margin-left:2px">42</span></button>
+  </div>
+
+  <!-- Weekly schedule: each weekday shows the letter of its training day. Tap a day to change it. -->
+  <div class="group-title">Weekly schedule<span class="end">6 days on</span></div>
+  <div class="day-strip mt8">
+    <button class="day-chip" data-field="schedule" data-i="0" aria-label="Monday: Chest &amp; Back">M<span class="daytag" style="margin-top:6px">A</span></button>
+    <button class="day-chip" data-field="schedule" data-i="1" aria-label="Tuesday: Legs">T<span class="daytag" style="margin-top:6px">B</span></button>
+    <button class="day-chip" data-field="schedule" data-i="2" aria-label="Wednesday: Shoulders &amp; Arms">W<span class="daytag" style="margin-top:6px">C</span></button>
+    <button class="day-chip today" data-field="schedule" data-i="3" aria-label="Thursday: Chest &amp; Back">T<span class="daytag" style="margin-top:6px">A</span></button>
+    <button class="day-chip" data-field="schedule" data-i="4" aria-label="Friday: Legs">F<span class="daytag" style="margin-top:6px">B</span></button>
+    <button class="day-chip" data-field="schedule" data-i="5" aria-label="Saturday: Shoulders &amp; Arms">S<span class="daytag" style="margin-top:6px">C</span></button>
+    <button class="day-chip rest" data-field="schedule" data-i="6" aria-label="Sunday: rest">S<span class="daytag rest" style="margin-top:6px">–</span></button>
+  </div>
+
+  <!-- Training days -->
+  <div class="card ex-card">
+    <div class="ex-head" style="padding-bottom:12px">
+      <div class="row" style="align-items:flex-start">
+        <span class="daytag on" style="margin-top:2px">A</span>
+        <div class="grow">
+          <h2>Chest &amp; Back</h2>
+          <div class="small muted" style="margin-top:2px">Mon · Thu · 6 exercises · <span class="num">19</span> sets</div>
+        </div>
+        <button class="btn small subtle" data-action="edit-day" style="margin:-4px -4px 0 0">Edit</button>
+      </div>
+    </div>
+    <div class="ex-body" style="padding-top:6px;padding-bottom:8px">
+      <div class="hist-set"><span>Incline Dumbbell Press</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Machine Chest Press</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Cable Fly</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Lat Pulldown</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Chest-Supported Row</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Seated Cable Row</span><span class="num nowrap">4×10–12</span></div>
+    </div>
+  </div>
+
+  <div class="card ex-card">
+    <div class="ex-head" style="padding-bottom:12px">
+      <div class="row" style="align-items:flex-start">
+        <span class="daytag on" style="margin-top:2px">B</span>
+        <div class="grow">
+          <h2>Legs</h2>
+          <div class="small muted" style="margin-top:2px">Tue · Fri · 6 exercises · <span class="num">19</span> sets</div>
+        </div>
+        <button class="btn small subtle" data-action="edit-day" style="margin:-4px -4px 0 0">Edit</button>
+      </div>
+    </div>
+    <div class="ex-body" style="padding-top:6px;padding-bottom:8px">
+      <div class="hist-set"><span>Leg Press</span><span class="num nowrap">4×10–12</span></div>
+      <div class="hist-set"><span>Romanian Deadlift</span><span class="num nowrap">3×8–10</span></div>
+      <div class="hist-set"><span>Leg Extension</span><span class="num nowrap">3×12–15</span></div>
+      <div class="hist-set"><span>Lying Leg Curl</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Standing Calf Raise</span><span class="num nowrap">3×10–12</span></div>
+      <div class="hist-set"><span>Pec Deck (FST-7) <span class="pill amber" style="margin-left:4px">FST-7</span></span><span class="num nowrap">7×10–12</span></div>
+    </div>
+  </div>
+
+  <div class="card ex-card compact">
+    <button class="ex-fold" data-action="edit-day">
+      <span class="daytag on">C</span>
+      <span class="grow"><span class="ex-fold-name">Shoulders &amp; Arms</span><span class="ex-fold-sub">Wed · Sat · 7 exercises · 21 sets</span></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+
+  <!-- The way into the built-in programs, and your own saved splits -->
+  <div class="group-title">Switch program</div>
+  <div class="list">
+    <button class="list-item" data-action="program-library">
+      <span class="lead"><svg class="ic"><use href="icons.svg#i-stack"/></svg></span>
+      <span class="grow"><span class="title">Program library</span><div class="sub">11 built-in: Bumstead, FST-7, RP Push/Pull/Legs…</div></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+    <button class="list-item" data-action="templates">
+      <span class="lead"><svg class="ic"><use href="icons.svg#i-copy"/></svg></span>
+      <span class="grow"><span class="title">Templates</span><div class="sub">2 saved · My 6-day split, Travel 3-day</div></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+  <button class="btn ghost block mt12" data-action="save-template">Save current program as template</button>
+</main>
+
+<nav class="tabbar">
+  <button class="tab" data-screen="today"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-dumbbell"/></svg></span>Today</button>
+  <button class="tab active" data-screen="program"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-plan"/></svg></span>Program</button>
+  <button class="tab" data-screen="history"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-chart-line"/></svg></span>History</button>
+  <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic"><use href="icons.svg#i-sliders"/></svg></span>Settings</button>
+</nav>
+
+</body>
+</html>
