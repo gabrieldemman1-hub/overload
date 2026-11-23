@@ -1,23 +1,28 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload ↔ connector (connector/worker.js on Cloudflare): WHOOP sleep sync and push reminders.
  *
- * Loaded after app.js; plugs in through window.__overloadConn (Settings cards, actions)
+ * Loaded after overload.js; plugs in through window.__overloadConn (Settings cards, actions)
  * and reads/writes state through window.__overload.
  *
  * Saved data (in state.settings, so it follows the cloud sync to other phones):
  *   connKey    random key that pairs this app with the connector (Authorization: Bearer)
  *   connUrl    the connector's address; connector.json (written by the deploy workflow) fills it
  *   reminders  { checkin, workout, food: { on, time: 'HH:MM' } }
+ * Since 3.0 the food log is its own app (Fuel), so this app cannot know whether food was logged today. The
+ * food reminder is no longer offered, and it is always sent to the connector as off, with nothing said about
+ * food being done (configNow). The saved reminders.food is left as it is: v2.8 needs it there to draw Settings.
  * WHOOP nights go into state.sleep as { date, total, rem, deep, light, recovery, rhr, hrv, perf, src: 'whoop' }.
  * A night typed in by hand keeps its numbers; WHOOP only adds recovery to it.
  */
 (function () {
   'use strict';
+  const icon = window.icon || (() => '');   // shared/icons.js. If it did not arrive the cards still work: buttons keep their labels
 
   const O = window.__overload;
   const { esc, todayKey, toast } = O.lib;
   const S = () => O.state;
   const DEFAULT_REMINDERS = { checkin: { on: true, time: '07:30' }, workout: { on: true, time: '17:00' }, food: { on: false, time: '20:30' } };
-  const LABELS = { checkin: ['Morning check-in', 'Weight and sleep. Skipped once logged'], workout: ['Workout', 'Training days only. Skipped once finished'], food: ['Food log', 'Evening nudge. Skipped if you logged food today'] };
+  const LABELS = { checkin: ['Morning check-in', 'Weight and sleep. Skipped once logged'], workout: ['Workout', 'Training days only. Skipped once finished'] };
   const cs = { status: null, loading: false, err: '', lastStatus: 0, lastSync: 0, syncing: false, pushOn: null, expired: false, code: '', pairMsg: '', lastTouch: 0, cardsHtml: '' };
   const local = { get: (k) => { try { return localStorage.getItem('overload.conn.' + k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem('overload.conn.' + k, v); } catch (e) { /* private mode */ } } };
 
@@ -282,8 +287,8 @@
     const st = S(), today = todayKey();
     const names = st.program.schedule.map((id) => { const d = id && st.program.days.find((x) => x.id === id); return d && d.exercises.length ? d.name : null; });
     const workoutDone = st.workouts.some((w) => w.finishedAt && w.date === today);
-    const foodDone = !!(st.diary && st.diary[today] && st.diary[today].length);
-    return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminders(), training: names, done: { checkin: O.checkinDone && O.checkinDone() ? today : null, workout: workoutDone ? today : null, food: foodDone ? today : null } };
+    const r = reminders();
+    return { tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: { checkin: r.checkin, workout: r.workout, food: { on: false, time: (r.food && r.food.time) || '20:30' } }, training: names, done: { checkin: O.checkinDone && O.checkinDone() ? today : null, workout: workoutDone ? today : null } };
   }
   let pushTimer = null;
   async function pushConfig(now) {
@@ -302,13 +307,13 @@
   function whoopCard() {
     if (!url()) {
       return '<div class="group-title">WHOOP</div><div class="card"><p class="small muted">Sleep, REM, deep and recovery from your WHOOP fill in on their own once the connector is set up (README → WHOOP and reminders).</p>'
-        + '<div class="field mt8"><label>Connector address</label><input class="input" placeholder="https://overload-connector….workers.dev" data-field="conn-url"></div></div>';
+        + '<div class="field mt8"><label>Connector address</label><input class="input" placeholder="https://overload-connector….workers.dev" data-field="conn-url" aria-label="Connector address"></div></div>';
     }
     const s = cs.status, w = s && s.whoop;
     let body;
     if (pairingOpen()) {
       body = '<p class="small mb8">At the end of the WHOOP login, a page shows a 6-digit code. Type it here to finish.</p>'
-        + '<div class="row"><input class="input" id="conn-code" data-field="conn-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456" aria-label="Code from the WHOOP page" value="' + esc(cs.code) + '" style="flex:1;min-width:0"><button class="btn" data-action="conn-pair">Pair</button></div>'
+        + '<div class="row"><input class="input" id="conn-code" data-field="conn-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456" aria-label="Code from the WHOOP page" value="' + esc(cs.code) + '"><button class="btn" data-action="conn-pair">Pair</button></div>'
         + (cs.pairMsg ? '<p class="small mt8">' + esc(cs.pairMsg) + '</p>' : '')
         + '<button class="btn subtle block mt8" data-action="conn-pair-cancel">Cancel</button>';
     } else if (cs.err === 'whoop-first') body = '<p class="small muted mb8">Log in once and your sleep fills in every morning. The last WHOOP page shows a code; typing it here pairs this phone with your connector (needed for reminders too).</p><button class="btn block" data-action="conn-whoop-connect">Connect WHOOP</button>';
@@ -321,7 +326,7 @@
       const last = Number(local.get('synced'));
       body = '<div class="row between"><div><b>Connected</b>' + (w.name ? ' · ' + esc(String(w.name)) : '') + '<div class="tiny muted">' + (last ? 'Last sync ' + new Date(last).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not synced yet') + '</div></div><span class="pill green">WHOOP</span></div>'
         + '<p class="tiny muted mt8">Time asleep, REM, deep and recovery fill in each morning. Nights you typed yourself keep your numbers.</p>'
-        + '<div class="btn-row mt8"><button class="btn ghost" data-action="conn-whoop-sync">Sync now</button><button class="btn subtle" data-action="conn-whoop-disconnect">Disconnect</button></div>';
+        + '<div class="btn-row mt8"><button class="btn ghost" data-action="conn-whoop-sync">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="conn-whoop-disconnect">Disconnect</button></div>';
     } else if (w.ready === false) body = '<p class="small muted">The connector is running, but the WHOOP keys are not set on it yet (WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET).</p>';
     else body = '<p class="small muted mb8">Log in once and your sleep fills in every morning.</p><button class="btn block" data-action="conn-whoop-connect">Connect WHOOP</button>';
     return '<div class="group-title">WHOOP</div><div class="card">' + body + '</div>';
@@ -335,18 +340,19 @@
     else if (!cs.pushOn) body = '<p class="small muted mb8">A notification at the times you pick. Nothing is sent once you have done it.</p><button class="btn block" data-action="conn-push-on">Turn on reminders</button>';
     else {
       const r = reminders();
-      body = Object.keys(LABELS).map((k) => '<div class="toggle-row" style="flex-direction:column;align-items:stretch;gap:8px"><div><div>' + LABELS[k][0] + '</div><div class="small muted">' + LABELS[k][1] + '</div></div><div class="row between" style="gap:8px">'
-        + '<input class="input" type="time" style="max-width:150px" value="' + esc(r[k].time) + '" data-field="conn-time" data-k="' + k + '"' + (r[k].on ? '' : ' disabled') + '>'
+      body = Object.keys(LABELS).map((k) => '<div class="toggle-row stack"><div><div>' + LABELS[k][0] + '</div><div class="small muted">' + LABELS[k][1] + '</div></div><div class="row between tight">'
+        + '<input class="input" type="time" value="' + esc(r[k].time) + '" data-field="conn-time" data-k="' + k + '" aria-label="' + LABELS[k][0] + ' reminder time"' + (r[k].on ? '' : ' disabled') + '>'
         + '<div class="seg"><button class="' + (r[k].on ? 'on' : '') + '" data-action="conn-rem" data-k="' + k + '" data-v="1">On</button><button class="' + (!r[k].on ? 'on' : '') + '" data-action="conn-rem" data-k="' + k + '" data-v="0">Off</button></div></div></div>').join('')
-        + '<div class="btn-row mt8"><button class="btn ghost" data-action="conn-push-test">Send a test</button><button class="btn subtle" data-action="conn-push-off">Turn off here</button></div>';
+        + '<div class="btn-row mt8"><button class="btn ghost" data-action="conn-push-test">' + icon('bell') + 'Send a test</button><button class="btn subtle" data-action="conn-push-off">Turn off here</button></div>';
     }
     return '<div class="group-title">Reminders</div><div class="card">' + body + '</div>';
   }
 
   // ---------------------------------------------------------------------------
-  // Hooks for app.js
+  // Hooks for overload.js
   // ---------------------------------------------------------------------------
   window.__overloadConn = {
+    release: '3.0',   // the release this file belongs to (bump.sh sets it): overload.js uses no connector of another release
     settingsCard() {
       if (url() && !cs.loading && Date.now() - cs.lastStatus > 60000) setTimeout(() => refreshStatus(), 0);
       if (cs.pushOn === null) checkPush().then(() => redrawCards());

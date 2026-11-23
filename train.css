@@ -1,0 +1,346 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
+/* Overload (training): the rules only this app needs. Load after shared/ui.css.
+ * Guide: dev/design/SYSTEM.md. Install as the app's own stylesheet (for example ./train.css next to index.html).
+ */
+
+/* Tabular figures on the training read-outs (see the note in shared/ui.css, section 1), and on numbers that line up
+   from row to row: a set list (Set 1, Set 2 … and its weights), and a past workout's facts in History (date, counts,
+   time, PRs). */
+.day-chip .d, .ex-target, .ex-last, .set-table, .rir-btn, .warmup-row b, .rest-time, .rest-of, .hist-set, .set-lbl,
+.list-item[data-action="view-workout"] .sub {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================ 1. Today */
+/* Week strip. One language with the calendar: the date sits in a cell;
+   .done = trained (solid), scheduled and still to come = outline, .today = accent ring, .rest / .past = bare.
+   <button class="day-chip today selected done"><span class="wd">S</span><span class="d">21</span></button> */
+.day-strip { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 16px; }
+.day-chip {
+  position: relative; min-height: 72px; padding: 8px 0 10px; background: none; border: 0; border-radius: var(--r-3);
+  display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--ink-3);
+  font-size: var(--t-label); font-weight: 700; letter-spacing: var(--track); text-transform: uppercase; line-height: 1.2;
+}
+.day-chip .d {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: var(--r-3);
+  border: 1px solid transparent; font-size: var(--t-title); font-weight: 700; letter-spacing: -0.01em; color: var(--ink);
+}
+.day-chip .d { border-color: var(--edge); }                                   /* scheduled, still to come */
+.day-chip.rest .d, .day-chip.past .d { border-color: transparent; color: var(--ink-3); font-weight: 500; }
+.day-chip.done .d { border-color: transparent; background: var(--solid); color: var(--on-solid); font-weight: 700; }
+.day-chip.today { color: var(--ink); }
+.day-chip.today .d { border: 2px solid var(--accent); }
+.day-chip.today.done .d { border: 0; width: 32px; height: 32px; margin: 2px 0; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+.day-chip.selected { background: var(--key); color: var(--ink); }
+.day-chip.selected::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 20px; height: 2px; margin-left: -10px; border-radius: 1px; background: var(--ink); }
+.day-chip.today.selected.done .d { box-shadow: 0 0 0 2px var(--key), 0 0 0 4px var(--accent); }
+.day-chip:active { background: var(--key-2); }
+.day-chip .dot { display: block; width: 6px; height: 6px; border-radius: 50%; }          /* the old markup, until .d replaces it */
+.day-chip.today .dot { background: var(--accent); }
+
+/* The day's card: name large, one line of facts, Start, then the two secondary starts.
+   It keeps the class "flat" from v2.8 (the tests find the card by it); .today-card gives it the panel back. */
+.card.today-card { background: var(--panel); }
+.today-card .card-head { margin-bottom: 14px; }
+.today-card h2 { font-size: var(--t-display); letter-spacing: -0.02em; line-height: 1.1; }
+.today-card .card-head .meta { font-size: 14px; color: var(--ink-2); margin-top: 6px; }
+.today-card > .list { margin-top: 12px; border-top: 1px solid var(--rule); }
+.today-card > .list .list-item:last-child { padding-bottom: 0; min-height: 47px; }
+.card-head .deload-start { flex: none; }
+
+/* Morning check-in */
+#checkin-card .toggle-row > :not(:first-child) { color: var(--ink-3); }
+/* Saved: title and Edit on one line, the recovery pill on the next (the markup keeps v2.8's order: title, pill, Edit). */
+.checkin-done > .row:first-child { flex-wrap: wrap; gap: 8px 12px; }
+.checkin-done > .row:first-child > .row { display: contents; }
+.checkin-done > .row:first-child > b { order: 0; flex: 1 1 calc(100% - 84px); min-width: 0; }   /* the title and Edit fill the first line */
+.checkin-done > .row:first-child .btn { order: 1; }
+.checkin-done > .row:first-child .pill { order: 2; }
+.checkin-done > .row:first-child + .small { margin-top: 6px; }
+.checkin-done b .ic { color: var(--ink-3); }
+
+/* The hand-over card: "Food has moved to Fuel" (SPEC 3.3). The tile carries data-app="fuel", so it is Fuel's colour.
+   No accent button in it: on Today, Start workout stays the one main action. */
+.handover-head { display: flex; align-items: center; gap: 12px; }
+.handover-head > b { flex: 1; min-width: 0; font-size: var(--t-title); font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; }
+.handover-head > p { flex: 1; min-width: 0; }
+.handover-head .icon-btn { margin: -4px -10px -4px 0; }
+.handover .btn { min-height: var(--tap); font-size: 14px; font-weight: 600; gap: 6px; }
+.handover .btn-row .btn { padding-left: 4px; padding-right: 4px; }
+.handover .btn .ic { width: 18px; height: 18px; stroke-width: 2.1; }
+.handover .btn.block { padding: 11px 8px; }
+.handover .steps > li { padding-bottom: 10px; }
+.handover .steps > li > b { display: block; font-size: var(--t-body); }
+.handover .banner { margin-bottom: 0; }
+.handover .break { overflow-wrap: anywhere; }
+.handover-remove { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); }
+/* On Today the card is short: the sentence and the two rows of keys, without step headings and fine print.
+   Settings has it in full ("This card is also in Settings, under Food"). */
+#handover[data-where="today"] .app-tile.l { width: 36px; height: 36px; border-radius: 9px; }
+#handover[data-where="today"] .steps { margin-top: 8px; }
+#handover[data-where="today"] .handover > .tiny { margin-top: 8px; }
+#handover[data-where="today"] .steps > li { padding: 0; }
+#handover[data-where="today"] .steps > li + li { margin-top: 8px; }
+#handover[data-where="today"] .steps > li::before, #handover[data-where="today"] .steps > li > b, #handover[data-where="today"] .more { display: none; }
+#handover[data-where="today"] .steps .btn-row { margin-top: 0; }
+
+/* ============================================================ 2. Workout: header */
+.deload-bar { margin: 0 0 12px; }
+.deload-toggle {
+  display: inline-flex; align-items: center; gap: 10px; min-height: var(--tap); padding: 0; border: 0; background: none;
+  color: var(--ink-2); font-weight: 600; font-size: 14px;
+}
+.deload-toggle .sw { position: relative; flex: none; width: 52px; height: 30px; border-radius: 15px; border: 1.5px solid var(--edge); }   /* the size of .switch */
+.deload-toggle .sw::after { content: ""; position: absolute; top: 3.5px; left: 3.5px; width: 20px; height: 20px; border-radius: 50%; background: var(--edge); transition: transform var(--fast) var(--ease); }
+.deload-toggle.on { color: var(--warn-ink); }
+.deload-toggle.on .sw { background: var(--warn); border-color: var(--warn); }
+.deload-toggle.on .sw::after { transform: translateX(22px); background: var(--on-accent); }
+.deload-hint { margin-top: 4px; padding: 10px 12px; border-radius: var(--r-3); background: var(--warn-wash); color: var(--ink); line-height: 1.4; }
+/* The soreness check-in folded to one line once answered */
+.card.fold-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 4px 4px var(--pad); min-height: 54px; }
+.card.fold-row > b:first-child { display: inline; margin: 0; font-size: var(--t-body); font-weight: 600; letter-spacing: 0; color: var(--ink-2); }
+.fold-row .btn { border-color: transparent; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ============================================================ 3. Questions: soreness, feedback */
+/* Joined answer keys in one outline; the picked answer is solid ink. Three answers sit in a row,
+   four make a 2 x 2 block (the long labels need the width). No markup change. */
+.prompt { margin-top: 16px; }
+#soreness-card .prompt:first-of-type { margin-top: 8px; }
+.ex-body > .prompt { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.prompt-q { font-weight: 600; font-size: var(--t-body); line-height: 1.4; margin-bottom: 10px; }
+.prompt-q .hint { color: var(--ink-3); font-weight: 400; }
+.prompt .label { margin: 14px 0 6px; }
+.choice-grid {
+  display: flex; flex-wrap: wrap; gap: 1px; border: 1px solid var(--edge); border-radius: var(--r-3); overflow: hidden; background: var(--edge);
+}
+.choice {
+  flex: 1 1 calc(50% - 1px); min-width: 0; min-height: 48px; padding: 6px 6px; border: 0; border-radius: 0; background: var(--key);
+  color: var(--ink); font-size: 14px; font-weight: 600; line-height: 1.2; text-align: center; overflow-wrap: break-word;
+}
+.choice:first-child:nth-last-child(3), .choice:first-child:nth-last-child(3) ~ .choice { flex-basis: calc(33.333% - 1px); }
+.choice:active { background: var(--key-2); }
+.choice.on { background: var(--solid); color: var(--on-solid); }
+
+/* ============================================================ 4. Exercise card */
+.ex-card { padding: 0; overflow: hidden; }
+.ex-head { padding: 12px var(--pad) 10px; }
+.ex-head > .row.between { align-items: flex-start; flex-wrap: wrap; gap: 6px 12px; }   /* the pills drop under a long name instead of squeezing it */
+.ex-head > .row > .row { flex: none; gap: 6px; }
+.ex-name { flex: 1 1 200px; font-size: var(--t-title); font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; min-width: 0; overflow-wrap: anywhere; }
+/* A finished exercise that is open: the solid tick of the folded row, before its name. */
+.ex-card.done:not(.compact) .ex-name::before {
+  content: ""; display: inline-block; width: 20px; height: 20px; margin-right: 8px; vertical-align: -3px; border-radius: 6px; background: var(--solid);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill-rule='evenodd' d='M6 0h8a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6H6a6 6 0 0 1-6-6V6a6 6 0 0 1 6-6zm8.9 6.1a1.1 1.1 0 0 0-1.6 0L8.6 11 6.7 9.1a1.1 1.1 0 0 0-1.6 1.6l2.7 2.7a1.1 1.1 0 0 0 1.6 0l5.5-5.7a1.1 1.1 0 0 0 0-1.6z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill-rule='evenodd' d='M6 0h8a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6H6a6 6 0 0 1-6-6V6a6 6 0 0 1 6-6zm8.9 6.1a1.1 1.1 0 0 0-1.6 0L8.6 11 6.7 9.1a1.1 1.1 0 0 0-1.6 1.6l2.7 2.7a1.1 1.1 0 0 0 1.6 0l5.5-5.7a1.1 1.1 0 0 0 0-1.6z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* The target leads: <div class="ex-target"><span class="num">150</span><span class="u">lb</span><span class="x">×</span><span class="num">12</span></div> */
+.ex-target {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px; margin-top: 4px;
+  font-size: var(--n-big); font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--ink);
+}
+.ex-target .num { font-weight: 700; letter-spacing: inherit; }
+.ex-target .u { font-size: var(--t-title); font-weight: 600; color: var(--ink-2); margin: 0; }
+.ex-target .x { font-size: 22px; font-weight: 500; color: var(--ink-3); margin: 0 2px; }
+.ex-presc { color: var(--ink-2); font-size: 14px; margin-top: 2px; line-height: 1.45; }
+.ex-presc strong { color: var(--ink); font-weight: 700; }
+.ex-last { color: var(--ink-3); font-size: var(--t-small); margin-top: 2px; line-height: 1.45; }
+/* The note: a quiet line with an icon, no box. '<div class="ex-note">' + icon('note', 's') + text */
+.ex-note { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; font-size: var(--t-small); font-weight: 500; line-height: 1.4; color: var(--ink); }
+.ex-note .ic { color: var(--ink-3); margin-top: 1px; }
+/* Why the plan is what it is. Default: neutral. .green: the weight or sets went up. .warn: take care. .pr: a record. */
+.ex-reason {
+  margin-top: 10px; padding: 8px 10px; border-left: 3px solid var(--edge); border-radius: 0 var(--r-2) var(--r-2) 0;
+  background: var(--key); color: var(--ink); font-size: var(--t-small); line-height: 1.4;
+}
+.ex-reason.green { border-left-color: var(--ok); background: var(--ok-wash); }
+.ex-reason.warn { border-left-color: var(--warn); background: var(--warn-wash); }
+.ex-reason.pr { border-left-color: var(--accent); background: var(--accent-wash); }
+.ex-reason .ic { color: var(--accent-ink); margin-right: 4px; }
+.ex-body { border-top: 1px solid var(--rule); padding: 10px var(--pad) var(--pad); }
+.ex-card .card-actions .btn { min-height: var(--tap); }
+
+/* A finished exercise folded to one row. The name wraps; it is never cut. */
+.ex-card.compact { background: transparent; margin-bottom: 8px; }
+.ex-fold {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 7px 10px 7px 12px;
+  border: 0; background: none; color: var(--ink); text-align: left;
+}
+.ex-fold:active { background: var(--key); }
+.ex-fold-tick {
+  width: 28px; height: 28px; flex: none; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--solid); color: var(--on-solid); font-size: 15px; font-weight: 800;
+}
+.ex-fold-tick .ic { width: 18px; height: 18px; stroke-width: 2.8; }
+.ex-fold-name { display: block; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.ex-fold-sub { display: block; font-size: var(--t-small); color: var(--ink-3); margin-top: 1px; }
+.ex-fold .pill { flex: none; }
+
+/* ============================================================ 5. The set row: the most used controls in the app */
+/* 56 px keys, 24 px digits.
+   pending  outlined wells, outlined tick
+   .next    the one live row: accent rail, accent-outlined tick, the goal dimmed in the reps box with GOAL under it
+   .done    recorded: the wells go, the numbers are bare ink, the tick is solid */
+.set-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.set-table th { padding: 0 0 4px; text-align: center; font-size: var(--t-label); font-weight: 700; letter-spacing: var(--track); text-transform: uppercase; color: var(--ink-3); }
+.set-table th.n, .set-table td.n { width: 28px; text-align: left; }
+.set-table th:last-child, .set-table td.chk { width: calc(var(--set) + 6px); text-align: right; }
+.set-table td { position: relative; padding: 3px 4px; vertical-align: middle; }
+.set-table td:first-child { padding-left: 0; }
+.set-table td:last-child { padding-right: 0; }
+.set-table td.n { font-size: var(--t-body); font-weight: 700; color: var(--ink-3); }
+.set-input {
+  display: block; width: 100%; height: var(--set); padding: 0 2px; border-radius: var(--r-3);
+  background: var(--well); border: 1px solid var(--edge); color: var(--ink); text-align: center;
+  font-size: clamp(20px, 6.2vw, var(--n-field)); font-weight: 700; letter-spacing: -0.01em;
+  -webkit-appearance: none; appearance: none;
+}
+.set-input::placeholder { color: var(--ink-3); font-weight: 600; opacity: 1; }
+.set-input:focus, .set-row.done .set-input:focus { outline: none; background: var(--well); border-color: var(--accent-ink); box-shadow: 0 0 0 1px var(--accent-ink); }
+.set-input:disabled { opacity: 1; -webkit-text-fill-color: currentColor; }
+/* "Goal" under the dimmed number: '<input class="set-input" ... placeholder="12"><span class="set-hint">Goal</span>' */
+.set-hint {
+  display: none; position: absolute; left: 4px; right: 4px; bottom: 9px; text-align: center; pointer-events: none;
+  font-size: var(--t-label); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); line-height: 1;
+}
+/* Only the reps box: the weight box's placeholder is the unit and has nothing under it. */
+.set-row.next .set-input[data-field="reps"]:placeholder-shown + .set-hint { display: block; }
+.set-row.next .set-input[data-field="reps"]:placeholder-shown { padding-bottom: 13px; }
+.check {
+  width: var(--set); height: var(--set); padding: 0; border-radius: var(--r-3); display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1.5px solid var(--edge); color: var(--ink-3); font-size: 24px; font-weight: 700;
+  transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.check .ic { width: 28px; height: 28px; stroke-width: 2.2; }
+.check:active { transform: scale(0.96); }
+.check.small { width: var(--tap); height: var(--tap); font-size: 18px; }
+.check.small .ic { width: 22px; height: 22px; }
+.check.on { background: var(--solid); border-color: var(--solid); color: var(--on-solid); }
+.check.on .ic { stroke-width: 2.8; }
+.check:disabled { opacity: 1; }
+.set-row.done .set-input { background: transparent; border-color: transparent; }
+.set-row.done td.n { color: var(--ink); }
+.set-row.next td.n { color: var(--accent-ink); }
+.set-row.next td.n::before {   /* the rail, on the card's left edge */
+  content: ""; position: absolute; left: calc(-1 * var(--pad)); top: 3px; bottom: 3px; width: 3px; background: var(--accent); border-radius: 0 2px 2px 0;
+}
+.set-row.next .check { border: 2px solid var(--accent); color: var(--accent-ink); background: var(--next-wash, var(--accent-wash)); }
+.set-row.next { --next-wash: rgba(255, 90, 46, 0.24); }     /* the next tick is the liveliest mark in the card */
+
+/* Reps in reserve: four separate 44 px keys under each set. Greyed until the set is ticked, so nothing moves. */
+.set-table .rir-row td { padding: 3px 0 9px; }
+.rir-pick { display: flex; align-items: stretch; gap: 6px; }
+.rir-label {
+  flex: none; width: 40px; align-self: center; font-size: var(--t-label); font-weight: 700; letter-spacing: 0.04em; line-height: 1.25;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.rir-btn {
+  flex: 1 1 0; min-width: 0; min-height: var(--tap); padding: 0; border-radius: var(--r-3); background: var(--key); color: var(--ink);
+  border: 1px solid var(--edge); font-size: var(--t-title); font-weight: 700;
+}
+.rir-btn:active { background: var(--key-2); }
+.rir-btn.on { background: var(--solid); border-color: var(--solid); color: var(--on-solid); }
+/* Answered: the three keys not picked step back (they stay tappable), so a recorded row reads as recorded. */
+.rir-pick:has(.rir-btn.on) .rir-btn:not(.on) { background: none; border-color: var(--rule-2); color: var(--ink-3); }
+/* Not ticked yet: the label stays readable, the four keys are bare faded digits. No outline: an outline means tappable. */
+.rir-row.idle .rir-btn { pointer-events: none; background: none; border-color: transparent; color: var(--ink-4); -webkit-text-fill-color: var(--ink-4); }
+
+.set-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.set-tools .btn { width: 100%; padding-left: 4px; padding-right: 4px; gap: 6px; font-size: var(--t-small); }
+.set-tools.secondary { grid-template-columns: 1fr 1fr; }
+
+/* Warm-up ramp: a quiet inset above the working sets (no dashed border: that reads as a drop zone) */
+.warmups { border: 1px solid var(--rule-2); border-radius: var(--r-3); padding: 0 4px 0 12px; margin-bottom: 12px; }
+.warmups > .row { min-height: var(--tap); }
+.warmups > .row .btn { min-width: var(--tap); padding: 0; border-color: transparent; }
+.warmup-row { display: flex; align-items: center; gap: 12px; min-height: 52px; color: var(--ink-2); font-size: var(--t-body); border-top: 1px solid var(--rule); }
+.warmup-row b { color: var(--ink); font-size: var(--t-title); }
+.warmup-row .n { width: 28px; font-size: var(--t-small); font-weight: 700; color: var(--ink-3); }
+.warmup-row.done, .warmup-row.done b { color: var(--ink-3); }
+
+/* What the app decided for next time */
+/* The number leads here too: a NEXT TIME label, the target line (.ex-target), the facts (.ex-presc), then the reasons.
+   '<div class="next-box"><div class="label">Next time</div><div class="ex-target">…</div><div class="ex-presc">3 sets · 10–12 reps</div><ul>…</ul></div>' */
+.next-box { padding: 14px 16px; border-radius: var(--r-3); background: var(--key); font-size: 14px; line-height: 1.5; }
+.next-box .label { margin-bottom: 2px; }
+.next-box .ex-target { margin-top: 0; }
+.next-box .headline { font-weight: 700; font-size: var(--t-title); letter-spacing: -0.01em; line-height: 1.3; }   /* the old one-line form, and "Deload: plan kept" */
+.next-box ul { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); font-size: var(--t-small); }
+
+/* Cardio card. The two lines share one grid cell so Done never changes the card's height. */
+#cardio-card .field-row { margin-top: 12px; }
+#cardio-card .field { margin-bottom: 10px; }
+#cardio-card .input { text-align: center; padding: 0 4px; }
+.cardio-line { display: grid; }
+.cardio-line > span { grid-area: 1 / 1; }
+.cardio-line > .off { visibility: hidden; }
+
+/* ============================================================ 6. Rest timer: docked on the tab bar */
+/* A dark object in both themes (its tokens are re-declared dark in shared/ui.css). Full width, tick meter on its top edge.
+   The meter moves in steps, one per second: no transition, so nothing repaints between ticks. */
+.rest-timer {
+  position: fixed; left: 0; right: 0; bottom: calc(var(--tabbar-h) + var(--safe-bottom)); z-index: 25;
+  /* The dock is a step lighter than a card, so it is an object on the dark page too. Its own surface values: */
+  --dock: #272b2f; --key: #343a40; --key-2: #3f454b; --rule-2: #4a5057;
+  --edge: #868d95;          /* on these lighter surfaces an outline needs more light to keep 3:1 */
+  display: flex; flex-direction: column-reverse; background: var(--dock); color: var(--ink);
+  box-shadow: 0 -1px 0 var(--key-2), 0 -12px 28px rgba(0, 0, 0, 0.45);
+}
+.rest-timer-inner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; max-width: 640px; margin: 0 auto;
+  padding: 8px calc(var(--gutter) + var(--safe-right)) 10px calc(var(--gutter) + var(--safe-left));
+}
+.rest-timer-inner > div:first-child { min-width: 0; }
+.rest-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rest-label { flex: none; font-size: var(--t-label); font-weight: 700; letter-spacing: var(--track); text-transform: uppercase; color: var(--accent-ink); }
+.rest-next { min-width: 0; font-size: var(--t-small); font-weight: 500; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rest-next:empty, .rest-of:empty { display: none; }
+.rest-clock { display: flex; align-items: baseline; gap: 8px; }
+.rest-time { font-size: var(--n-big); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.rest-of { font-size: var(--t-body); font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+.rest-actions { display: flex; gap: 8px; flex: none; }
+/* Both are neutral keys on the dock's own --key, whatever class the markup gives them (v2.8 wrote Skip as a primary button). */
+.rest-actions .btn { min-width: 64px; font-weight: 700; background: var(--key); color: var(--ink); border-color: var(--edge); }
+.rest-actions .btn:active { background: var(--key-2); filter: none; }
+.rest-bar { height: 8px; background: repeating-linear-gradient(90deg, var(--rule-2) 0, var(--rule-2) 2px, transparent 2px, transparent 5px); }
+.rest-bar-fill { height: 100%; width: 100%; background: repeating-linear-gradient(90deg, var(--accent) 0, var(--accent) 2px, transparent 2px, transparent 5px); }
+
+/* ============================================================ 7. Past sets, review, sleep */
+.hist-set { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-height: 30px; padding: 4px 0; font-size: 14px; color: var(--ink-2); }
+.hist-set > span:last-child { text-align: right; }
+.hist-set b { color: var(--ink); }
+.hist-set .pill { min-height: 20px; padding: 0 6px; font-size: 11px; vertical-align: 1px; }
+.card.flat > .hist-set:first-of-type { margin-top: 6px; }
+/* Names he typed, when one is a single long word, break inside their card: the workout and its exercises in Edit sets,
+   the last workout at the foot of Today, a program day's exercises on Program. */
+.card.flat > b, #edit-workout-form > p, .screen > p.center, .card-head + .small { overflow-wrap: anywhere; }
+.hist-set > span:only-child { text-align: left; }   /* one sentence, not a label and its numbers (the cardio line of a past workout) */
+.set-lbl { width: 52px; flex: none; white-space: nowrap; color: var(--ink-3); font-size: var(--t-small); }
+/* Edit sets: the label, then the weight and the reps box sharing what is left of the row.
+   '<div class="row mt8"><span class="set-lbl">Set 1</span><input class="input num fill" …><input class="input num fill" …></div>' */
+.row > .input.num.fill { flex: 1 1 0; width: auto; min-width: 0; }
+/* Edit exercise: three boxes in a row stay level when one label needs two lines (a small phone). */
+#ex-form .field-row { align-items: flex-end; }
+/* A record: trophy and text in the accent ink. '<div class="pr-line">' + icon('trophy', 's') + text */
+.pr-line { display: flex; gap: 6px; margin-top: 8px; font-size: var(--t-small); font-weight: 600; color: var(--accent-ink); line-height: 1.4; }
+.pr-line .ic { margin-top: 1px; }
+.review-list { margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; }   /* exercise names: a long word breaks */
+.review-list > li, .review-list > div { padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.review-list > :last-child { border-bottom: 0; }
+.review-list b { color: var(--ink); }
+.review-list .ic { color: var(--accent-ink); margin-right: 2px; }
+/* Sleep: deep, REM, light as the neutral ramp, strongest first */
+.chart .sl-deep, .sl-key.sl-deep { fill: var(--series-1); background: var(--series-1); }
+.chart .sl-rem, .sl-key.sl-rem { fill: var(--series-2); background: var(--series-2); }
+.chart .sl-other, .sl-key.sl-other { fill: var(--series-3); background: var(--series-3); }
+.sl-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* ============================================================ 8. Small phones */
+@media (max-width: 359px) {
+  /* Seven across goes full width to keep 44 px cells */
+  .day-strip { margin-left: calc(-1 * var(--gutter)); margin-right: calc(-1 * var(--gutter)); }
+  .set-table th.n, .set-table td.n { width: 22px; }
+  .rir-label { width: 34px; }
+  .rest-of { display: none; }
+  .ex-target .u { font-size: var(--t-body); }
+  .choice { font-size: var(--t-small); }
+}

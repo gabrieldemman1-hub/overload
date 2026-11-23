@@ -1,0 +1,1165 @@
+{
+  "generated": "2026-11-22T04:53:13.315Z",
+  "today": "2026-11-21",
+  "fixtures": {
+    "v28-state": {
+      "counts": {
+        "bytes": 699190,
+        "chars": 694524,
+        "exercises": 81,
+        "customExercises": 1,
+        "exercisesWithOverrides": 8,
+        "programDays": 6,
+        "scheduledDays": 5,
+        "templates": 2,
+        "workouts": 70,
+        "finishedWorkouts": 70,
+        "activeWorkout": false,
+        "firstWorkout": "2026-08-01",
+        "lastWorkout": "2026-11-20",
+        "deloadWorkouts": 2,
+        "workoutsWithCardio": 57,
+        "exerciseEntries": 418,
+        "sets": 1303,
+        "setsNotDone": 17,
+        "setsTickedWithoutTyping": 514,
+        "setsWithRir": 1104,
+        "entriesWithWarmups": 70,
+        "entriesWithFeedback": 352,
+        "entriesWithPrs": 234,
+        "workoutsWithPrs": 62,
+        "swappedEntries": 3,
+        "entriesOfDeletedExercises": 2,
+        "prescriptions": 37,
+        "bodyWeightDays": 96,
+        "nights": 101,
+        "nightsFromWhoop": 63,
+        "nightsTypedWithRecovery": 8,
+        "nightsTypedOnly": 30,
+        "foodDays": 110,
+        "foodEntries": 1576,
+        "minEntriesADay": 9,
+        "maxEntriesADay": 16,
+        "quickAddEntries": 39,
+        "entriesInMl": 71,
+        "entriesOfDeletedFoods": 2,
+        "entriesWithFractionalAt": 3,
+        "savedFoods": 64,
+        "customFoods": 4,
+        "customFoodsWithBarcode": 2,
+        "correctedListedFoods": 1,
+        "foodsWithBarcode": 18,
+        "liquidFoods": 7,
+        "favourites": 6,
+        "savedMeals": 3,
+        "targets": {
+          "kcal": 2400,
+          "protein": 190,
+          "carbs": 240,
+          "fat": 75
+        },
+        "deleted": {
+          "food": 11,
+          "bw": 2,
+          "sleep": 2,
+          "workouts": 2
+        },
+        "settings": {
+          "units": "lb",
+          "increment": 5,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 150,
+          "maxSets": 6,
+          "defaultSets": 3,
+          "theme": "dark",
+          "trackRir": true,
+          "weighEvery": 1,
+          "volumeMin": 10,
+          "volumeMax": 20,
+          "warmupRest": 45,
+          "incDumbbell": 5,
+          "incMachine": 5,
+          "incCable": 5,
+          "cardioOn": true,
+          "cardioMin": 25,
+          "cardioName": "Incline walk",
+          "sleepOn": true,
+          "checkinV": 1,
+          "reminders": {
+            "checkin": {
+              "on": true,
+              "time": "07:30"
+            },
+            "workout": {
+              "on": true,
+              "time": "17:00"
+            },
+            "food": {
+              "on": false,
+              "time": "20:30"
+            }
+          }
+        },
+        "topLevelKeys": [
+          "v",
+          "settings",
+          "exercises",
+          "presc",
+          "program",
+          "workouts",
+          "active",
+          "bodyweight",
+          "sleep",
+          "templates",
+          "libVersion",
+          "deleted",
+          "food",
+          "diary"
+        ]
+      },
+      "roundTrip": true,
+      "today": {
+        "title": "Today",
+        "sub": "Sat, Nov 21",
+        "activeWorkout": false,
+        "streakBanner": "🔥 7-day streak. Keep it going.",
+        "checkin": "Morning check-in ✓Recovery 71%Edit183.6 lb · Slept 7h 38m · REM 1h 27m (19%) · deep 1h 19m (17%) (WHOOP)7-night average 6h 56m · REM 1h 29m · deep 1h 15m",
+        "dayCard": "Lower",
+        "dayMeta": "Saturday · 6 exercises",
+        "plan": [
+          {
+            "name": "Hack Squat",
+            "text": "5 × 8–12 @ 195 lb · goal 12"
+          },
+          {
+            "name": "Hip Thrust",
+            "text": "4 × 8–12 @ 250 lb · goal 12"
+          },
+          {
+            "name": "Seated Leg Curl",
+            "text": "3 × 8–12 @ 115 lb · goal 12"
+          },
+          {
+            "name": "Leg Extension",
+            "text": "3 × 8–12 @ 155 lb · goal 12"
+          },
+          {
+            "name": "Seated Calf Raise",
+            "text": "3 × 8–12 @ 110 lb · goal 10"
+          },
+          {
+            "name": "Cable Crunch",
+            "text": "4 × 8–12 @ 100 lb · goal 9"
+          }
+        ],
+        "lastWorkout": "Last workout: Upper · Fri, Nov 20"
+      },
+      "foodDays": [
+        {
+          "daysAgo": 0,
+          "date": "2026-11-21",
+          "label": "Today",
+          "kcal": "1,257",
+          "kcalLine": "1,257 / 2,400 kcal",
+          "left": "1,143 left",
+          "protein": "103 / 190 g",
+          "carbs": "176 / 240 g",
+          "fat": "17 / 75 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "596 kcal",
+              "foods": 6
+            },
+            {
+              "name": "Lunch",
+              "kcal": "642 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Dinner",
+              "kcal": "",
+              "foods": 0
+            },
+            {
+              "name": "Snacks",
+              "kcal": "19 kcal",
+              "foods": 1
+            }
+          ],
+          "entries": 10
+        },
+        {
+          "daysAgo": 1,
+          "date": "2026-11-20",
+          "label": "Yesterday",
+          "kcal": "2,252",
+          "kcalLine": "2,252 / 2,400 kcal",
+          "left": "148 left",
+          "protein": "222 / 190 g",
+          "carbs": "177 / 240 g",
+          "fat": "78 / 75 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "376 kcal",
+              "foods": 4
+            },
+            {
+              "name": "Lunch",
+              "kcal": "539 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Dinner",
+              "kcal": "959 kcal",
+              "foods": 5
+            },
+            {
+              "name": "Snacks",
+              "kcal": "378 kcal",
+              "foods": 3
+            }
+          ],
+          "entries": 15
+        },
+        {
+          "daysAgo": 30,
+          "date": "2026-10-22",
+          "label": "Thu, Oct 22",
+          "kcal": "2,346",
+          "kcalLine": "2,346 / 2,400 kcal",
+          "left": "54 left",
+          "protein": "171 / 190 g",
+          "carbs": "236 / 240 g",
+          "fat": "81 / 75 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "596 kcal",
+              "foods": 6
+            },
+            {
+              "name": "Lunch",
+              "kcal": "780 kcal",
+              "foods": 1
+            },
+            {
+              "name": "Dinner",
+              "kcal": "707 kcal",
+              "foods": 4
+            },
+            {
+              "name": "Snacks",
+              "kcal": "263 kcal",
+              "foods": 2
+            }
+          ],
+          "entries": 13
+        }
+      ],
+      "addSheet": {
+        "title": "Add to Snacks",
+        "groups": {
+          "Saved meals": 3,
+          "Favorites": 6,
+          "Recent": 25
+        },
+        "favourites": [
+          "Chicken breast, cooked (roasted)",
+          "Chobani Greek Yogurt, Plain Nonfat",
+          "Kirkland Signature Unsweetened Vanilla Almond Milk",
+          "Oats, rolled, dry",
+          "Quest Bar, Cookies & Cream",
+          "Whey protein powder"
+        ]
+      },
+      "exercises": [
+        {
+          "name": "Flat Barbell Bench Press",
+          "line": "4 × goal 11 @ 200 lb",
+          "weight": 200,
+          "sets": 4,
+          "goal": 11,
+          "reason": "Every set ≥ 10 → hold weight, aim for 11"
+        },
+        {
+          "name": "Leg Press",
+          "line": "5 × goal 13 @ 390 lb",
+          "weight": 390,
+          "sets": 5,
+          "goal": 13,
+          "reason": "Every set ≥ 12 → hold weight, aim for 13"
+        },
+        {
+          "name": "Dumbbell Lateral Raise",
+          "line": "4 × goal 17 @ 22.5 lb",
+          "weight": 22.5,
+          "sets": 4,
+          "goal": 17,
+          "reason": "22.5 → 25 lb is a big jump: earn it with 17 reps on every set"
+        },
+        {
+          "name": "Pull-Ups",
+          "line": "Bodyweight",
+          "weight": 0,
+          "sets": 4,
+          "goal": 10,
+          "reason": "Bodyweight: every set ≥ 9 → aim for 10. Enter added weight when you want to load it"
+        }
+      ],
+      "history": {
+        "stats": [
+          {
+            "k": "Day streak",
+            "v": "🔥 7"
+          },
+          {
+            "k": "This month",
+            "v": "12"
+          },
+          {
+            "k": "Workouts",
+            "v": "70"
+          }
+        ],
+        "workoutRows": 70,
+        "rowsWithPr": 62,
+        "prTotal": 234,
+        "deloadRows": 2,
+        "firstRow": "UpperFri, Nov 20 · 6 exercises · 26 sets · 1h 59m · 🚶 25 min · 🏆 1›",
+        "cards": [
+          "This week's sets per muscle",
+          "Weekly review",
+          "November 2026",
+          "Progress",
+          "Body weight",
+          "Sleep"
+        ],
+        "review": "Weekly reviewThis weekLast week4Workouts79Sets102.0klb liftedWeight went up on Seated Dumbbell Shoulder Press → 55 lb, Lat Pulldown → 155 lb, T-Bar Row → 100 lb, EZ-Bar Curl → 80 lb, Romanian Deadlift → 225 lb🏆 PRs: Flat Barbell Bench Press: Heaviest ever: 200 lb × 11; Cable Fly: Heaviest ever: 40 lb × 9; Triceps Pushdown: Best set ever: 60 × 12; Triceps Pushdown: Most reps at 60: 12 (was 11); Chest-Supported Row: Heaviest ever: 125 lb × 10; T-Bar Row: Best set ever: 95 × 12; T-Bar Row: Most reps at 95: 12 (was 11); EZ-Bar Curl: Best set ever: 75 × 12; EZ-Bar Curl: Most reps at 75: 12 (was 11); Back Squat: Best set ever: 240 × 12; Back Squat: Most reps at 240: 12 (was 11); Leg Press: Heaviest ever: 390 lb × 14; Lying Leg Curl: Best set ever: 100 × 13; Lying Leg Curl: Most reps at 100: 13 (was 12); Standing Calf Raise: Heaviest ever: 195 lb × 13; Incline Dumbbell Curl: Best set ever: 30 × 11; Incline Dumbbell Curl: Most reps at 30: 11 (was 10)Most sets: Chest 17, Shoulders 15, Back 15Body weight avg 183.62 lb (-0.93 vs the week before)Cardio 75 minSleep avg 7h 07m · REM 1h 33m · deep 1h 18m · recovery 61% (6 nights)Share",
+        "bodyWeight": [
+          {
+            "k": "Latest",
+            "v": "183.6"
+          },
+          {
+            "k": "7-entry avg",
+            "v": "183.6"
+          },
+          {
+            "k": "30-day change",
+            "v": "-2.9"
+          },
+          {
+            "k": "Pill",
+            "v": "96 weigh-ins"
+          }
+        ],
+        "sleep": {
+          "nights": "101 nights",
+          "stats": [
+            {
+              "k": "7-night avg (−10 min)",
+              "v": "6h 56m"
+            },
+            {
+              "k": "REM avg",
+              "v": "1h 29m"
+            },
+            {
+              "k": "Deep avg",
+              "v": "1h 15m"
+            }
+          ]
+        }
+      },
+      "chart": {
+        "exercise": "Flat Barbell Bench Press",
+        "stats": [
+          {
+            "k": "Current top set",
+            "v": "200"
+          },
+          {
+            "k": "Best set",
+            "v": "195×13"
+          },
+          {
+            "k": "Sessions",
+            "v": "14"
+          }
+        ],
+        "lines": [
+          "🏆 Heaviest: 200 × 11 on Mon, Nov 16",
+          "Est. 1RM: 280 lb from 195 × 13",
+          "9 PR sessions logged"
+        ],
+        "dots": 14,
+        "recentSessions": 8
+      },
+      "settings": {
+        "version": "Overload · v2.8",
+        "storage": "Storage used694,639 of about 2,500,000 characters the app can safely use. Today warns at 70%.28%",
+        "theme": "dark"
+      },
+      "roundTripAfterUse": true
+    },
+    "v28-state-active": {
+      "counts": {
+        "bytes": 702765,
+        "chars": 698083,
+        "exercises": 81,
+        "customExercises": 1,
+        "exercisesWithOverrides": 8,
+        "programDays": 6,
+        "scheduledDays": 5,
+        "templates": 2,
+        "workouts": 71,
+        "finishedWorkouts": 70,
+        "activeWorkout": true,
+        "firstWorkout": "2026-08-01",
+        "lastWorkout": "2026-11-20",
+        "deloadWorkouts": 2,
+        "workoutsWithCardio": 57,
+        "exerciseEntries": 418,
+        "sets": 1303,
+        "setsNotDone": 17,
+        "setsTickedWithoutTyping": 514,
+        "setsWithRir": 1104,
+        "entriesWithWarmups": 70,
+        "entriesWithFeedback": 352,
+        "entriesWithPrs": 234,
+        "workoutsWithPrs": 62,
+        "swappedEntries": 3,
+        "entriesOfDeletedExercises": 2,
+        "prescriptions": 37,
+        "bodyWeightDays": 96,
+        "nights": 101,
+        "nightsFromWhoop": 63,
+        "nightsTypedWithRecovery": 8,
+        "nightsTypedOnly": 30,
+        "foodDays": 110,
+        "foodEntries": 1576,
+        "minEntriesADay": 9,
+        "maxEntriesADay": 16,
+        "quickAddEntries": 39,
+        "entriesInMl": 71,
+        "entriesOfDeletedFoods": 2,
+        "entriesWithFractionalAt": 3,
+        "savedFoods": 64,
+        "customFoods": 4,
+        "customFoodsWithBarcode": 2,
+        "correctedListedFoods": 1,
+        "foodsWithBarcode": 18,
+        "liquidFoods": 7,
+        "favourites": 6,
+        "savedMeals": 3,
+        "targets": {
+          "kcal": 2400,
+          "protein": 190,
+          "carbs": 240,
+          "fat": 75
+        },
+        "deleted": {
+          "food": 11,
+          "bw": 2,
+          "sleep": 2,
+          "workouts": 2
+        },
+        "settings": {
+          "units": "lb",
+          "increment": 5,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 150,
+          "maxSets": 6,
+          "defaultSets": 3,
+          "theme": "dark",
+          "trackRir": true,
+          "weighEvery": 1,
+          "volumeMin": 10,
+          "volumeMax": 20,
+          "warmupRest": 45,
+          "incDumbbell": 5,
+          "incMachine": 5,
+          "incCable": 5,
+          "cardioOn": true,
+          "cardioMin": 25,
+          "cardioName": "Incline walk",
+          "sleepOn": true,
+          "checkinV": 1,
+          "reminders": {
+            "checkin": {
+              "on": true,
+              "time": "07:30"
+            },
+            "workout": {
+              "on": true,
+              "time": "17:00"
+            },
+            "food": {
+              "on": false,
+              "time": "20:30"
+            }
+          }
+        },
+        "topLevelKeys": [
+          "v",
+          "settings",
+          "exercises",
+          "presc",
+          "program",
+          "workouts",
+          "active",
+          "bodyweight",
+          "sleep",
+          "templates",
+          "libVersion",
+          "deleted",
+          "food",
+          "diary"
+        ]
+      },
+      "roundTrip": true,
+      "today": {
+        "title": "Lower",
+        "sub": "Sat, Nov 21 · 2/6 done · 1h 0m",
+        "activeWorkout": true,
+        "streakBanner": null,
+        "checkin": null,
+        "dayCard": null,
+        "dayMeta": null,
+        "plan": null,
+        "lastWorkout": null
+      },
+      "active": {
+        "title": "Lower",
+        "sub": "Sat, Nov 21 · 2/6 done · 1h 0m",
+        "exercises": 6,
+        "exercisesDone": 2,
+        "sets": 22,
+        "setsTicked": 11,
+        "foldedCards": 2,
+        "openCards": 4
+      },
+      "foodDays": [
+        {
+          "daysAgo": 0,
+          "date": "2026-11-21",
+          "label": "Today",
+          "kcal": "1,257",
+          "kcalLine": "1,257 / 2,400 kcal",
+          "left": "1,143 left",
+          "protein": "103 / 190 g",
+          "carbs": "176 / 240 g",
+          "fat": "17 / 75 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "596 kcal",
+              "foods": 6
+            },
+            {
+              "name": "Lunch",
+              "kcal": "642 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Dinner",
+              "kcal": "",
+              "foods": 0
+            },
+            {
+              "name": "Snacks",
+              "kcal": "19 kcal",
+              "foods": 1
+            }
+          ],
+          "entries": 10
+        },
+        {
+          "daysAgo": 1,
+          "date": "2026-11-20",
+          "label": "Yesterday",
+          "kcal": "2,252",
+          "kcalLine": "2,252 / 2,400 kcal",
+          "left": "148 left",
+          "protein": "222 / 190 g",
+          "carbs": "177 / 240 g",
+          "fat": "78 / 75 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "376 kcal",
+              "foods": 4
+            },
+            {
+              "name": "Lunch",
+              "kcal": "539 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Dinner",
+              "kcal": "959 kcal",
+              "foods": 5
+            },
+            {
+              "name": "Snacks",
+              "kcal": "378 kcal",
+              "foods": 3
+            }
+          ],
+          "entries": 15
+        },
+        {
+          "daysAgo": 30,
+          "date": "2026-10-22",
+          "label": "Thu, Oct 22",
+          "kcal": "2,346",
+          "kcalLine": "2,346 / 2,400 kcal",
+          "left": "54 left",
+          "protein": "171 / 190 g",
+          "carbs": "236 / 240 g",
+          "fat": "81 / 75 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "596 kcal",
+              "foods": 6
+            },
+            {
+              "name": "Lunch",
+              "kcal": "780 kcal",
+              "foods": 1
+            },
+            {
+              "name": "Dinner",
+              "kcal": "707 kcal",
+              "foods": 4
+            },
+            {
+              "name": "Snacks",
+              "kcal": "263 kcal",
+              "foods": 2
+            }
+          ],
+          "entries": 13
+        }
+      ],
+      "addSheet": {
+        "title": "Add to Snacks",
+        "groups": {
+          "Saved meals": 3,
+          "Favorites": 6,
+          "Recent": 25
+        },
+        "favourites": [
+          "Chicken breast, cooked (roasted)",
+          "Chobani Greek Yogurt, Plain Nonfat",
+          "Kirkland Signature Unsweetened Vanilla Almond Milk",
+          "Oats, rolled, dry",
+          "Quest Bar, Cookies & Cream",
+          "Whey protein powder"
+        ]
+      },
+      "exercises": [
+        {
+          "name": "Flat Barbell Bench Press",
+          "line": "4 × goal 11 @ 200 lb",
+          "weight": 200,
+          "sets": 4,
+          "goal": 11,
+          "reason": "Every set ≥ 10 → hold weight, aim for 11"
+        },
+        {
+          "name": "Leg Press",
+          "line": "5 × goal 13 @ 390 lb",
+          "weight": 390,
+          "sets": 5,
+          "goal": 13,
+          "reason": "Every set ≥ 12 → hold weight, aim for 13"
+        },
+        {
+          "name": "Dumbbell Lateral Raise",
+          "line": "4 × goal 17 @ 22.5 lb",
+          "weight": 22.5,
+          "sets": 4,
+          "goal": 17,
+          "reason": "22.5 → 25 lb is a big jump: earn it with 17 reps on every set"
+        },
+        {
+          "name": "Pull-Ups",
+          "line": "Bodyweight",
+          "weight": 0,
+          "sets": 4,
+          "goal": 10,
+          "reason": "Bodyweight: every set ≥ 9 → aim for 10. Enter added weight when you want to load it"
+        }
+      ],
+      "history": {
+        "stats": [
+          {
+            "k": "Day streak",
+            "v": "🔥 7"
+          },
+          {
+            "k": "This month",
+            "v": "12"
+          },
+          {
+            "k": "Workouts",
+            "v": "70"
+          }
+        ],
+        "workoutRows": 70,
+        "rowsWithPr": 62,
+        "prTotal": 234,
+        "deloadRows": 2,
+        "firstRow": "UpperFri, Nov 20 · 6 exercises · 26 sets · 1h 59m · 🚶 25 min · 🏆 1›",
+        "cards": [
+          "This week's sets per muscle",
+          "Weekly review",
+          "November 2026",
+          "Progress",
+          "Body weight",
+          "Sleep"
+        ],
+        "review": "Weekly reviewThis weekLast week4Workouts79Sets102.0klb liftedWeight went up on Seated Dumbbell Shoulder Press → 55 lb, Lat Pulldown → 155 lb, T-Bar Row → 100 lb, EZ-Bar Curl → 80 lb, Romanian Deadlift → 225 lb🏆 PRs: Flat Barbell Bench Press: Heaviest ever: 200 lb × 11; Cable Fly: Heaviest ever: 40 lb × 9; Triceps Pushdown: Best set ever: 60 × 12; Triceps Pushdown: Most reps at 60: 12 (was 11); Chest-Supported Row: Heaviest ever: 125 lb × 10; T-Bar Row: Best set ever: 95 × 12; T-Bar Row: Most reps at 95: 12 (was 11); EZ-Bar Curl: Best set ever: 75 × 12; EZ-Bar Curl: Most reps at 75: 12 (was 11); Back Squat: Best set ever: 240 × 12; Back Squat: Most reps at 240: 12 (was 11); Leg Press: Heaviest ever: 390 lb × 14; Lying Leg Curl: Best set ever: 100 × 13; Lying Leg Curl: Most reps at 100: 13 (was 12); Standing Calf Raise: Heaviest ever: 195 lb × 13; Incline Dumbbell Curl: Best set ever: 30 × 11; Incline Dumbbell Curl: Most reps at 30: 11 (was 10)Most sets: Chest 17, Shoulders 15, Back 15Body weight avg 183.62 lb (-0.93 vs the week before)Cardio 75 minSleep avg 7h 07m · REM 1h 33m · deep 1h 18m · recovery 61% (6 nights)Share",
+        "bodyWeight": [
+          {
+            "k": "Latest",
+            "v": "183.6"
+          },
+          {
+            "k": "7-entry avg",
+            "v": "183.6"
+          },
+          {
+            "k": "30-day change",
+            "v": "-2.9"
+          },
+          {
+            "k": "Pill",
+            "v": "96 weigh-ins"
+          }
+        ],
+        "sleep": {
+          "nights": "101 nights",
+          "stats": [
+            {
+              "k": "7-night avg (−10 min)",
+              "v": "6h 56m"
+            },
+            {
+              "k": "REM avg",
+              "v": "1h 29m"
+            },
+            {
+              "k": "Deep avg",
+              "v": "1h 15m"
+            }
+          ]
+        }
+      },
+      "chart": {
+        "exercise": "Flat Barbell Bench Press",
+        "stats": [
+          {
+            "k": "Current top set",
+            "v": "200"
+          },
+          {
+            "k": "Best set",
+            "v": "195×13"
+          },
+          {
+            "k": "Sessions",
+            "v": "14"
+          }
+        ],
+        "lines": [
+          "🏆 Heaviest: 200 × 11 on Mon, Nov 16",
+          "Est. 1RM: 280 lb from 195 × 13",
+          "9 PR sessions logged"
+        ],
+        "dots": 14,
+        "recentSessions": 8
+      },
+      "settings": {
+        "version": "Overload · v2.8",
+        "storage": "Storage used698,198 of about 2,500,000 characters the app can safely use. Today warns at 70%.28%",
+        "theme": "dark"
+      },
+      "roundTripAfterUse": true
+    },
+    "v28-state-small": {
+      "counts": {
+        "bytes": 37126,
+        "chars": 37008,
+        "exercises": 80,
+        "customExercises": 0,
+        "exercisesWithOverrides": 0,
+        "programDays": 3,
+        "scheduledDays": 6,
+        "templates": 0,
+        "workouts": 3,
+        "finishedWorkouts": 3,
+        "activeWorkout": false,
+        "firstWorkout": "2026-11-12",
+        "lastWorkout": "2026-11-19",
+        "deloadWorkouts": 0,
+        "workoutsWithCardio": 1,
+        "exerciseEntries": 19,
+        "sets": 57,
+        "setsNotDone": 0,
+        "setsTickedWithoutTyping": 22,
+        "setsWithRir": 49,
+        "entriesWithWarmups": 1,
+        "entriesWithFeedback": 19,
+        "entriesWithPrs": 0,
+        "workoutsWithPrs": 0,
+        "swappedEntries": 0,
+        "entriesOfDeletedExercises": 0,
+        "prescriptions": 19,
+        "bodyWeightDays": 5,
+        "nights": 3,
+        "nightsFromWhoop": 0,
+        "nightsTypedWithRecovery": 0,
+        "nightsTypedOnly": 3,
+        "foodDays": 4,
+        "foodEntries": 24,
+        "minEntriesADay": 6,
+        "maxEntriesADay": 6,
+        "quickAddEntries": 1,
+        "entriesInMl": 0,
+        "entriesOfDeletedFoods": 0,
+        "entriesWithFractionalAt": 0,
+        "savedFoods": 13,
+        "customFoods": 0,
+        "customFoodsWithBarcode": 0,
+        "correctedListedFoods": 0,
+        "foodsWithBarcode": 1,
+        "liquidFoods": 0,
+        "favourites": 0,
+        "savedMeals": 0,
+        "targets": {
+          "kcal": null,
+          "protein": null,
+          "carbs": null,
+          "fat": null
+        },
+        "deleted": {
+          "food": 0,
+          "bw": 0,
+          "sleep": 0,
+          "workouts": 0
+        },
+        "settings": {
+          "units": "lb",
+          "increment": 2.5,
+          "repMin": 10,
+          "repMax": 12,
+          "restSec": 120,
+          "maxSets": 6,
+          "defaultSets": 3,
+          "theme": "system",
+          "trackRir": true,
+          "weighEvery": 1,
+          "volumeMin": 10,
+          "volumeMax": 20,
+          "warmupRest": 45,
+          "incDumbbell": 5,
+          "incMachine": 5,
+          "incCable": 5,
+          "cardioOn": true,
+          "cardioMin": 20,
+          "cardioName": "Incline treadmill walk",
+          "sleepOn": true,
+          "checkinV": 1
+        },
+        "topLevelKeys": [
+          "v",
+          "settings",
+          "exercises",
+          "presc",
+          "program",
+          "workouts",
+          "active",
+          "bodyweight",
+          "sleep",
+          "templates",
+          "libVersion",
+          "deleted",
+          "food",
+          "diary"
+        ]
+      },
+      "roundTrip": true,
+      "today": {
+        "title": "Today",
+        "sub": "Sat, Nov 21",
+        "activeWorkout": false,
+        "streakBanner": null,
+        "checkin": "Morning check-in ✓Edit170.2 lb · Slept 7h 11m · REM 1h 35m (22%) · deep 1h 13m (17%)7-night average 7h 23m · REM 1h 38m · deep 1h 15m",
+        "dayCard": "Shoulders & Arms",
+        "dayMeta": "Saturday · 7 exercises",
+        "plan": [
+          {
+            "name": "Seated Dumbbell Shoulder Press",
+            "text": "3 × 10–12 @ 35 lb each · goal 10"
+          },
+          {
+            "name": "Dumbbell Lateral Raise",
+            "text": "3 × 10–12 @ 15 lb each · goal 11"
+          },
+          {
+            "name": "Rear Delt Fly",
+            "text": "3 × 10–12 @ 70 lb · goal 12"
+          },
+          {
+            "name": "Barbell Curl",
+            "text": "3 × 10–12 @ 50 lb · goal 10"
+          },
+          {
+            "name": "Triceps Pushdown",
+            "text": "2 × 10–12 @ 40 lb · goal 11"
+          },
+          {
+            "name": "Incline Dumbbell Curl",
+            "text": "3 × 10–12 @ 20 lb each · goal 10"
+          },
+          {
+            "name": "Overhead Triceps Extension",
+            "text": "3 × 10–12 @ 35 lb · goal 11"
+          }
+        ],
+        "lastWorkout": "Last workout: Shoulders & Arms · Thu, Nov 19"
+      },
+      "foodDays": [
+        {
+          "daysAgo": 0,
+          "date": "2026-11-21",
+          "label": "Today",
+          "kcal": "915",
+          "kcalLine": "915 kcal",
+          "left": null,
+          "protein": "67 g",
+          "carbs": "137 g",
+          "fat": "11 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "334 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Lunch",
+              "kcal": "581 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Dinner",
+              "kcal": "",
+              "foods": 0
+            },
+            {
+              "name": "Snacks",
+              "kcal": "",
+              "foods": 0
+            }
+          ],
+          "entries": 6
+        },
+        {
+          "daysAgo": 1,
+          "date": "2026-11-20",
+          "label": "Yesterday",
+          "kcal": "1,296",
+          "kcalLine": "1,296 kcal",
+          "left": null,
+          "protein": "79 g",
+          "carbs": "112 g",
+          "fat": "58 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "434 kcal",
+              "foods": 2
+            },
+            {
+              "name": "Lunch",
+              "kcal": "",
+              "foods": 0
+            },
+            {
+              "name": "Dinner",
+              "kcal": "700 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Snacks",
+              "kcal": "162 kcal",
+              "foods": 1
+            }
+          ],
+          "entries": 6
+        },
+        {
+          "daysAgo": 3,
+          "date": "2026-11-18",
+          "label": "Wed, Nov 18",
+          "kcal": "864",
+          "kcalLine": "864 kcal",
+          "left": null,
+          "protein": "59 g",
+          "carbs": "142 g",
+          "fat": "15 g",
+          "meals": [
+            {
+              "name": "Breakfast",
+              "kcal": "332 kcal",
+              "foods": 2
+            },
+            {
+              "name": "Lunch",
+              "kcal": "352 kcal",
+              "foods": 3
+            },
+            {
+              "name": "Dinner",
+              "kcal": "",
+              "foods": 0
+            },
+            {
+              "name": "Snacks",
+              "kcal": "180 kcal",
+              "foods": 1
+            }
+          ],
+          "entries": 6
+        }
+      ],
+      "addSheet": {
+        "title": "Add to Snacks",
+        "groups": {
+          "Recent": 13
+        },
+        "favourites": []
+      },
+      "exercises": [
+        {
+          "name": "Flat Barbell Bench Press",
+          "line": "3 × goal 10 @ 135 lb",
+          "weight": 135,
+          "sets": 3,
+          "goal": 10,
+          "reason": "A set fell below 10 → hold weight, build back to 10"
+        },
+        {
+          "name": "Back Squat",
+          "line": "3 × goal 10 @ 155 lb",
+          "weight": 155,
+          "sets": 3,
+          "goal": 10,
+          "reason": "A set fell below 10 → hold weight, build back to 10"
+        }
+      ],
+      "history": {
+        "stats": [
+          {
+            "k": "Day streak",
+            "v": "0"
+          },
+          {
+            "k": "This month",
+            "v": "3"
+          },
+          {
+            "k": "Workouts",
+            "v": "3"
+          }
+        ],
+        "workoutRows": 3,
+        "rowsWithPr": 0,
+        "prTotal": 0,
+        "deloadRows": 0,
+        "firstRow": "Shoulders & ArmsThu, Nov 19 · 7 exercises · 21 sets · 59 min›",
+        "cards": [
+          "This week's sets per muscle",
+          "Weekly review",
+          "November 2026",
+          "Progress",
+          "Body weight",
+          "Sleep"
+        ],
+        "review": "Weekly reviewThis weekLast week2Workouts39Sets30.6klb liftedNo weight increases yet this week.Most sets: Quads 9, Shoulders 9, Hamstrings 6Body weight avg 170.57 lb (-0.63 vs the week before)Sleep avg 7h 23m · REM 1h 38m · deep 1h 15m (2 nights)Share",
+        "bodyWeight": [
+          {
+            "k": "Latest",
+            "v": "170.2"
+          },
+          {
+            "k": "7-entry avg",
+            "v": "170.8"
+          },
+          {
+            "k": "30-day change",
+            "v": "–"
+          },
+          {
+            "k": "Pill",
+            "v": "5 weigh-ins"
+          }
+        ],
+        "sleep": {
+          "nights": "3 nights",
+          "stats": [
+            {
+              "k": "7-night avg (+31 min)",
+              "v": "7h 23m"
+            },
+            {
+              "k": "REM avg",
+              "v": "1h 38m"
+            },
+            {
+              "k": "Deep avg",
+              "v": "1h 15m"
+            }
+          ]
+        }
+      },
+      "chart": {
+        "exercise": "Flat Barbell Bench Press",
+        "stats": [
+          {
+            "k": "Current top set",
+            "v": "135"
+          },
+          {
+            "k": "Best set",
+            "v": "135×10"
+          },
+          {
+            "k": "Sessions",
+            "v": "1"
+          }
+        ],
+        "lines": [
+          "🏆 Heaviest: 135 × 10 on Thu, Nov 12",
+          "Est. 1RM: 180 lb from 135 × 10",
+          "0 PR sessions logged"
+        ],
+        "dots": 1,
+        "recentSessions": 1
+      },
+      "settings": {
+        "version": "Overload · v2.8",
+        "storage": "Storage used37,098 of about 2,500,000 characters the app can safely use. Today warns at 70%.1%",
+        "theme": null
+      },
+      "roundTripAfterUse": true
+    }
+  }
+}

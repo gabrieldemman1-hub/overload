@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-app="fuel" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fuel: Welcome</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+
+<!-- First start: no top bar, no tab bar. One job: bring the food log across from Overload. -->
+<main id="app" class="screen" style="padding-top:calc(var(--safe-top) + 28px);padding-bottom:calc(var(--safe-bottom) + 24px);min-height:100vh;display:flex;flex-direction:column">
+
+  <div class="row" style="gap:14px">
+    <img src="icon-fuel.svg" alt="" width="60" height="60" style="border-radius:13.5px;flex:none;box-shadow:0 0 0 1px var(--rule-2)">
+    <div>
+      <div class="brand" style="font-size:20px;letter-spacing:0.2em">Fuel</div>
+      <div class="label" style="margin-top:4px">Food log · from Overload</div>
+    </div>
+  </div>
+
+  <h1 style="font-size:30px;line-height:1.1;margin-top:32px">Bring your food log across.</h1>
+  <p class="dim" style="margin-top:12px;line-height:1.5">The Food tab from Overload is its own app now. Your days, targets, favorites and saved meals come with you. Nothing is removed from Overload.</p>
+
+  <div style="margin-top:28px">
+    <button class="choice-card first" data-action="welcome-paste">
+      <span class="lead"><svg class="ic"><use href="icons.svg#i-clipboard"/></svg></span>
+      <span class="grow"><span class="title">Paste from Overload</span><div class="sub">In Overload: Settings → Copy food data. Then tap here.</div></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+    <label class="choice-card" data-action="welcome-file">
+      <span class="lead"><svg class="ic"><use href="icons.svg#i-file"/></svg></span>
+      <span class="grow"><span class="title">Choose a backup file</span><div class="sub">An Overload export from Files or iCloud Drive.</div></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </label>
+    <button class="choice-card" data-action="welcome-signin">
+      <span class="lead"><svg class="ic"><use href="icons.svg#i-cloud"/></svg></span>
+      <span class="grow"><span class="title">Sign in to cloud sync</span><div class="sub">The same email and password as in Overload.</div></span>
+      <svg class="ic m chev"><use href="icons.svg#i-chev-r"/></svg>
+    </button>
+  </div>
+
+  <div class="grow"></div>
+
+  <div class="center" style="margin-top:24px">
+    <button class="btn text" data-action="welcome-fresh">Start fresh</button>
+    <p class="tiny muted" style="margin-top:2px">You can still import later in Settings → Backup.</p>
+  </div>
+</main>
+
+</body>
+</html>

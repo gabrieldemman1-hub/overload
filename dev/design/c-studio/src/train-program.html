@@ -1,0 +1,91 @@
+<!--{"app":"overload","tab":"program","title":"Overload: Program"}-->
+<div class="page-head">
+  <div>
+    <p class="eyebrow">My split · 5 days a week</p>
+    <h1>Program</h1>
+  </div>
+  <button class="btn sm" style="margin-bottom:4px">{{plus sm}}Day</button>
+</div>
+
+<section class="card">
+  <div class="card-head" style="margin-bottom:6px;align-items:center">
+    <h2 class="heading">Weekly schedule</h2>
+    <button class="btn link" style="margin:-8px -8px -8px 0">Edit</button>
+  </div>
+  <ul class="list">
+    <li class="row compact"><span class="sched-day">Mon</span><span class="row-body">Legs</span><span class="small muted">6 exercises</span></li>
+    <li class="row compact"><span class="sched-day">Tue</span><span class="row-body">Shoulders &amp; Arms</span><span class="small muted">7 exercises</span></li>
+    <li class="row compact"><span class="sched-day">Wed</span><span class="row-body note muted">Rest</span></li>
+    <li class="row compact is-today"><span class="sched-day">Thu</span><span class="row-body strong">Chest &amp; Back</span><span class="tag accent">Today</span></li>
+    <li class="row compact"><span class="sched-day">Fri</span><span class="row-body">Legs</span><span class="small muted">6 exercises</span></li>
+    <li class="row compact"><span class="sched-day">Sat</span><span class="row-body">Shoulders &amp; Arms</span><span class="small muted">7 exercises</span></li>
+    <li class="row compact"><span class="sched-day">Sun</span><span class="row-body note muted">Rest</span></li>
+  </ul>
+</section>
+
+<button class="option mt-3" style="background:var(--accent-soft)">
+  <span class="row-lead accent" style="background:none">{{book lg}}</span>
+  <span class="row-body">
+    <span class="row-title">Program library</span>
+    <span class="row-sub" style="color:var(--ink-2)">11 built-in programs: Push/Pull/Legs, FST-7, arm specialization and more</span>
+  </span>
+  {{chev-right row-chev}}
+</button>
+
+<section class="section">
+  <div class="section-head"><h2>Training days</h2><span class="small muted">3 days</span></div>
+
+  <article class="card">
+    <div class="card-head">
+      <div>
+        <p class="eyebrow">Thu · 18 sets</p>
+        <h3 class="heading">Chest &amp; Back</h3>
+      </div>
+      <button class="icon-btn" aria-label="Chest and Back options" style="margin:-8px -10px 0 0">{{more}}</button>
+    </div>
+    <ol class="list">
+      <li class="row compact"><span class="row-body">Lat Pulldown</span><span class="row-val">3 <span class="x">× 10–12</span></span></li>
+      <li class="row compact"><span class="row-body">Machine Chest Press</span><span class="row-val">3 <span class="x">× 10–12</span></span></li>
+      <li class="row compact"><span class="row-body">Seated Cable Row</span><span class="row-val">3 <span class="x">× 10–12</span></span></li>
+      <li class="row compact"><span class="row-body">Incline Dumbbell Press</span><span class="row-val">3 <span class="x">× 10–12</span></span></li>
+      <li class="row compact"><span class="row-body">Cable Fly</span><span class="row-val">3 <span class="x">× 12–15</span></span></li>
+      <li class="row compact"><span class="row-body">Chest-Supported Row</span><span class="row-val">3 <span class="x">× 10–12</span></span></li>
+    </ol>
+    <div class="card-foot">
+      <button class="btn sm">{{edit sm}}Edit day</button>
+      <button class="btn sm">{{plus sm}}Exercise</button>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-head">
+      <div>
+        <p class="eyebrow">Mon · Fri · 19 sets</p>
+        <h3 class="heading">Legs</h3>
+      </div>
+      <button class="icon-btn" aria-label="Legs options" style="margin:-8px -10px 0 0">{{more}}</button>
+    </div>
+    <ol class="list">
+      <li class="row compact"><span class="row-body">Leg Press</span><span class="row-val">4 <span class="x">× 10–12</span></span></li>
+      <li class="row compact"><span class="row-body">Romanian Deadlift</span><span class="row-val">3 <span class="x">× 8–10</span></span></li>
+      <li class="row compact"><span class="row-body">Leg Extension</span><span class="row-val">3 <span class="x">× 12–15</span></span></li>
+      <li class="row compact"><span class="row-body">Lying Leg Curl</span><span class="row-val">3 <span class="x">× 10–12</span></span></li>
+      <li class="row compact"><span class="row-body">Back Squat</span><span class="row-val">2 <span class="x">× 8–10</span></span></li>
+      <li class="row compact"><span class="row-body">Standing Calf Raise</span><span class="row-val">4 <span class="x">× 10–12</span></span></li>
+    </ol>
+    <div class="card-foot">
+      <button class="btn sm">{{edit sm}}Edit day</button>
+      <button class="btn sm">{{plus sm}}Exercise</button>
+    </div>
+  </article>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Templates</h2><button class="btn link">Save current</button></div>
+  <div class="card" style="padding-top:8px;padding-bottom:8px">
+    <ul class="list">
+      <li><button class="row"><span class="row-body"><span class="row-title">My split</span><span class="row-sub">3 days · saved Nov 2 · in use</span></span>{{check sm}}</button></li>
+      <li><button class="row"><span class="row-body"><span class="row-title">Upper / Lower</span><span class="row-sub">4 days · saved Sep 14</span></span>{{chev-right row-chev}}</button></li>
+    </ul>
+  </div>
+</section>

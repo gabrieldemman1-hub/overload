@@ -1,0 +1,73 @@
+{
+  "common": {
+    "generated": "2026-11-22T04:53:13.315Z",
+    "generator": "tests/fixtures/make-v28.js",
+    "appVersion": "2.8",
+    "seed": "overload-v28",
+    "tz": "America/Los_Angeles",
+    "today": "2026-11-21",
+    "now": 1795311600000,
+    "nowLocal": "2026-11-21 17:40",
+    "defaultSettings": {
+      "units": "lb",
+      "increment": 2.5,
+      "repMin": 10,
+      "repMax": 12,
+      "restSec": 120,
+      "maxSets": 6,
+      "defaultSets": 3,
+      "theme": "system",
+      "trackRir": true,
+      "weighEvery": 1,
+      "volumeMin": 10,
+      "volumeMax": 20,
+      "warmupRest": 45,
+      "incDumbbell": 5,
+      "incMachine": 5,
+      "incCable": 5,
+      "cardioOn": true,
+      "cardioMin": 20,
+      "cardioName": "Incline treadmill walk",
+      "sleepOn": true,
+      "checkinV": 1
+    },
+    "schedule": [
+      "Push",
+      "Pull",
+      null,
+      "Legs",
+      "Upper",
+      "Lower",
+      null
+    ],
+    "otherKeysOnThePhone": [
+      "overload.theme",
+      "overload.backup",
+      "overload.state.v1",
+      "overload.conn.synced"
+    ],
+    "blockedHosts": [
+      "https://www.gstatic.com",
+      "https://world.openfoodfacts.org"
+    ]
+  },
+  "fixtures": {
+    "v28-state": {
+      "backup": {
+        "since": 1785587400000,
+        "lastExport": 1794546665637
+      }
+    },
+    "v28-state-active": {
+      "backup": {
+        "since": 1785587400000,
+        "lastExport": 1794546665637
+      }
+    },
+    "v28-state-small": {
+      "backup": {
+        "since": 1794231000000
+      }
+    }
+  }
+}

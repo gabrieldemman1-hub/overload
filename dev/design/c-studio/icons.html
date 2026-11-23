@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en" data-app="overload" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Studio: icons</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  // Mock only: ?theme=light switches the theme, dark is the default.
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-plate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.75"/><circle cx="12" cy="12" r="2.75"/></symbol>
+  <symbol id="i-program" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="15.5" rx="4"/><path d="M8.5 3v3M15.5 3v3M8 11h8M8 15h5"/></symbol>
+  <symbol id="i-dumbbell" viewBox="0 0 24 24"><path d="M9.25 12h5.5M3 10.25v3.5M21 10.25v3.5"/><rect x="5.75" y="7.25" width="3.5" height="9.5" rx="1.5"/><rect x="14.75" y="7.25" width="3.5" height="9.5" rx="1.5"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M4 16.5l4.75-5 3.75 3L19.75 7M15.75 7h4v4M4 20.5h16"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 8h8M17.5 8H20M4 16h2.5M12 16h8"/><circle cx="14.75" cy="8" r="2.5"/><circle cx="9.25" cy="16" r="2.5"/></symbol>
+
+  <symbol id="i-dish" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.75"/><path d="M9 15c0-3.6 2.4-6 6-6 0 3.6-2.4 6-6 6zM9 15l3.1-3.1"/></symbol>
+  <symbol id="i-bars" viewBox="0 0 24 24"><rect x="4.25" y="12.5" width="3.75" height="7.5" rx="1.5"/><rect x="10.125" y="4.5" width="3.75" height="15.5" rx="1.5"/><rect x="16" y="9" width="3.75" height="11" rx="1.5"/></symbol>
+
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.75l4.5 4.5L19 7.25"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.25 6.25l11.5 11.5M17.75 6.25l-11.5 11.5"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5L16 12l-6.5 6.5"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M5.5 9.5L12 16l6.5-6.5"/></symbol>
+  <symbol id="i-chev-up" viewBox="0 0 24 24"><path d="M5.5 14.5L12 8l6.5 6.5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="5.5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/></g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.75" cy="10.75" r="6.25"/><path d="M15.5 15.5L20 20"/></symbol>
+  <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M4 8V6.5A2.5 2.5 0 0 1 6.5 4H8M16 4h1.5A2.5 2.5 0 0 1 20 6.5V8M20 16v1.5a2.5 2.5 0 0 1-2.5 2.5H16M8 20H6.5A2.5 2.5 0 0 1 4 17.5V16M8 8.75v6.5M10.75 8.75v6.5M13.5 8.75v6.5M16 8.75v6.5"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13.5M14 4.5L17.5 8 14 11.5M20 16H6.5M10 12.5L6.5 16l3.5 3.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.75 7h14.5M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.75 7l.75 11.1A2 2 0 0 0 9.5 20h5a2 2 0 0 0 2-1.9L17.25 7M10.25 11v5M13.75 11v5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4.5 19.5l.9-4.1 9.9-9.9a2.26 2.26 0 0 1 3.2 3.2l-9.9 9.9-4.1.9zM13.75 7.25l3 3"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V4M7.75 8.25L12 4l4.25 4.25M5 13v4.5a2.5 2.5 0 0 0 2.5 2.5h9a2.5 2.5 0 0 0 2.5-2.5V13"/></symbol>
+  <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11M7.75 10.75L12 15l4.25-4.25M5 13v4.5a2.5 2.5 0 0 0 2.5 2.5h9a2.5 2.5 0 0 0 2.5-2.5V13"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><rect x="5.5" y="5" width="13" height="15.5" rx="3"/><path d="M9.25 5v-.25A1.75 1.75 0 0 1 11 3h2a1.75 1.75 0 0 1 1.75 1.75V5a1.5 1.5 0 0 1-1.5 1.5h-2.5A1.5 1.5 0 0 1 9.25 5zM9.25 11.5h5.5M9.25 15.5h3.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7.5 3.5h5.75L18.5 8.75V18a2.5 2.5 0 0 1-2.5 2.5H7.5A2.5 2.5 0 0 1 5 18V6a2.5 2.5 0 0 1 2.5-2.5zM13 3.75V7a2 2 0 0 0 2 2h3.25"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.75v12.5a.75.75 0 0 0 1.15.63l9.6-6.25a.75.75 0 0 0 0-1.26l-9.6-6.25A.75.75 0 0 0 8 5.75z" fill="currentColor"/></symbol>
+
+  <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7"/><path d="M12 13.5l2.75-2.75M10 3h4M12 3v3.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.75"/><path d="M12 7.25V12l3 2"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4.5h8v5a4 4 0 0 1-8 0v-5zM8 6.25H5.25v.75A2.75 2.75 0 0 0 8 9.75M16 6.25h2.75V7A2.75 2.75 0 0 1 16 9.75M12 13.5V17M8.75 20h6.5M9.75 20a2.25 2.25 0 0 1 4.5 0"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12.25 3.25c.4 3.1 5 4.9 5 10.25a5.25 5.25 0 0 1-10.5 0c0-2.1.9-3.6 2-4.75.3 1.25.9 2 1.75 2.5-.4-2.9.2-5.75 1.75-8z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.25 3.5L5.5 13.25h5.25l-1 7.25 7.75-9.75h-5.25l1-7.25z"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4.5"/><path d="M8.25 10.25a3.75 3.75 0 0 1 7.5 0h-7.5zM12 10.25l1.25-2"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.75 14.1A8 8 0 1 1 9.9 4.25a6.4 6.4 0 0 0 9.85 9.85z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.75"/><path d="M12 3.25v1.5M12 19.25v1.5M3.25 12h1.5M19.25 12h1.5M5.8 5.8l1.05 1.05M17.15 17.15l1.05 1.05M5.8 18.2l1.05-1.05M17.15 6.85l1.05-1.05"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7.5 18.75a4 4 0 0 1-.55-7.96 5.5 5.5 0 0 1 10.6 1.2 3.4 3.4 0 0 1-.55 6.76h-9.5z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 4l2.4 4.95 5.45.75-3.95 3.8.95 5.4L12 16.3l-4.85 2.6.95-5.4-3.95-3.8 5.45-.75L12 4z"/></symbol>
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19c0-8.25 5.25-13.5 14-14 0 8.75-5.25 14-14 14zM5 19l7.25-7.25"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3.5 12.5h3.75l2.25-5.5 3.75 10.5 2.5-5h4.75"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16.25V11a5.5 5.5 0 0 1 11 0v5.25l1.25 2H5.25l1.25-2zM10 20.75a2.1 2.1 0 0 0 4 0"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.75"/><path d="M12 11.25v5"/><circle cx="12" cy="7.9" r="1.1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="15.5" rx="4"/><path d="M8.5 3v3M15.5 3v3M4 10h16"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 5.75A2.25 2.25 0 0 1 7.25 3.5H19v13.25H7.25A2.25 2.25 0 0 0 5 19V5.75zM5 19a2.25 2.25 0 0 0 2.25 2.25H19v-4.5M9 8h6"/></symbol>
+</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="g-ember" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#CC5830"/><stop offset="1" stop-color="#9F3516"/></linearGradient>
+    <linearGradient id="g-herb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4C8F55"/><stop offset="1" stop-color="#27603A"/></linearGradient>
+  </defs>
+  <symbol id="app-overload" viewBox="0 0 1024 1024">
+    <rect width="1024" height="1024" fill="url(#g-ember)"/>
+    <circle cx="512" cy="512" r="282" fill="none" stroke="#FBF3E6" stroke-width="156"/>
+    <g fill="none" stroke="#B64621" stroke-width="42" stroke-linecap="round">
+      <path d="M401.8 252.4a282 282 0 0 1 220.4 0"/>
+      <path d="M401.8 252.4a282 282 0 0 1 220.4 0" transform="rotate(120 512 512)"/>
+      <path d="M401.8 252.4a282 282 0 0 1 220.4 0" transform="rotate(240 512 512)"/>
+    </g>
+    <circle cx="512" cy="512" r="74" fill="none" stroke="#FBF3E6" stroke-width="40"/>
+  </symbol>
+  <symbol id="app-fuel" viewBox="0 0 1024 1024">
+    <rect width="1024" height="1024" fill="url(#g-herb)"/>
+    <circle cx="512" cy="512" r="334" fill="none" stroke="#F8F5E6" stroke-width="46"/>
+    <circle cx="512" cy="512" r="250" fill="none" stroke="#F8F5E6" stroke-opacity="0.28" stroke-width="12"/>
+    <path d="M372 652C372 468 492 362 664 360c-2 172-108 292-292 292z" fill="#F8F5E6"/>
+    <path d="M384 640L566 458" fill="none" stroke="#37774A" stroke-width="26" stroke-linecap="round"/>
+  </symbol>
+</svg>
+<main class="sheet-page">
+  <p class="eyebrow">Studio · icons</p>
+  <h1 class="display mt-2">Two plates.</h1>
+  <p class="lead mt-3">Overload is a weight plate. Fuel is a dinner plate with a leaf. The same paper glyph on each app's accent, so they sit together as a pair and are never mistaken for each other.</p>
+
+  <div class="icon-pair mt-6">
+    <figure>
+      <svg class="app-icon" viewBox="0 0 1024 1024" width="100%" role="img" aria-label="Overload app icon"><use href="#app-overload"/></svg>
+      <figcaption><p class="heading">Overload</p><p class="small muted">Deep ember, weight plate</p></figcaption>
+    </figure>
+    <figure>
+      <svg class="app-icon" viewBox="0 0 1024 1024" width="100%" role="img" aria-label="Fuel app icon"><use href="#app-fuel"/></svg>
+      <figcaption><p class="heading">Fuel</p><p class="small muted">Fresh herb, dinner plate</p></figcaption>
+    </figure>
+  </div>
+
+  <p class="eyebrow mt-7">On the Home Screen, 60 px</p>
+  <div class="wall day mt-3">
+    <figure><div class="ph" style="background:#FDFBF6"></div><figcaption>Notes</figcaption></figure>
+    <figure><svg class="app-icon" width="60" height="60" viewBox="0 0 1024 1024"><use href="#app-overload"/></svg><figcaption>Overload</figcaption></figure>
+    <figure><svg class="app-icon" width="60" height="60" viewBox="0 0 1024 1024"><use href="#app-fuel"/></svg><figcaption>Fuel</figcaption></figure>
+    <figure><div class="ph" style="background:#3B6FD9"></div><figcaption>Mail</figcaption></figure>
+  </div>
+  <div class="wall night mt-3">
+    <figure><div class="ph" style="background:#2A2D36"></div><figcaption>Notes</figcaption></figure>
+    <figure><svg class="app-icon" width="60" height="60" viewBox="0 0 1024 1024"><use href="#app-overload"/></svg><figcaption>Overload</figcaption></figure>
+    <figure><svg class="app-icon" width="60" height="60" viewBox="0 0 1024 1024"><use href="#app-fuel"/></svg><figcaption>Fuel</figcaption></figure>
+    <figure><div class="ph" style="background:#3B6FD9"></div><figcaption>Mail</figcaption></figure>
+  </div>
+
+  <p class="eyebrow mt-7">In the app: brand mark and tab bars</p>
+  <div class="card mt-3" data-app="overload">
+    <div class="flex between"><span class="brand"><svg class="i" aria-hidden="true"><use href="#i-plate"/></svg>Overload</span><span class="small muted">5 tabs</span></div>
+    <div class="flex between mt-4" style="color:var(--ink-2)"><svg class="i" aria-hidden="true"><use href="#i-plate"/></svg><svg class="i" aria-hidden="true"><use href="#i-program"/></svg><svg class="i" aria-hidden="true"><use href="#i-dumbbell"/></svg><svg class="i" aria-hidden="true"><use href="#i-history"/></svg><svg class="i" aria-hidden="true"><use href="#i-settings"/></svg></div>
+  </div>
+  <div class="card" data-app="fuel">
+    <div class="flex between"><span class="brand"><svg class="i" aria-hidden="true"><use href="#i-dish"/></svg>Fuel</span><span class="small muted">3 tabs</span></div>
+    <div class="flex mt-4" style="color:var(--ink-2);justify-content:space-around"><svg class="i" aria-hidden="true"><use href="#i-dish"/></svg><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><svg class="i" aria-hidden="true"><use href="#i-settings"/></svg></div>
+  </div>
+
+  <p class="eyebrow mt-7">The set: 24 grid, 1.75 line, round caps</p>
+  <div class="icon-grid mt-3">
+    <div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-plate"/></svg>plate</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-program"/></svg>program</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-dumbbell"/></svg>dumbbell</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-history"/></svg>history</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-settings"/></svg>settings</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-dish"/></svg>dish</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg>bars</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>plus</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-minus"/></svg>minus</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>check</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-close"/></svg>close</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-chev-right"/></svg>chev-right</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-chev-left"/></svg>chev-left</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-chev-down"/></svg>chev-down</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-chev-up"/></svg>chev-up</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-more"/></svg>more</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg>search</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-barcode"/></svg>barcode</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-swap"/></svg>swap</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>trash</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-edit"/></svg>edit</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-export"/></svg>export</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-import"/></svg>import</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-paste"/></svg>paste</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>file</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>play</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-timer"/></svg>timer</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg>clock</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-trophy"/></svg>trophy</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-flame"/></svg>flame</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-bolt"/></svg>bolt</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-scale"/></svg>scale</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>moon</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>sun</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg>cloud</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-star"/></svg>star</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-leaf"/></svg>leaf</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-pulse"/></svg>pulse</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-bell"/></svg>bell</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg>info</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-up"/></svg>up</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-calendar"/></svg>calendar</div>
+<div class="icon-cell"><svg class="i" aria-hidden="true"><use href="#i-book"/></svg>book</div>
+  </div>
+</main>
+
+</body>
+</html>

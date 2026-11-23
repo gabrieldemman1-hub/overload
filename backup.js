@@ -1,16 +1,21 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload — automatic safety copies.
  * The whole saved data is copied into IndexedDB, which is separate from (and much larger than) the space the app
  * saves into: one copy a day (taken at start, and again after a workout is finished) for the last 7 days, plus the
- * latest copy taken just before an Import, a Reset, a Restore or a cloud sign-in replaced the data. Settings lists
- * them with Restore. Loaded before app.js; app.js uses window.__overloadBackup.
+ * latest copy taken just before an Import, a Reset, a Restore or a cloud sign-in replaced the data, the copy taken
+ * at the split into two apps, and the last three taken before "Remove the old food log". Settings lists them with
+ * Restore. Loaded before overload.js (app.js until 2.8, which uses it the same way): window.__overloadBackup.
  * Nothing here may break the app: every failure is swallowed and reported only as "not available".
  */
 (function () {
   'use strict';
   const DB = 'overload-copies';
   const KEEP_DAYS = 7;
+  const KEEP_REMOVALS = 3;  // copies taken before "Remove the old food log": each has its own, the newest three are kept
   const OPEN_WAIT = 2000;   // Safari can leave the open request unanswered: give up then, so callers fall back
-  let dbp = null;
+  const RUN_WAIT = 5000;    // the same for a transaction that neither completes nor fails (see run)
+  let dbp = null;          // the open database (a promise of it), kept for the session
+  let kept = null;          // the database dbp gave, once it did
 
   function open() {
     if (dbp) return dbp;
@@ -30,7 +35,12 @@
         const db = req.result;
         if (over) { db.close(); return; }   // answered too late: the next call opens again
         over = true; clearTimeout(t);
-        db.onversionchange = () => { db.close(); dbp = null; }; resolve(db);
+        kept = db;
+        db.onversionchange = () => forget(db);
+        // The connection can be lost while the app runs: an iPhone drops it for an app that comes back from the
+        // background ("Connection to Indexed Database server lost"). Then the next call opens it again.
+        db.onclose = () => forget(db);
+        resolve(db);
       };
       req.onerror = () => fail(req.error || new Error('IndexedDB did not open'));
       req.onblocked = () => fail(new Error('IndexedDB is busy'));
@@ -38,16 +48,39 @@
     dbp.catch(() => { dbp = null; });   // try again next time
     return dbp;
   }
+  // Lets go of an opened database, if it is still the one kept, so that the next call opens it again.
+  function forget(db) {
+    if (db !== kept) return;
+    kept = null; dbp = null;
+    try { db.close(); } catch (e) { /* closed already */ }
+  }
   // One transaction; fn queues its requests synchronously (Safari closes a transaction left idle).
+  // A transaction that cannot be started (the connection was lost: db.transaction throws) or that fails lets go
+  // of the database, and is tried once more on a fresh connection. A transaction that failed changed nothing,
+  // so the second try starts from the same place. When the database does not open, there is no second try:
+  // the caller already waited OPEN_WAIT for it.
+  // A transaction that has neither completed nor failed after RUN_WAIT is given up as well: it is aborted (so a
+  // late write cannot land after the caller was told it did not), the connection is let go, and the call fails
+  // without a second try. So take() resolves false, list() and get() reject, and each caller's fallback applies
+  // instead of a wait for ever (review finding data#2).
   function run(stores, mode, fn) {
-    return open().then((db) => new Promise((resolve, reject) => {
-      const t = db.transaction(stores, mode);
+    const once = () => open().then((db) => new Promise((resolve, reject) => {
+      let over = false, t = null, timer = null;
+      const end = (f) => { if (over) return; over = true; clearTimeout(timer); f(); };
+      const lost = (err) => end(() => { forget(db); reject({ again: true, err }); });
+      try { t = db.transaction(stores, mode); } catch (e) { lost(e); return; }
+      timer = setTimeout(() => end(() => {
+        try { t.abort(); } catch (x) { /* over already */ }
+        forget(db); reject(new Error('IndexedDB did not answer'));
+      }), RUN_WAIT);
       let out;
-      t.oncomplete = () => resolve(out);
-      t.onerror = () => reject(t.error || new Error('IndexedDB error'));
-      t.onabort = () => reject(t.error || new Error('IndexedDB aborted'));
-      fn(t, (v) => { out = v; });
+      t.oncomplete = () => end(() => resolve(out));
+      t.onerror = () => lost(t.error || new Error('IndexedDB error'));
+      t.onabort = () => lost(t.error || new Error('IndexedDB aborted'));
+      try { fn(t, (v) => { out = v; }); } catch (e) { try { t.abort(); } catch (x) { /* over already */ } lost(e); }
     }));
+    const real = (e) => Promise.reject(e && e.again ? e.err : e);
+    return once().catch((e) => (e && e.again ? once().catch(real) : real(e)));
   }
   const dayKey = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
   // What a copy holds, for the list (counted once, when it is taken).
@@ -62,26 +95,31 @@
     } catch (e) { /* unreadable text: counts stay unknown */ }
     return s;
   }
+  // The id a copy is stored under. A daily copy has one per date; a removal copy one of its own, so a second
+  // removal never writes over the first (the one before it may hold food the second does not).
+  const idFor = (kind, at) => (kind === 'day' ? 'day-' + dayKey(at) : kind === 'foodremove' ? 'before-foodremove-' + at : 'before-' + kind);
 
-  // kind: 'day' (one per date, the last 7 dates kept), or 'import' | 'reset' | 'restore' | 'cloud' | 'unreadable'
-  // (the latest of each kind kept). `text` is the data, or a function that gives it (called only when a copy is
-  // written, so a start that already has today's copy costs nothing). `force` replaces today's daily copy.
-  // Resolves to true when the copy is stored.
+  // kind: 'day' (one per date, the last 7 dates kept), 'foodremove' (one per removal, the last 3 kept), or
+  // 'import' | 'reset' | 'restore' | 'cloud' | 'unreadable' | 'split' (the latest of each kind kept). `text` is the
+  // data, or a function that gives it (called only when a copy is written, so a start that already has today's
+  // copy costs nothing). `force` replaces today's daily copy. Resolves to true when the copy is stored.
   function take(kind, text, force) {
     try {
       const at = Date.now();
-      const id = kind === 'day' ? 'day-' + dayKey(at) : 'before-' + kind;
+      const id = idFor(kind, at);
       return run(['meta', 'data'], 'readwrite', (t, done) => {
         const ms = t.objectStore('meta'), ds = t.objectStore('data');
         const write = () => {
           const body = typeof text === 'function' ? text() : text;
           if (typeof body !== 'string' || !body) { done(false); return; }
           ms.put(Object.assign({ id, kind, at, chars: body.length }, summary(body))); ds.put({ id, text: body });
-          if (kind !== 'day') { done(true); return; }
+          if (kind !== 'day' && kind !== 'foodremove') { done(true); return; }
+          // Only so many of these are kept: the newest, by date for daily copies and by time for removal copies.
           const r = ms.getAll();
           r.onsuccess = () => {
-            const days = r.result.filter((m) => m.kind === 'day').sort((a, b) => (a.id < b.id ? 1 : -1));
-            days.slice(KEEP_DAYS).forEach((m) => { ms.delete(m.id); ds.delete(m.id); });
+            const mine = r.result.filter((m) => m.kind === kind);
+            if (kind === 'day') mine.sort((a, b) => (a.id < b.id ? 1 : -1)); else mine.sort((a, b) => (+b.at || 0) - (+a.at || 0));
+            mine.slice(kind === 'day' ? KEEP_DAYS : KEEP_REMOVALS).forEach((m) => { ms.delete(m.id); ds.delete(m.id); });
             done(true);
           };
         };
@@ -106,5 +144,8 @@
     });
   }
 
-  window.__overloadBackup = { take, list, get, KEEP_DAYS };
+  window.__overloadBackup = {
+    release: '3.0',   // the release this file belongs to (bump.sh sets it): overload.js uses no copies module of another release
+    take, list, get, KEEP_DAYS, KEEP_REMOVALS
+  };
 })();

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-app="overload">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Overload · Settings</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  // Mockup theme switch: add ?theme=light to the URL. Default is dark.
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body class="">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="g-mark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--m1)"/><stop offset="1" style="stop-color:var(--m2)"/></linearGradient>
+</defs></svg>
+<div class="mock-status" aria-hidden="true"><span>9:41</span><svg viewBox="0 0 68 12"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M31 2.2c2.3 0 4.4.9 6 2.4l-1.3 1.4a6.8 6.8 0 0 0-9.4 0L25 4.6a8.7 8.7 0 0 1 6-2.4zm0 3.8c1.3 0 2.5.5 3.4 1.4L31 11l-3.4-3.6c.9-.9 2.1-1.4 3.4-1.4z"/><rect x="43.5" y="0.5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".45"/><rect x="45.5" y="2.5" width="15" height="7" rx="1.6"/><rect x="65.5" y="4" width="1.8" height="4" rx=".9" opacity=".5"/></svg></div>
+<header class="topbar"><div class="topbar-inner">
+  <div class="brand"><span class="brand-mark"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>Overload</div>
+  <div class="topbar-right"><span class="pill sync-pill synced"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-cloud"/></svg>Synced</span></div></div></header>
+<main id="app" class="screen ">
+
+<div class="screen-title"><h1>Settings</h1><span class="sub">Version 3.0</span></div>
+
+<section class="card">
+  <div class="row" style="gap:12px;align-items:flex-start">
+    <span class="tile fuel"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-bolt"/></svg></span>
+    <div class="grow"><h2>Food has moved to Fuel</h2><p class="small soft mt4">Calories and macros now live in their own app. Your food log stays on this phone until you move it.</p></div>
+  </div>
+  <ol class="steps mt16">
+    <li class="done"><b>Add Fuel to your Home Screen.</b> Open it in Safari, then Share, Add to Home Screen.</li>
+    <li class="done"><b>Copy your food log.</b> Targets, saved foods and 214 logged days.</li>
+    <li><b>Open Fuel</b> and tap Paste from Overload.</li>
+  </ol>
+  <div class="btn-row mt4"><button class="btn small"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-external"/></svg>Open Fuel</button><button class="btn small ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-copy"/></svg>Copy again</button></div>
+</section>
+
+<section class="card">
+  <div class="toggle-row wrap"><div><div class="t">Appearance</div><div class="d">System follows your phone</div></div>
+    <div class="seg block"><button class="on">System</button><button>Dark</button><button>Light</button></div></div>
+  <div class="toggle-row"><div><div class="t">Rep range</div><div class="d">Hit the top on every set and the weight goes up</div></div>
+    <div class="row" style="gap:6px"><input class="input num" style="width:60px" type="number" inputmode="numeric" value="10" aria-label="Lowest reps"><span class="muted">to</span><input class="input num" style="width:60px" type="number" inputmode="numeric" value="12" aria-label="Highest reps"></div></div>
+  <div class="toggle-row"><div><div class="t">Rest timer</div><div class="d">Seconds, starts when you tick a set</div></div>
+    <div class="stepper"><button aria-label="15 seconds less"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-minus"/></svg></button><input type="number" inputmode="numeric" value="120" aria-label="Rest seconds"><button aria-label="15 seconds more"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-plus"/></svg></button></div></div>
+  <div class="toggle-row"><div><div class="t">Reps in reserve</div><div class="d">Four buttons under each ticked set</div></div><button class="switch on" role="switch" aria-checked="true"></button></div>
+  <div class="toggle-row"><div><div class="t">Sleep in the check-in</div><div class="d">Time asleep, REM and deep</div></div><button class="switch on" role="switch" aria-checked="true"></button></div>
+  <div class="toggle-row"><div><div class="t">Sound when rest is over</div><div class="d">The mute switch silences it</div></div><button class="switch" role="switch" aria-checked="false"></button></div>
+</section>
+
+<section class="card">
+  <div class="card-head"><div><h2>Weight jumps</h2><div class="meta">lb added when you earn it. Override per exercise.</div></div></div>
+  <div class="field-row"><div class="field"><label>Barbell</label><input class="input num" type="number" inputmode="decimal" value="2.5"></div><div class="field"><label>Dumbbell</label><input class="input num" type="number" inputmode="decimal" value="5"></div></div>
+  <div class="field-row" style="margin-bottom:-16px"><div class="field"><label>Machine</label><input class="input num" type="number" inputmode="decimal" value="5"></div><div class="field"><label>Cable</label><input class="input num" type="number" inputmode="decimal" value="5"></div></div>
+</section>
+
+<section class="card">
+  <div class="card-head"><div class="row"><span class="tile"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-file"/></svg></span><div><h2>Backup</h2><div class="meta">Last export 6 days ago · 7 daily copies kept</div></div></div></div>
+  <div class="row between small"><span class="soft">Storage used on this phone</span><b class="num">4%</b></div>
+  <div class="bar thin mt8"><span class="muted" style="width:4%"></span></div>
+  <div class="btn-row mt16"><button class="btn ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-export"/></svg>Export</button><button class="btn ghost"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-import"/></svg>Import</button></div>
+</section>
+
+<section class="card">
+  <h2>Reset all data</h2>
+  <p class="small muted mt4">Erases every workout on this phone. It asks first and keeps a safety copy.</p>
+  <button class="btn danger block mt12"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-trash"/></svg>Reset</button>
+</section>
+
+</main>
+<div class="toast" role="status"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-check"/></svg>Food log copied. Paste it in Fuel.</div>
+<nav class="tabbar"><button class="tab" data-screen="today"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>Today</button><button class="tab" data-screen="program"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-calendar"/></svg></span>Program</button><button class="tab" data-screen="exercises"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-list"/></svg></span>Exercises</button><button class="tab" data-screen="history"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-chart"/></svg></span>History</button><button class="tab active" data-screen="settings"><span class="tab-icon"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-gear"/></svg></span>Settings</button></nav>
+<div class="mock-home" aria-hidden="true"></div>
+</body>
+</html>

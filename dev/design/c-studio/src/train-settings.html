@@ -1,0 +1,104 @@
+<!--{"app":"overload","tab":"settings","title":"Overload: Settings","appIcons":true}-->
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Overload 3.0 · synced 2 min ago</p>
+    <h1>Settings</h1>
+  </div>
+</div>
+
+<!-- Food has moved -->
+<section class="card">
+  <div class="flex gap-4" style="align-items:flex-start">
+    <svg class="app-icon" width="56" height="56" viewBox="0 0 1024 1024" role="img" aria-label="Fuel app icon" style="flex:none"><use href="#app-fuel"/></svg>
+    <div>
+      <p class="eyebrow">New</p>
+      <h2 class="heading mt-1">Food has moved to Fuel</h2>
+      <p class="small soft mt-1">Calories and macros now have their own app. Your food log stays on this phone until you bring it across.</p>
+    </div>
+  </div>
+  <ol class="steps mt-4">
+    <li><span>Open <b>Fuel</b> in Safari and add it to your Home Screen.</span></li>
+    <li><span>Here, tap <b>Copy food log</b>.</span></li>
+    <li><span>In Fuel, choose <b>Paste from Overload</b>.</span></li>
+  </ol>
+  <div class="btn-row mt-5">
+    <button class="btn primary">{{paste sm}}Copy food log</button>
+    <button class="btn" style="flex:0 0 auto">Open Fuel</button>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Appearance</h2></div>
+  <div class="seg" role="group" aria-label="Appearance"><button class="on" aria-pressed="true">System</button><button>Light</button><button>Dark</button></div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Progression</h2></div>
+  <div class="card" style="padding-top:8px;padding-bottom:8px">
+    <ul class="list">
+      <li class="row">
+        <span class="row-body"><span class="row-title">Rep range</span><span class="row-sub">The top moves the weight up</span></span>
+        <span class="flex" style="gap:6px"><input class="input num" style="width:56px;height:44px;padding:0" inputmode="numeric" value="10" aria-label="Rep range from"><span class="muted">to</span><input class="input num" style="width:56px;height:44px;padding:0" inputmode="numeric" value="12" aria-label="Rep range to"></span>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Barbell jump</span></span>
+        <span class="stepper"><button aria-label="Less">{{minus sm}}</button><span class="val">2.5<small>lb</small></span><button aria-label="More">{{plus sm}}</button></span>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Dumbbell jump</span></span>
+        <span class="stepper"><button aria-label="Less">{{minus sm}}</button><span class="val">5<small>lb</small></span><button aria-label="More">{{plus sm}}</button></span>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Machine jump</span></span>
+        <span class="stepper"><button aria-label="Less">{{minus sm}}</button><span class="val">5<small>lb</small></span><button aria-label="More">{{plus sm}}</button></span>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Cable jump</span></span>
+        <span class="stepper"><button aria-label="Less">{{minus sm}}</button><span class="val">5<small>lb</small></span><button aria-label="More">{{plus sm}}</button></span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>In a workout</h2></div>
+  <div class="card" style="padding-top:8px;padding-bottom:8px">
+    <ul class="list">
+      <li class="row">
+        <span class="row-body"><span class="row-title">Rest timer</span><span class="row-sub">After each ticked set</span></span>
+        <span class="stepper"><button aria-label="15 seconds less">{{minus sm}}</button><span class="val">2:00</span><button aria-label="15 seconds more">{{plus sm}}</button></span>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Sound when rest is over</span><span class="row-sub">The mute switch silences it</span></span>
+        <button class="toggle on" role="switch" aria-checked="true" aria-label="Sound when rest is over"></button>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Reps in reserve</span><span class="row-sub">Four buttons under each set</span></span>
+        <button class="toggle on" role="switch" aria-checked="true" aria-label="Reps in reserve"></button>
+      </li>
+      <li class="row">
+        <span class="row-body"><span class="row-title">Sleep in the check-in</span></span>
+        <button class="toggle" role="switch" aria-checked="false" aria-label="Sleep in the check-in"></button>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Backup</h2><span class="small muted">Last export 3 days ago</span></div>
+  <div class="card">
+    <div class="flex between small"><span class="soft">Storage on this phone</span><span class="strong num">1.2 of 5 MB</span></div>
+    <div class="bar ink mt-2" style="--v:24%" role="img" aria-label="24 percent of storage used"><i></i></div>
+    <div class="btn-row mt-4">
+      <button class="btn">{{export sm}}Export</button>
+      <button class="btn">{{import sm}}Import</button>
+    </div>
+    <div class="hr"></div>
+    <button class="row" style="padding:0;min-height:44px"><span class="row-body"><span class="row-title">Automatic copies</span><span class="row-sub">7 on this phone, one a day</span></span>{{chev-right row-chev}}</button>
+  </div>
+</section>
+
+<section class="section">
+  <button class="btn danger block">{{trash sm}}Reset all data</button>
+  <p class="caption muted center mt-3">Erases workouts, exercises and settings on this phone. You are signed in, so the cloud copy is replaced too.</p>
+</section>

@@ -1,0 +1,45 @@
+<!--{"app":"fuel","tab":"today","title":"Fuel: Add food","base":"fuel-today","body":"sheet-open"}-->
+<!--overlay-->
+<div class="backdrop"></div>
+<section class="sheet" role="dialog" aria-modal="true" aria-label="Add food to Dinner" style="height:89%">
+  <div class="grabber"></div>
+  <div class="sheet-head">
+    <div>
+      <p class="eyebrow">Dinner · Today</p>
+      <h2>Add food</h2>
+    </div>
+    <button class="btn ink sm">Done</button>
+  </div>
+  <div class="search">
+    {{search}}
+    <input type="search" placeholder="Search 8,700 foods" aria-label="Search foods">
+    <button class="icon-btn" aria-label="Scan a barcode">{{barcode}}</button>
+  </div>
+  <div class="added mt-3" role="status">
+    {{check sm}}
+    <span><b>Added: Chicken breast, cooked</b><small>170 g · 281 kcal · to Dinner</small></span>
+    <button class="btn link sm">Undo</button>
+  </div>
+
+  <div class="sheet-body mt-3">
+    <p class="eyebrow">Saved meals</p>
+    <ul class="list mt-1">
+      <li class="food"><span class="food-body"><span class="food-name">Usual breakfast</span><span class="food-sub"><span>4 foods</span><span class="pcf">P 49 · C 54 · F 16</span></span></span><span class="food-kcal">541</span><button class="icon-btn accent" aria-label="Log Usual breakfast to Dinner">{{plus}}</button></li>
+    </ul>
+
+    <p class="eyebrow mt-4">Favorites</p>
+    <ul class="list mt-1">
+      <li class="food"><span class="food-body"><span class="food-name">Chicken breast, cooked (roasted)</span><span class="food-sub"><span>170 g</span><span class="pcf">P 53 · C 0 · F 6</span></span></span><span class="food-kcal">281</span><button class="icon-btn primary" aria-label="Added. Tap to add another">{{check}}</button></li>
+      <li class="food"><span class="food-body"><span class="food-name">White rice, cooked</span><span class="food-sub"><span>200 g</span><span class="pcf">P 5 · C 57 · F 1</span></span></span><span class="food-kcal">260</span><button class="icon-btn accent" aria-label="Log White rice, 200 g">{{plus}}</button></li>
+      <li class="food"><span class="food-body"><span class="food-name">Eggs, whole</span><span class="food-sub"><span>3 large (150 g)</span><span class="pcf">P 19 · C 1 · F 14</span></span></span><span class="food-kcal">215</span><button class="icon-btn accent" aria-label="Log Eggs, 3 large">{{plus}}</button></li>
+      <li class="food"><span class="food-body"><span class="food-name">Greek yogurt, nonfat, plain</span><span class="food-sub"><span>227 g</span><span class="pcf">P 23 · C 8 · F 1</span></span></span><span class="food-kcal">134</span><button class="icon-btn accent" aria-label="Log Greek yogurt, 227 g">{{plus}}</button></li>
+    </ul>
+
+    <p class="eyebrow mt-4">Recent</p>
+    <ul class="list mt-1">
+      <li class="food"><span class="food-body"><span class="food-name">Ground beef 93/7, raw</span><span class="food-sub"><span>150 g</span><span class="pcf">P 31 · C 0 · F 11</span></span></span><span class="food-kcal">228</span><button class="icon-btn accent" aria-label="Log Ground beef, 150 g">{{plus}}</button></li>
+      <li class="food"><span class="food-body"><span class="food-name">Kodiak Power Waffles</span><span class="food-sub"><span>2 waffles (76 g)</span><span class="pcf">P 12 · C 26 · F 10</span></span></span><span class="food-kcal">230</span><button class="icon-btn accent" aria-label="Log Kodiak Power Waffles, 2 waffles">{{plus}}</button></li>
+      <li class="food"><span class="food-body"><span class="food-name">Fairlife 2% milk</span><span class="food-sub"><span>240 ml</span><span class="pcf">P 13 · C 6 · F 5</span></span></span><span class="food-kcal">120</span><button class="icon-btn accent" aria-label="Log Fairlife 2% milk, 240 ml">{{plus}}</button></li>
+    </ul>
+  </div>
+</section>

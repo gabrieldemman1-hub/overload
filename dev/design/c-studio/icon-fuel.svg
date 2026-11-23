@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g-ember" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#CC5830"/><stop offset="1" stop-color="#9F3516"/></linearGradient>
+    <linearGradient id="g-herb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4C8F55"/><stop offset="1" stop-color="#27603A"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g-herb)"/>
+  <circle cx="512" cy="512" r="334" fill="none" stroke="#F8F5E6" stroke-width="46"/>
+  <circle cx="512" cy="512" r="250" fill="none" stroke="#F8F5E6" stroke-opacity="0.28" stroke-width="12"/>
+  <path d="M372 652C372 468 492 362 664 360c-2 172-108 292-292 292z" fill="#F8F5E6"/>
+  <path d="M384 640L566 458" fill="none" stroke="#37774A" stroke-width="26" stroke-linecap="round"/>
+  </svg>

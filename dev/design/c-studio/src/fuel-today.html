@@ -1,0 +1,77 @@
+<!--{"app":"fuel","tab":"today","title":"Fuel: Today"}-->
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Thursday, Nov 19</p>
+    <h1>Today</h1>
+  </div>
+  <div class="flex day-switch" style="margin-bottom:2px">
+    <button class="icon-btn" aria-label="Previous day">{{chev-left}}</button>
+    <button class="icon-btn" aria-label="Next day" disabled>{{chev-right}}</button>
+  </div>
+</div>
+
+<section class="card" aria-label="Calories and macros">
+  <p class="eyebrow">Calories left</p>
+  <p class="hero mt-2">1,209<span class="unit">kcal</span></p>
+  <div class="bar thick mt-4" style="--v:53.5%" role="img" aria-label="1,391 of 2,600 kcal eaten"><i></i></div>
+  <div class="flex between small mt-2">
+    <span class="soft"><b class="strong num">1,391</b> eaten</span>
+    <span class="muted num">of 2,600</span>
+  </div>
+  <div class="hr"></div>
+  <div class="macros">
+    <div>
+      <p class="macro-label"><i class="dot protein"></i>Protein</p>
+      <p class="macro-val">138<small> / 190 g</small></p>
+      <div class="bar protein" style="--v:72.6%" role="img" aria-label="Protein 138 of 190 grams"><i></i></div>
+    </div>
+    <div>
+      <p class="macro-label"><i class="dot carbs"></i>Carbs</p>
+      <p class="macro-val">122<small> / 280 g</small></p>
+      <div class="bar carbs" style="--v:43.6%" role="img" aria-label="Carbs 122 of 280 grams"><i></i></div>
+    </div>
+    <div>
+      <p class="macro-label"><i class="dot fat"></i>Fat</p>
+      <p class="macro-val">40<small> / 80 g</small></p>
+      <div class="bar fat" style="--v:50%" role="img" aria-label="Fat 40 of 80 grams"><i></i></div>
+    </div>
+  </div>
+</section>
+
+<section class="card meal">
+  <div class="meal-head"><h2>Breakfast</h2><span class="meal-kcal">541 <small>kcal</small></span><button class="icon-btn" aria-label="Breakfast options">{{more}}</button></div>
+  <ul class="list">
+    <li><button class="food"><span class="food-body"><span class="food-name">Kodiak Power Waffles</span><span class="food-sub"><span>2 waffles (76 g)</span><span class="pcf">P 12 · C 26 · F 10</span></span></span><span class="food-kcal">230</span></button></li>
+    <li><button class="food"><span class="food-body"><span class="food-name">Greek yogurt, nonfat, plain</span><span class="food-sub"><span>227 g</span><span class="pcf">P 23 · C 8 · F 1</span></span></span><span class="food-kcal">134</span></button></li>
+    <li><button class="food"><span class="food-body"><span class="food-name">Fairlife 2% milk</span><span class="food-sub"><span>240 ml</span><span class="pcf">P 13 · C 6 · F 5</span></span></span><span class="food-kcal">120</span></button></li>
+    <li><button class="food"><span class="food-body"><span class="food-name">Blueberries</span><span class="food-sub"><span>100 g</span><span class="pcf">P 1 · C 14 · F 0</span></span></span><span class="food-kcal">57</span></button></li>
+  </ul>
+  <button class="btn block add-food">{{plus sm}}Add food</button>
+</section>
+
+<section class="card meal">
+  <div class="meal-head"><h2>Lunch</h2><span class="meal-kcal">690 <small>kcal</small></span><button class="icon-btn" aria-label="Lunch options">{{more}}</button></div>
+  <ul class="list">
+    <li><button class="food"><span class="food-body"><span class="food-name">Chicken breast, cooked (roasted)</span><span class="food-sub"><span>170 g</span><span class="pcf">P 53 · C 0 · F 6</span></span></span><span class="food-kcal">281</span></button></li>
+    <li><button class="food"><span class="food-body"><span class="food-name">White rice, cooked</span><span class="food-sub"><span>200 g</span><span class="pcf">P 5 · C 57 · F 1</span></span></span><span class="food-kcal">260</span></button></li>
+    <li><button class="food"><span class="food-body"><span class="food-name">Avocado</span><span class="food-sub"><span>½ avocado (68 g)</span><span class="pcf">P 1 · C 6 · F 10</span></span></span><span class="food-kcal">109</span></button></li>
+    <li><button class="food"><span class="food-body"><span class="food-name">Olive oil</span><span class="food-sub"><span>1 tsp (4.5 g)</span><span class="pcf">P 0 · C 0 · F 5</span></span></span><span class="food-kcal">40</span></button></li>
+  </ul>
+  <button class="btn block add-food">{{plus sm}}Add food</button>
+</section>
+
+<section class="card meal">
+  <div class="meal-head"><h2>Dinner</h2><span class="meal-kcal"><small>nothing yet</small></span><button class="icon-btn" aria-label="Dinner options">{{more}}</button></div>
+  <div class="btn-row add-food">
+    <button class="btn primary">{{plus sm}}Add food</button>
+    <button class="btn" style="flex:0 0 auto">Copy yesterday</button>
+  </div>
+</section>
+
+<section class="card meal">
+  <div class="meal-head"><h2>Snacks</h2><span class="meal-kcal">160 <small>kcal</small></span><button class="icon-btn" aria-label="Snacks options">{{more}}</button></div>
+  <ul class="list">
+    <li><button class="food"><span class="food-body"><span class="food-name">Premier Protein shake, chocolate</span><span class="food-sub"><span>1 bottle (325 ml)</span><span class="pcf">P 30 · C 5 · F 3</span></span></span><span class="food-kcal">160</span></button></li>
+  </ul>
+  <button class="btn block add-food">{{plus sm}}Add food</button>
+</section>

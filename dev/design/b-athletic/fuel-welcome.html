@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" data-app="fuel">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fuel · Welcome</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="mock.css">
+<script>
+  // Mockup theme switch: add ?theme=light to the URL. Default is dark.
+  var t = new URLSearchParams(location.search).get('theme');
+  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+</script>
+</head>
+<body class="">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="g-mark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--m1)"/><stop offset="1" style="stop-color:var(--m2)"/></linearGradient>
+</defs></svg>
+<div class="mock-status" aria-hidden="true"><span>9:41</span><svg viewBox="0 0 68 12"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/><path d="M31 2.2c2.3 0 4.4.9 6 2.4l-1.3 1.4a6.8 6.8 0 0 0-9.4 0L25 4.6a8.7 8.7 0 0 1 6-2.4zm0 3.8c1.3 0 2.5.5 3.4 1.4L31 11l-3.4-3.6c.9-.9 2.1-1.4 3.4-1.4z"/><rect x="43.5" y="0.5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".45"/><rect x="45.5" y="2.5" width="15" height="7" rx="1.6"/><rect x="65.5" y="4" width="1.8" height="4" rx=".9" opacity=".5"/></svg></div>
+
+<main id="app" class="screen no-tabs welcome">
+
+<img class="app-icon" src="icon-fuel.svg" alt="Fuel" width="84" height="84">
+<h1>Welcome to Fuel</h1>
+<p class="lede">Your food log has its own app now. Bring it across from Overload, it takes a minute.</p>
+
+<div class="group-title" style="margin-top:28px">Bring my food log</div>
+<button class="choice-card primary">
+  <span class="tile lg overload"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-dumbbell"/></svg></span>
+  <span class="grow"><span class="title">Paste from Overload<span class="pill solid">Fastest</span></span><div class="sub">In Overload: Settings, Food has moved, Copy food log. Then tap here.</div></span>
+  <svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-r"/></svg>
+</button>
+<button class="choice-card">
+  <span class="tile lg"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-file"/></svg></span>
+  <span class="grow"><span class="title">Choose a backup file</span><div class="sub">An Overload export (.json). Only food, targets and saved meals are read.</div></span>
+  <svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-r"/></svg>
+</button>
+<button class="choice-card">
+  <span class="tile lg"><svg class="ic" aria-hidden="true"><use href="icons.svg#i-cloud"/></svg></span>
+  <span class="grow"><span class="title">Sign in to cloud sync</span><div class="sub">The same account as Overload. Your log downloads to this phone.</div></span>
+  <svg class="ic chev" aria-hidden="true"><use href="icons.svg#i-chev-r"/></svg>
+</button>
+
+<div class="grow"></div>
+<div class="center"><button class="link muted">Start fresh</button></div>
+<p class="tiny muted center">Nothing is removed from Overload.</p>
+
+</main>
+
+
+<div class="mock-home" aria-hidden="true"></div>
+</body>
+</html>

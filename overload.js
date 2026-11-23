@@ -1,19 +1,26 @@
 /* Overload — personal hypertrophy tracker.
  * Vanilla JS, no build step. All data lives in localStorage on this device.
- * The Food tab lives in food.js, which plugs in through window.__overloadFood.
+ * Since 3.0 the food log is its own app, Fuel (fuel/). This app no longer shows or changes food, but the
+ * saved data still carries what it held (state.food, state.diary, state.deleted.food: "the old food copy")
+ * until the owner removes it, so nothing is lost and an older version still finds what it expects.
+ * The hand-over to Fuel is further down ("Food has moved to Fuel").
  */
 (function () {
   'use strict';
+  const icon = window.icon || (() => '');   // shared/icons.js. If it did not arrive the app still works: buttons keep their labels
 
   // ---------------------------------------------------------------------------
   // Constants
   // ---------------------------------------------------------------------------
   const STORAGE_KEY = 'overload.state.v1';
   const SYNC_KEY = 'overload.sync.v1';   // cloud sync's note of what the cloud holds (sync.js)
-  const BACKUP_KEY = 'overload.backup';  // { since, lastExport, nagOff } (ms): this phone only, never synced
+  // { since, lastExport, nagOff } (ms), and split: { at, copied, filed, removed, dismissed } (the hand-over to Fuel):
+  // this phone only, never synced, and not touched by Reset, Import or Restore
+  const BACKUP_KEY = 'overload.backup';
   // How much the app can count on saving. The iPhone's real limit is not measured; this is a safe guess.
   const STORE_LIMIT = 2500000;
-  const VERSION = '2.8';
+  const VERSION = '3.0';
+  const FUEL = 'Fuel';   // the diet app's name (a working name: it is only used in the hand-over wording)
   const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
   const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Other'];
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -186,10 +193,15 @@
     let raw = null;
     try {
       raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return seedState();   // first start: nothing saved yet
+      // First start: nothing saved yet. A note of what the cloud holds cannot belong to nothing: left in place,
+      // the next sign-in would take everything it lists for deleted here and delete it from the account and from
+      // the other phones. Without it, the next sign-in is a first link, which downloads and deletes nothing.
+      if (!raw) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } return seedState(); }
       const parsed = JSON.parse(raw);
       if (parsed && parsed.v === 1) {
-        return normalize(parsed);
+        const st = normalize(parsed);
+        ui.startText = raw;   // exactly what was stored, for the copy taken at the first start of 3.0 (noteSplit)
+        return st;
       }
     } catch (e) { /* fall through */ }
     // Saved data that cannot be read (damaged, or written by a newer version): never save over it. Keep a copy,
@@ -345,19 +357,62 @@
     el.hidden = !ui.saveFailed;
     document.body.classList.toggle('has-save-warning', !!ui.saveFailed);
     el.innerHTML = ui.saveFailed ? '<div class="banner danger"><b>The app\'s storage is full.</b> Your latest changes are not saved on this phone and are lost if the app closes. '
-      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">Export backup</button></div></div>' : '';
-    // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in styles.css).
+      + 'Export a backup now. Freeing space on the phone does not help: this limit belongs to the app.<div class="btn-row mt8"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>' : '';
+    // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in shared/ui.css).
     document.documentElement.style.setProperty('--save-warning-h', ui.saveFailed ? el.offsetHeight + 'px' : '0px');
   }
+  // backup.js and connector.js as this file uses them: only this release's. A server that has not caught up can hand
+  // out another release's file under this release's address, and 2.8's worker (in charge during the first starts of
+  // 3.0) runs it without looking. Each module names its release (bump.sh sets it). One that names another release,
+  // or none, counts as not loaded: no automatic copies (so Remove, Reset, Import and Restore refuse), no connector,
+  // and the line at the top of the page says part of the app did not load (index.html asks otherParts).
+  // The same goes for sync.js (round-4 finding rel#6): 2.8's would sync this release's data by its own rules, and
+  // bring back an old food log removed here. Such a module is never given the data (the host's `unreadable` is true
+  // for it: it then neither reads the account nor sends anything) and the cloud card says sync is not available.
+  const PARTS = { __overloadBackup: 'backup.js', __overloadConn: 'connector.js', __overloadSync: 'sync.js' };
+  const part = (name) => { const m = window[name]; return m && m.release === VERSION ? m : null; };
   // ---- Automatic copies, storage use, last export (backup.js keeps the copies in IndexedDB) ----
   // Before an import, reset or restore the text is taken now (the data is replaced right after);
   // the daily copy builds it only if today has none yet.
   function safetyCopy(kind, force, text) {
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     try { return B ? B.take(kind, text || (kind === 'day' ? () => JSON.stringify(state) : JSON.stringify(state)), force) : Promise.resolve(false); } catch (e) { return Promise.resolve(false); }
   }
   function backupInfo() { try { return JSON.parse(localStorage.getItem(BACKUP_KEY)) || {}; } catch (e) { return {}; } }
-  function setBackupInfo(patch) { try { localStorage.setItem(BACKUP_KEY, JSON.stringify(Object.assign(backupInfo(), patch))); } catch (e) { /* ignore */ } }
+  // Returns whether it was stored. A note about the split that could not be stored earlier goes along with it.
+  function setBackupInfo(patch) {
+    const next = Object.assign(backupInfo(), ui.splitHeld ? { split: ui.splitHeld } : {}, patch);
+    try { localStorage.setItem(BACKUP_KEY, JSON.stringify(next)); ui.splitHeld = null; return true; } catch (e) { return false; }
+  }
+  // The split into two apps, as far as this phone goes: { at, copied: { at, hash, days, entries }, filed: { at, hash },
+  // removed: { at }, dismissed }. Kept beside the data, not in it: a Reset, an Import, a Restore or cloud sync must
+  // not make the app forget that the food log was copied, and v2.8 leaves fields it does not know in this object alone.
+  // When the phone's storage is full the note cannot be stored: it is then kept in memory for this session
+  // (ui.splitHeld), so the card still says what was done and Remove, which frees the room, is still offered.
+  function splitInfo() { const s = ui.splitHeld || backupInfo().split; return isObj(s) ? s : {}; }
+  function setSplit(patch) { const next = Object.assign({}, splitInfo(), patch); if (!setBackupInfo({ split: next })) ui.splitHeld = next; }
+  // The first start of 3.0 on this phone: keep the stored text exactly as the last version left it ("Before the
+  // split into two apps" in Settings > Automatic copies, never cleared out), and note when. The text was read
+  // before this version saved anything. The note (split.at) is written once the copy is known to be stored, so a
+  // start that was cut short (the first start after an update reloads within seconds) tries again at the next one.
+  // Nothing stored (a new install), or stored data that could not be read, leaves nothing to keep: only the note.
+  function noteSplit() {
+    const raw = ui.startText; ui.startText = null;
+    if (splitInfo().at) return;
+    if (raw) keepSplitCopy(raw, Date.now(), 2); else setSplit({ at: Date.now() });
+  }
+  // A copy that is already there is never written over. The phone's copy store sometimes does not answer at the
+  // first try (backup.js gives up after 2 s): try once more a little later, with the same text.
+  // This one copy may also be kept by 2.8's backup.js (round-5 finding split#1). During the first starts of 3.0,
+  // 2.8's worker can hand this page 2.8's file, which part() refuses; the copy would then wait for a later start
+  // and hold what this release saved meanwhile. 2.8's take('split', text) stores it under the same id, in the same
+  // form ('before-split', which 2.8 never clears out). Any other module of another release is still not used.
+  const v28Backup = () => { const m = window.__overloadBackup; return m && m.release === undefined && typeof m.take === 'function' && typeof m.list === 'function' ? m : null; };
+  function keepSplitCopy(raw, at, tries) {
+    const B = part('__overloadBackup') || v28Backup(); if (!B) return;
+    B.list().then((list) => list.some((m) => m.id === 'before-split') || B.take('split', raw), () => false)
+      .then((kept) => { if (kept) setSplit({ at }); else if (tries > 1) setTimeout(() => keepSplitCopy(raw, at, tries - 1), 5000); });
+  }
   // Characters stored by this site (key + value, as browsers count them), the app's data counted from its last save.
   function storageUsed() {
     let n = 0;
@@ -388,18 +443,19 @@
   function noticesHtml() {
     if (ui.unreadable || activeWorkout()) return '';
     const pct = Math.round(storageUsed() / STORE_LIMIT * 100);
-    if (pct >= 70) return '<div class="notice"><span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
+    if (pct >= 70) return '<div class="notice">' + icon('warning') + '<span>Storage is ' + pct + '% full. Export a backup now so nothing is lost.</span><button class="btn small" data-action="export">Export</button></div>';
     if (exportDue()) {
       const t = backupInfo().lastExport;
-      return '<div class="notice"><span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">✕</button></div>';
+      return '<div class="notice">' + icon('warning') + '<span>' + (t ? 'Last backup ' + agoText(t) : 'No backup yet') + ', and cloud sync is off.</span><button class="btn small" data-action="export">Export</button><button class="icon-btn" data-action="export-nag-off" aria-label="Remind me in two weeks">' + icon('close', 'm') + '</button></div>';
     }
     return '';
   }
   function refreshNotices() { const el = $('#today-notices'); if (el) el.innerHTML = noticesHtml(); }
   // Settings: the list of automatic copies is read from IndexedDB after the screen is drawn.
-  const COPY_KINDS = { import: 'Before import', reset: 'Before reset', restore: 'Before restore', cloud: 'Before cloud sign-in', unreadable: 'Unreadable data' };
+  const COPY_KINDS = { import: 'Before import', reset: 'Before reset', restore: 'Before restore', cloud: 'Before cloud sign-in', unreadable: 'Unreadable data', split: 'Before the split into two apps', foodremove: 'Before removing the old food log' };
+  const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   function copyRow(m) {
-    const when = fmtDate(todayKey(new Date(m.at))) + (m.kind === 'day' ? '' : ', ' + new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+    const when = fmtDate(todayKey(new Date(m.at))) + (m.kind === 'day' ? '' : ', ' + timeOf(m.at));
     const title = m.kind === 'day' ? when : (COPY_KINDS[m.kind] || 'Copy') + ' · ' + when;
     const sub = m.workouts == null ? 'As it was found. Export it if you might need it.' : plural(+m.workouts || 0, 'workout') + (m.first ? ' · ' + fmtRange(m.first, m.last || m.first) : '') + (m.foodDays ? ' · ' + plural(+m.foodDays, 'food day') : '');
     const btn = m.kind === 'unreadable' ? '<button class="btn small ghost" data-action="export-copy" data-id="' + esc(m.id) + '">Export</button>' : '<button class="btn small ghost" data-action="restore-copy" data-id="' + esc(m.id) + '">Restore</button>';
@@ -407,7 +463,7 @@
   }
   function fillCopies(restorableOnly) {
     const el = $('#safety-copies'); if (!el) return;
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     const none = (t) => { const box = $('#safety-copies'); if (box) box.innerHTML = '<p class="small muted">' + t + '</p>'; };
     if (!B) { none('Automatic copies are not available.'); return; }
     B.list().then((list) => {
@@ -420,24 +476,74 @@
   function renderBackupCard() {
     const used = storageUsed(), pct = Math.round(used / STORE_LIMIT * 100), cls = pct >= 70 ? 'high' : 'ok';
     return '<div class="group-title">Backup</div><div class="card"><p class="small muted mb8">Export a copy now and then. With cloud sync off, this phone is the only place your data lives.</p>'
-      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">Export JSON</button><button class="btn ghost" data-action="import">Import JSON</button></div>'
+      + '<div class="btn-row backup-btns"><button class="btn ghost" data-action="export">' + icon('export') + 'Export JSON</button><button class="btn ghost" data-action="import">' + icon('import') + 'Import JSON</button></div>'
       + '<p class="small muted mt8" id="last-export">' + lastExportText() + '</p>'
       + '<input type="file" accept="application/json,.json" id="import-file" hidden>'
       + '<div class="toggle-row"><div><div>Storage used</div><div class="small muted">' + used.toLocaleString() + ' of about ' + STORE_LIMIT.toLocaleString() + ' characters the app can safely use. Today warns at 70%.</div>'
       + '<span class="vol-bar store-bar"><span class="vol-fill ' + cls + '" style="width:' + Math.min(100, pct) + '%"></span></span></div><span class="vol-n ' + cls + '">' + pct + '%</span></div>'
-      + '<div class="mt12">Automatic copies</div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days, and one taken before each import, reset, restore or cloud sign-in.</p>'
+      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">' + keptText() + '</p>'
       + '<div id="safety-copies">' + (ui.copiesHtml || '<p class="small muted">Looking for copies…</p>') + '</div></div>';
   }
+  // What Settings > Automatic copies keeps (backup.js): every kind it keeps, and how many of each.
+  function keptText() {
+    const B = part('__overloadBackup');
+    return 'Kept on this phone: one a day for the last ' + ((B && B.KEEP_DAYS) || 7) + ' days; one each from before the last import, reset, restore and cloud sign-in; '
+      + 'the copy from the split into two apps; and the copies from before the last ' + ((B && B.KEEP_REMOVALS) || 3) + ' removals of the old food log.';
+  }
+  // Restore, Import, Reset and Remove change or replace the data and wait for a copy on the way: while one of them
+  // is under way, another tap on any of them does nothing (review finding code#2: a second Restore wrote the
+  // restored data over "Before restore").
+  const busy = () => !!(ui.replacing || ui.removing);
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
   async function restoreCopy(id) {
-    const B = window.__overloadBackup; if (!B) return;
-    let rec = null, parsed = null;
-    try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
-    if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) { toast('That copy cannot be read'); return; }
-    const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
-    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced');
-    if (!confirm('Replace everything on this phone with ' + what + '?\n\n' + dataSummary(parsed, 'The copy') + here)) return;
-    replaceState(parsed, 'restore', 'Copy restored');
+    const B = part('__overloadBackup'); if (!B || busy() || cloudStillReading()) return;
+    ui.replacing = true;
+    try {
+      let rec = null, parsed = null;
+      try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
+      if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
+      if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) { toast('That copy cannot be read'); return; }
+      const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
+      // The copies taken at the split and before a removal are where the old food log was kept. Restored while the
+      // phone holds food days again (an older version of the app ran and logged food), the two logs are put together.
+      const merge = !ui.unreadable && (rec.kind === 'foodremove' || rec.kind === 'split') && foodFacts().days > 0 && fileFood(parsed).days > 0;
+      const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy', merge) + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced', 'the copy');
+      if (!confirm(replaceQuestion(what) + '\n\n' + dataSummary(parsed, 'The copy') + here)) return;
+      await replaceState(parsed, 'restore', 'Copy restored', merge);
+    } finally { ui.replacing = false; }
+  }
+  // A file made by Fuel, or a food log saved for Fuel, is not a backup of this app and must never replace its data.
+  const FUEL_FILE = 'This is a ' + FUEL + ' file. Open it in ' + FUEL + '.';
+  const isFuelFile = (parsed) => isObj(parsed) && (parsed.app != null || parsed.kind != null);
+  // Import and Restore replace the training data. The old food copy this phone still holds (its log, or after
+  // Remove its saved foods and targets) is not theirs to drop (keepFoodCopy), so the question only says
+  // "everything" when that is true: the phone holds no food at all, or its data could not be read.
+  function replaceQuestion(what) {
+    return (!ui.unreadable && foodFacts().any ? 'Replace the training data on this phone with ' : 'Replace everything on this phone with ') + what + '?';
+  }
+  // The parts of the saved foods a state, file or copy holds, in words: ['saved foods', 'saved meals', 'targets'].
+  function foodParts(food) {
+    const n = (o) => (isObj(o) ? Object.keys(o).length : 0), t = isObj(food) && isObj(food.targets) ? food.targets : {};
+    return isObj(food) ? [n(food.foods) ? 'saved foods' : '', n(food.meals) ? 'saved meals' : '', ['kcal', 'protein', 'carbs', 'fat'].some((x) => t[x] != null && t[x] !== '') ? 'targets' : ''].filter(Boolean) : [];
+  }
+  const joinWords = (list) => (list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list.join(''));
+  // What food a backup file or copy holds: the log (its days) and the saved foods with the targets.
+  function fileFood(parsed) { return { days: isObj(parsed.diary) ? Object.keys(parsed.diary).length : 0, parts: foodParts(parsed.food) }; }
+  // The questions' lines about food, as keepFoodCopy does it: each part this phone holds stays (the log; the saved
+  // foods with the targets), and a part comes from the file or copy only when the phone has none of it. When the
+  // phone has one part and not the other, the question says which comes from where.
+  function foodLine(parsed, what, merge) {
+    const f = foodFacts(), there = fileFood(parsed), mine = foodParts(state.food);
+    const lines = [];
+    if (merge) lines.push('The food log in ' + what + ' (' + plural(there.days, 'day') + ') is put together with the old food log on this phone (' + plural(f.days, 'day') + ').');
+    else if (f.days) lines.push('The old food log on this phone (' + plural(f.days, 'day') + ') stays as it is.');
+    else if (there.days) lines.push('The food log in ' + what + ' (' + plural(there.days, 'day') + ') comes with it.');
+    if (f.catalogue) {
+      // The saved foods here stay. Said only when the file's are different, and not again after "Food in … is not used".
+      if (there.parts.length && (merge || !f.days) && JSON.stringify(parsed.food) !== JSON.stringify(state.food)) lines.push('The ' + joinWords(mine) + ' on this phone stay as they are; those in ' + what + ' are not used.');
+    } else if (there.parts.length && (f.days || merge)) lines.push('The ' + joinWords(there.parts) + ' in ' + what + ' are used, because this phone has none.');
+    if (f.days && !merge && (f.catalogue || !there.parts.length)) lines.push('Food in ' + what + ' is not used.');
+    return lines.length ? '\n\n' + lines.join(' ') : '';
   }
   // The questions' line about a workout in progress. A copy or backup taken during it holds the same workout as it was then.
   function activeLine(parsed, what) {
@@ -445,24 +551,80 @@
     const same = parsed.active === w.id && Array.isArray(parsed.workouts) && parsed.workouts.some((x) => x && x.id === w.id && !x.finishedAt);
     return same ? '\nThe workout in progress goes back to how it was in ' + what + '.' : '\nThe workout in progress will be lost.';
   }
-  // Workouts, their date range and food days, for the questions before data is replaced.
+  // Workouts, their date range and (while an old food log is involved) its days, for the questions before data is replaced.
   function dataSummary(st, label) {
     const ws = (Array.isArray(st.workouts) ? st.workouts : []).filter((w) => w && w.finishedAt && typeof w.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(w.date)).map((w) => w.date).sort();
     const days = st.diary && typeof st.diary === 'object' ? Object.keys(st.diary).length : 0;
-    return label + ': ' + plural(ws.length, 'workout') + (ws.length ? ' (' + fmtRange(ws[0], ws[ws.length - 1], true) + ')' : '') + ', ' + plural(days, 'food day') + '.';
+    return label + ': ' + plural(ws.length, 'workout') + (ws.length ? ' (' + fmtRange(ws[0], ws[ws.length - 1], true) + ')' : '') + (days ? ', ' + plural(days, 'food day') : '') + '.';
   }
-  // Import and Restore: keep a copy of what is here, then put the new data in place.
-  function replaceState(parsed, kind, done) {
+  // Import and Restore: keep a copy of what is here, then put the new data in place. The caller holds ui.replacing.
+  // The copy is stored first, as Restore's question and Settings say: if it cannot be, nothing is replaced
+  // (review findings data#1, code#3; Fuel's copyFirst does the same). Data that could not be read has its own copy.
+  async function replaceState(parsed, kind, done, merge) {
+    if (!ui.unreadable) { const c = await copyFirst(kind); if (c !== 'kept') { notDone(c, kind === 'import' ? 'Import JSON' : 'Restore a copy', 'replaced'); return; } }
     // An older copy may hold an older WHOOP connector link: this phone keeps its own.
     if (kind === 'restore' && !ui.unreadable && isObj(parsed.settings)) ['connUrl', 'connKey'].forEach((k) => { if (state.settings[k]) parsed.settings[k] = state.settings[k]; });
-    if (!ui.unreadable) safetyCopy(kind);
+    if (!ui.unreadable) keepFoodCopy(parsed, merge);
+    const next = normalize(parsed);
     forgetCloudIfSignedOut();
-    state = normalize(parsed);
+    state = next;
+    noteReplaced();
     stopTimer();   // it was counting rest for a set of the data just replaced
     if (!activeWorkout()) state.active = null;
     ui.lastActive = state.active;
     if (ui.unreadable) { leaveUnreadable(); ui.screen = 'today'; }
     applyTheme(); const ok = save(); render(); toast(ok ? done : NOT_SAVED);
+  }
+  // The copy of what is here, taken before a reset, a restore or an import: 'kept' when it is stored and nothing
+  // changed meanwhile, 'failed' when it could not be stored (IndexedDB did not answer, or refused it, or backup.js
+  // is missing), 'changed' when the data changed while it was being stored (cloud sync brought some): the copy
+  // would not hold that.
+  async function copyFirst(kind) {
+    const text = JSON.stringify(state);
+    if (!(await safetyCopy(kind, false, text))) return 'failed';
+    return JSON.stringify(state) === text ? 'kept' : 'changed';
+  }
+  const copyFailedText = (did) => 'The automatic copy could not be stored, so nothing was ' + did + '. Export a backup first, then try again.';
+  // Nothing was done because the copy was not kept. Export is a button of its own in a sheet, so the share sheet
+  // opens from a tap of his (an iPhone opens it only from a tap).
+  function notDone(c, title, did) {
+    if (c !== 'failed') { toast('The training data changed just now. Nothing was ' + did + '.'); return; }
+    openSheet(sheetHeader(title) + '<div class="banner warn" role="alert">' + icon('warning') + '<span>' + copyFailedText(did) + '</span></div>'
+      + '<button class="btn block mt12" data-action="export">' + icon('export') + 'Export backup</button>', 'copy-failed');
+  }
+  // Reset, Import and Restore put new training data in place. The old food copy is not theirs to drop: what this
+  // phone holds is carried into the new data as it is, and food from the file or copy is used only for a part this
+  // phone has none of. The two parts are the saved foods with the targets (state.food) and the log itself
+  // (state.diary, with its deletion records). After "Remove the old food log" the phone has no log, so restoring
+  // the copy taken before the removal brings the log back; the saved foods on the phone stay either way.
+  // merge (Restore of the copy taken at the split or before a removal, while the phone holds food days again): the
+  // copy's log is put together with the phone's instead of being left out (mergeDiaries).
+  function keepFoodCopy(next, merge) {
+    const f = foodFacts();
+    if (f.catalogue) next.food = state.food;
+    if (!f.days) return;
+    if (!isObj(next.deleted)) next.deleted = {};
+    if (merge && isObj(next.diary)) { const m = mergeDiaries(next.diary, state.diary, next.deleted.food, state.deleted.food); next.diary = m.diary; next.deleted.food = m.deleted; return; }
+    next.diary = state.diary; next.deleted.food = state.deleted.food;
+  }
+  // Two food logs as one, day by day and entry by entry (an entry is known by its id): every entry of the phone
+  // stays as it is, and an entry of the copy is added when the phone does not hold it on that day and has not
+  // deleted it (its deletion records). On a day both have, the copy's entries go first: they were logged earlier.
+  // The deletion records are the phone's, plus the copy's for entries neither log holds.
+  function mergeDiaries(copy, phone, copyDeleted, phoneDeleted) {
+    const gone = isObj(phoneDeleted) ? phoneDeleted : {}, key = (e) => (e && e.id != null ? 'id:' + e.id : 'x:' + JSON.stringify(e));
+    const diary = {}, held = new Set();
+    const add = (day, list) => { diary[day] = list; list.forEach((e) => held.add(key(e))); };
+    Object.keys(copy).forEach((day) => {
+      const theirs = Array.isArray(copy[day]) ? copy[day] : [];
+      if (!Array.isArray(phone[day])) { add(day, theirs.filter((e) => !(e && e.id != null && gone[e.id]))); if (!diary[day].length) delete diary[day]; return; }
+      const mine = new Set(phone[day].map(key));
+      add(day, theirs.filter((e) => !mine.has(key(e)) && !(e && e.id != null && gone[e.id])).concat(phone[day]));
+    });
+    Object.keys(phone).forEach((day) => { if (!(day in diary)) add(day, phone[day]); });
+    const deleted = Object.assign({}, gone);
+    if (isObj(copyDeleted)) Object.keys(copyDeleted).forEach((id) => { if (!(id in deleted) && !held.has('id:' + id)) deleted[id] = copyDeleted[id]; });
+    return { diary, deleted };
   }
   // Theme: 'system' follows the phone, 'dark' / 'light' force one.
   function applyTheme() {
@@ -472,14 +634,15 @@
     const light = t === 'light' || (t === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
     root.classList.toggle('system-light', t === 'system' && light);
     try { localStorage.setItem('overload.theme', t); } catch (e) { /* ignore */ }
-    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f3f3f5' : '#111214';
+    const meta = $('meta[name="theme-color"]'); if (meta) meta.content = light ? '#f6f6f3' : '#0a0b0c';   // --bg of each theme (shared/ui.css)
   }
   // Replace the whole state (used by cloud sync when remote data arrives).
   function setState(next) {
     if (!next || next.v !== 1 || ui.unreadable) return;
     state = normalize(next);
     let ok = true;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+    // The storage meter counts the app's data from what was last stored (see storageUsed), here as in save().
+    try { const text = JSON.stringify(state); localStorage.setItem(STORAGE_KEY, text); ui.savedChars = text.length; } catch (e) { ok = false; }
     if (ok !== !ui.saveFailed) { ui.saveFailed = !ok; renderSaveWarning(); }
     // Keep state.active even if that workout is not here yet: cloud sync can deliver the settings
     // before the workout itself, and clearing it would end the workout on the other phone too.
@@ -501,7 +664,8 @@
   // Accessors
   const exById = (id) => state.exercises.find((e) => e.id === id);
   const dayById = (id) => state.program.days.find((d) => d.id === id);
-  const activeWorkout = () => (state.active ? state.workouts.find((w) => w.id === state.active) : null);
+  // The workout in progress: never one that is finished (cloud sync could name one for a moment: review finding sync#9).
+  const activeWorkout = () => (state.active ? state.workouts.find((w) => w.id === state.active && !w.finishedAt) : null);
   function prescFor(exId) {
     if (!state.presc[exId]) { const ex = exById(exId); state.presc[exId] = { weight: 0, targetReps: repRange(ex).min, sets: (ex && ex.fixedSets) || state.settings.defaultSets, reasons: [], updatedAt: null }; }
     return state.presc[exId];
@@ -729,7 +893,7 @@
   // UI state
   // ---------------------------------------------------------------------------
   const ui = { screen: 'today', selectedDay: weekdayIndex(), dayKey: todayKey(), saveFailed: false, sheet: null, search: '', chartEx: null, sync: { status: 'off', msg: '' }, calOffset: 0, reviewOffset: 0, showOthers: false, updateReady: false };
-  const timer = { end: 0, total: 0, handle: null, kind: 'rest' };
+  const timer = { end: 0, total: 0, handle: null, kind: 'rest', next: '' };
 
   // ---------------------------------------------------------------------------
   // Rendering
@@ -740,27 +904,35 @@
     try {
       renderScreen();
       if (ui.screen === 'today' && !activeWorkout()) {
-        const html = '<div id="today-notices">' + noticesHtml() + '</div>', t = $('#app > .screen-title');
+        const html = '<div id="today-notices">' + noticesHtml() + '</div><div id="handover" data-where="today">' + handoverHtml('today') + '</div>', t = $('#app > .screen-title');
         if (t) t.insertAdjacentHTML('afterend', html); else $('#app').insertAdjacentHTML('afterbegin', html);
       }
       if (ui.screen === 'settings') fillCopies();
+      warmFoodText();
     } catch (e) {
       // One bad record (or a bug) must not leave a blank screen: say so and offer Export. The other tabs keep working.
       console.error(e);
       $('#app').innerHTML = '<div class="card mt16"><p><b>This screen could not be shown.</b> Your saved data has not changed. Export a backup to keep it safe, then try another tab.</p>'
         + '<p class="small muted mt8">' + esc((e && e.message) || e) + '</p>'
-        + '<div class="btn-row mt12"><button class="btn" data-action="export">Export backup</button></div></div>';
+        + '<div class="btn-row mt12"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>';
     }
+  }
+  // The tab of the screen shown: lit, and named the current page for assistive tech. null: none (the unreadable screen).
+  function markTabs(active) {
+    document.querySelectorAll('.tab').forEach((t) => {
+      const on = t.dataset.screen === active;
+      t.classList.toggle('active', on);
+      if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+    });
   }
   function renderScreen() {
     const app = $('#app');
     // Opened yesterday and still open: the selected day moves on with the date.
     if (ui.dayKey !== todayKey()) { ui.dayKey = todayKey(); ui.selectedDay = weekdayIndex(); ui.showOthers = false; }
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.screen === ui.screen));
+    markTabs(ui.screen);
     renderTopbar();
     switch (ui.screen) {
       case 'today': app.innerHTML = renderToday(); break;
-      case 'food': app.innerHTML = window.__overloadFood ? window.__overloadFood.render() : '<div class="empty">Loading…</div>'; break;
       case 'program': app.innerHTML = renderProgram(); break;
       case 'exercises': app.innerHTML = renderExercises(); break;
       case 'history': app.innerHTML = renderHistory(); break;
@@ -768,23 +940,41 @@
     }
   }
 
+  // The top bar names the screen. On Today during a workout it carries the workout instead: its name, exercises
+  // done, the time so far and, on its bottom edge, one block per set (the stylesheet draws the bar's workout layout
+  // whenever the meter is showing). The screen's own h1 stays in the page, hidden from view.
+  const TITLES = { today: 'Today', program: 'Program', exercises: 'Exercises', history: 'History', settings: 'Settings' };
   function renderTopbar() {
-    const upd = ui.updateReady ? '<button class="pill accent" data-action="reload">Update ready</button>' : '';
-    const sync = ui.sync.status === 'off' ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
-    $('#topbar-right').innerHTML = upd + sync;
+    const w = !ui.unreadable && ui.screen === 'today' ? activeWorkout() : null;
+    const title = $('#topbar-title'); if (title) title.textContent = ui.unreadable ? 'Your data' : w ? w.dayName : TITLES[ui.screen] || 'Overload';
+    const meta = w ? '<span class="tb-meta"><b>' + w.entries.filter((e) => e.done).length + '/' + w.entries.length + '</b><span class="tb-time"><span class="sep">·</span><span id="tb-elapsed">' + durationText(w) + '</span></span></span>' : '';
+    // Update ready: the words show on every screen; during a workout the stylesheet leaves only the icon.
+    const upd = ui.updateReady ? '<button class="pill accent" data-action="reload" aria-label="Update ready">' + icon('refresh', 'm') + '<span>Update ready</span></button>' : '';
+    const sync = ui.sync.status === 'off' ? '' : '<button class="pill sync-pill ' + ui.sync.status + '" data-action="goto-settings" aria-label="Cloud sync: ' + ui.sync.status + '" title="' + esc(ui.sync.msg) + '">' + syncIcon(ui.sync.status) + '</button>';
+    $('#topbar-right').innerHTML = meta + upd + sync;
+    const meter = $('#topbar-meter'); if (!meter) return;
+    meter.hidden = !w; if (!w) return;
+    // Sets ticked of sets planned, over every exercise of the workout.
+    const sets = w.entries.reduce((n, en) => n + en.sets.length, 0), ticked = w.entries.reduce((n, en) => n + en.sets.filter((x) => x.done).length, 0);
+    meter.style.setProperty('--n', Math.max(1, sets));
+    if (meter.firstElementChild) meter.firstElementChild.style.width = (ticked / Math.max(1, sets) * 100).toFixed(1) + '%';
+    Object.entries({ role: 'progressbar', 'aria-label': 'Sets done', 'aria-valuemin': 0, 'aria-valuemax': sets, 'aria-valuenow': ticked }).forEach(([k, v]) => meter.setAttribute(k, v));
   }
-  function syncIcon(st) { return { synced: '☁ ✓', syncing: '☁ …', offline: '☁ ⏸', error: '☁ !' }[st] || '☁'; }
+  function syncIcon(st) { return icon({ synced: 'cloud-check', syncing: 'sync', offline: 'cloud-off', error: 'warning' }[st] || 'cloud', 'm'); }
 
   // ---- Today ---------------------------------------------------------------
   function renderToday() {
     const w = activeWorkout();
     if (w) return renderActiveWorkout(w);
 
-    const ti = weekdayIndex();
+    const ti = weekdayIndex(), monday = weekStart(todayKey());
+    const trained = new Set(state.workouts.filter((x) => x.finishedAt).map((x) => x.date));
+    // This week, each day with its date: trained days are solid, days still to come that have a workout are outlined.
     const strip = WEEKDAYS.map((d, i) => {
-      const dayId = state.program.schedule[i];
-      const cls = ['day-chip', i === ti ? 'today' : '', i === ui.selectedDay ? 'selected' : '', dayId ? '' : 'rest'].join(' ');
-      return '<button class="' + cls + '" data-action="select-day" data-i="' + i + '" aria-label="' + WEEKDAYS_LONG[i] + '">' + d[0] + '<span class="dot"></span></button>';
+      const dayId = state.program.schedule[i], key = addDays(monday, i), dayNum = +key.slice(8), done = trained.has(key);
+      const cls = ['day-chip', i === ti ? 'today' : '', i === ui.selectedDay ? 'selected' : '', dayId ? '' : 'rest', done ? 'done' : '', i < ti ? 'past' : ''].filter(Boolean).join(' ');
+      return '<button class="' + cls + '" data-action="select-day" data-i="' + i + '" aria-label="' + WEEKDAYS_LONG[i] + ' ' + dayNum + (done ? ', trained' : dayId ? '' : ', rest day') + '">'
+        + '<span class="wd">' + d[0] + '</span><span class="d">' + dayNum + '</span></button>';
     }).join('');
     const stripHtml = '<div class="day-strip">' + strip + '</div>';
 
@@ -792,32 +982,34 @@
     const day = dayId ? dayById(dayId) : null;
     const others = state.program.days.filter((d) => !day || d.id !== day.id);
     const otherList = others.length ? '<div class="list">' + others.map((d) => '<div class="list-item"><div class="grow"><div class="title">' + esc(d.name) + '</div><div class="sub">' + plural(d.exercises.length, 'exercise') + (state.program.schedule.includes(d.id) ? '' : ' · not on the schedule') + '</div></div><button class="btn small ghost" data-action="start-workout" data-day="' + d.id + '" ' + (d.exercises.length ? '' : 'disabled') + '>Start</button></div>').join('') + '</div>' : '';
-    // On a rest day the list is the main content; on a training day it hides behind a button.
-    const otherHtml = !others.length ? '' : (!day || ui.showOthers)
-      ? '<div class="group-title">Start a different day</div>' + otherList
-      : '<button class="btn subtle block mt8" data-action="toggle-others">Start a different day…</button>';
+    // On a rest day the list is the main content; on a training day it hides behind a button in the day's card.
+    const otherHtml = others.length && (!day || ui.showOthers) ? '<div class="group-title" id="other-days">Start a different day</div>' + otherList : '';
     let body;
     if (!day) {
-      body = '<div class="card"><div class="empty">Rest day.<br><span class="small">Nothing scheduled. Start any day below if you feel like lifting.</span></div></div>' + otherHtml;
+      body = '<div class="card"><div class="empty">' + icon('moon') + '<b>Rest day</b>Nothing scheduled. Start any day below if you feel like lifting.</div></div>' + otherHtml;
     } else {
       const items = day.exercises.map((exId) => {
         const ex = exById(exId); if (!ex) return '';
         const p = prescFor(exId);
-        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + prescText(ex, p) + '</div></div><span class="chev">›</span></button>';
+        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + prescText(ex, p) + '</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>';
       }).join('');
-      // Start sits right under the day name so it is on the first screen, above the exercise list.
-      body = '<div class="card flat"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div>'
-        + '<button class="btn small subtle deload-start" data-action="start-deload" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start as deload</button></div>'
-        + '<button class="btn block" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start workout</button>'
+      // Start sits right under the day name so it is on the first screen, above the exercise list; the two other
+      // ways to start are a row of keys under it. The card keeps the class "flat": the tests find it by that.
+      // Once the list of other days is open its button stays where it is, switched off: were it to go, Start as
+      // deload would stretch into its place, under a finger that may tap twice.
+      body = '<div class="card flat today-card"><div class="card-head"><div><h2>' + esc(day.name) + '</h2><div class="meta">' + WEEKDAYS_LONG[ui.selectedDay] + ' · ' + day.exercises.length + ' exercises</div></div></div>'
+        + '<button class="btn block big" data-action="start-workout" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>' + icon('play') + 'Start workout</button>'
+        + '<div class="btn-row mt8"><button class="btn small ghost deload-start" data-action="start-deload" data-day="' + day.id + '" ' + (day.exercises.length ? '' : 'disabled') + '>Start as deload</button>'
+        + (others.length ? '<button class="btn small ghost" data-action="toggle-others"' + (ui.showOthers ? ' disabled' : '') + '>Start a different day</button>' : '') + '</div>'
         + '<div class="list mt12">' + (items || '<div class="empty">No exercises yet. Add some in Program.</div>') + '</div></div>' + otherHtml;
     }
     const last = state.workouts.filter((x) => x.finishedAt).slice(-1)[0];
     const lastLine = last ? '<p class="muted small center mt8">Last workout: ' + esc(last.dayName) + ' · ' + fmtDate(last.date) + '</p>' : '';
     const st = streakInfo();
-    const streakLine = st.streak > 1 ? '<div class="banner">🔥 ' + st.streak + '-day streak. Keep it going.</div>' : '';
+    const streakLine = st.streak > 1 ? '<div class="banner">' + icon('flame', '', '🔥 ') + '<span>' + st.streak + '-day streak. Keep it going.</span></div>' : '';
     const night = state.sleep.find((x) => x.date === todayKey());
     const redLine = day && night && night.recovery != null && night.recovery < 34 && ui.selectedDay === weekdayIndex()
-      ? '<div class="banner">🔴 Recovery ' + night.recovery + '% (red). Train, but hold the weights and skip extra sets today.</div>' : '';
+      ? '<div class="banner warn">' + icon('warning') + '<span>Recovery ' + night.recovery + '% (red). Train, but hold the weights and skip extra sets today.</span></div>' : '';
     const checkin = renderCheckinCard();
     return '<div class="screen-title"><h1>Today</h1><span class="sub">' + fmtDate(todayKey()) + '</span></div>' + streakLine + redLine + (checkinDone() ? '' : checkin) + stripHtml + body + (checkinDone() ? checkin : '') + lastLine;
   }
@@ -837,7 +1029,7 @@
     return !ui.checkinEdit && !weighDue() && (!state.settings.sleepOn || state.sleep.some((x) => x.date === today));
   }
   // WHOOP recovery bands: green 67–100, yellow 34–66, red 0–33.
-  const recBand = (r) => (r >= 67 ? ['green', 'green'] : r >= 34 ? ['amber', 'yellow'] : ['accent', 'red']);
+  const recBand = (r) => (r >= 67 ? ['green', 'green'] : r >= 34 ? ['amber', 'yellow'] : ['red', 'red']);
   const recPill = (r) => (r == null ? '' : '<span class="pill ' + recBand(r)[0] + '">Recovery ' + r + '%</span>');
   function sleepAvg(days, endKey, fromKey) {
     const to = endKey || todayKey(), from = fromKey || addDays(to, -(days - 1));
@@ -861,18 +1053,19 @@
       if (bwToday) parts.push(fmtW(bwToday.weight) + ' ' + u);
       else if (lastBw && s.weighEvery) parts.push('Next weigh-in ' + fmtDate(addDays(lastBw.date, s.weighEvery)));
       const avg = sleepAvg(7);
-      return '<div class="card"><div class="row between"><b>Morning check-in ✓</b><div class="row" style="gap:6px">' + (slToday ? recPill(slToday.recovery) : '') + '<button class="btn small ghost" data-action="checkin-edit">Edit</button></div></div>'
+      // Title, pill, Edit in this order (the card's text is read as one line); the stylesheet puts the pill on the second line.
+      return '<div class="card checkin-done"><div class="row between"><b>Morning check-in ' + icon('check', 's', '✓') + '</b><div class="row tight">' + (slToday ? recPill(slToday.recovery) : '') + '<button class="btn small ghost" data-action="checkin-edit">Edit</button></div></div>'
         + '<div class="small mt8">' + esc(parts.concat(slToday ? [sleepLine(slToday) + (slToday.src === 'whoop' ? ' (WHOOP)' : '')] : []).join(' · ')) + '</div>'
         + (avg && avg.n > 1 ? '<div class="tiny muted mt8">7-night average ' + fmtHM(avg.total) + (avg.rem != null ? ' · REM ' + fmtHM(avg.rem) : '') + (avg.deep != null ? ' · deep ' + fmtHM(avg.deep) : '') + '</div>' : '') + '</div>';
     }
     const due = weighDue();
     const showWeight = s.weighEvery && (due || bwToday || ui.checkinEdit);
-    const hm = (label, k, min, hint) => '<div class="toggle-row"><div><div>' + label + '</div>' + (hint ? '<div class="tiny muted">' + hint + '</div>' : '') + '</div><div class="row" style="gap:6px">'
-      + '<input class="input" style="width:62px;text-align:center" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '"><span class="muted">h</span>'
-      + '<input class="input" style="width:62px;text-align:center" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '"><span class="muted">m</span></div></div>';
+    const hm = (label, k, min, hint) => '<div class="toggle-row"><div><div>' + label + '</div>' + (hint ? '<div class="tiny muted">' + hint + '</div>' : '') + '</div><div class="row tight">'
+      + '<input class="input num n2" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '" aria-label="' + label + ', hours"><span class="muted">h</span>'
+      + '<input class="input num n2" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '" aria-label="' + label + ', minutes"><span class="muted">m</span></div></div>';
     return '<div class="card" id="checkin-card"><div class="row between"><b>Morning check-in</b>' + (due ? '<span class="pill amber">Weigh-in due</span>' : '') + '</div>'
       + '<form id="bw-form" class="mt8">'
-      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row" style="gap:6px"><input class="input" style="width:100px;text-align:center" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '"><span class="muted">' + u + '</span></div></div>' : '')
+      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row tight"><input class="input num" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '" aria-label="Body weight"><span class="muted">' + u + '</span></div></div>' : '')
       + (!s.sleepOn ? '' : slToday && slToday.src === 'whoop' && !ui.checkinEdit
         ? '<div class="toggle-row"><div><div>Sleep <span class="tiny muted">from WHOOP</span></div><div class="small">' + esc(sleepLine(slToday)) + '</div></div>' + recPill(slToday.recovery) + '</div>'
         : hm('Time asleep', 'total', slToday ? slToday.total : null, 'From your watch or sleep app') + hm('REM', 'rem', slToday ? slToday.rem : null) + hm('Deep', 'deep', slToday ? slToday.deep : null))
@@ -890,17 +1083,24 @@
     if (total != null && (rem || 0) + (deep || 0) > total) { toast('REM + deep is more than total sleep'); return; }
     const done = [];
     if (wt != null) {
+      let ex = state.bodyweight.find((b) => b.date === today);
+      const at = ex && ex.weight === wt && !state.deleted.bw[today] ? null : loggedAt('bw', today);
       unmarkDeleted('bw', today);
-      const ex = state.bodyweight.find((b) => b.date === today);
-      if (ex) ex.weight = wt; else state.bodyweight.push({ date: today, weight: wt });
+      if (ex) ex.weight = wt; else state.bodyweight.push(ex = { date: today, weight: wt });
+      if (at && !(ex.at >= at)) ex.at = at;   // changed in place: a time it has stays unless this one is later
       done.push(fmtW(wt) + ' ' + state.settings.units);
     }
     if (total != null) {
       const prev = state.sleep.find((x) => x.date === today) || {};
       const same = prev.total === total && prev.rem === rem && prev.deep === deep;
+      const at = same && !state.deleted.sleep[today] ? null : loggedAt('sleep', today);
       const next = { date: today, total, rem, deep };
       ['recovery', 'rhr', 'hrv', 'perf', 'light'].forEach((k) => { if (prev[k] != null && (k !== 'light' || same)) next[k] = prev[k]; });
       if (same && prev.src) next.src = prev.src;  // unchanged WHOOP night stays WHOOP's
+      // The night is written anew: a time it had goes with it (review finding relog#1: saved again with Edit, it lost
+      // its time, and a second phone holding the record deleted it everywhere).
+      const had = typeof prev.at === 'number' ? prev.at : 0;
+      if (at || had) next.at = Math.max(at || 0, had);
       state.sleep = state.sleep.filter((x) => x.date !== today).concat([next]);
       unmarkDeleted('sleep', today);
       done.push(fmtHM(total) + ' sleep');
@@ -947,19 +1147,24 @@
     } else if (askable.length) {
       sorenessHtml = '<div class="card" id="soreness-card"><h3 class="mb8">Check-in</h3>' + askable.map((m) => {
         const v = w.soreness[m];
-        return '<div class="prompt"><div class="prompt-q">How sore did your <span style="color:var(--accent-2)">' + esc(m.toLowerCase()) + '</span> get after last time?</div>'
-          + '<div class="choice-grid">' + SORENESS.map((lbl, i) => '<button class="choice ' + (v === i ? 'on' : '') + '" data-action="set-soreness" data-m="' + esc(m) + '" data-v="' + i + '">' + lbl + '</button>').join('') + '</div></div>';
+        return '<div class="prompt"><div class="prompt-q">How sore did your <b>' + esc(m.toLowerCase()) + '</b> get after last time?</div>'
+          + '<div class="choice-grid">' + SORENESS.map((lbl, i) => '<button class="choice ' + (v === i ? 'on' : '') + '" data-action="set-soreness" data-m="' + esc(m) + '" data-v="' + i + '" aria-pressed="' + (v === i) + '">' + lbl + '</button>').join('') + '</div></div>';
       }).join('') + (editing ? '<button class="btn ghost block" data-action="soreness-done">Done</button>' : '') + '</div>';
     }
 
     const cards = w.entries.map((en, idx) => renderEntryCard(w, en, idx)).join('');
     const doneCount = w.entries.filter((e) => e.done).length;
-    return '<div class="screen-title"><div><h1>' + esc(w.dayName) + '</h1><span class="sub">' + fmtDate(w.date) + ' · ' + doneCount + '/' + w.entries.length + ' done · <span id="elapsed">' + durationText(w) + '</span></span></div>'
-      + '<button class="btn small ghost" data-action="add-entry">+ Exercise</button></div>'
+    // Finish is the main action only once every set is ticked (an exercise marked done counts whatever it has).
+    const allTicked = w.entries.every((en) => en.done || (en.sets.length && en.sets.every((s) => s.done)));
+    // The top bar shows the name, the count and the time (renderTopbar). The sub line keeps its whole text for
+    // screen readers and the tests; the part the bar shows is hidden from view here.
+    return '<div class="screen-title"><div><h1>' + esc(w.dayName) + '</h1><span class="sub">' + fmtDate(w.date) + '<span class="sr"> · ' + doneCount + '/' + w.entries.length + ' done · <span id="elapsed">' + durationText(w) + '</span></span></span></div>'
+      + '<button class="btn small ghost" data-action="add-entry">' + icon('plus') + 'Exercise</button></div>'
       + '<div class="deload-bar"><button class="deload-toggle' + (w.deload ? ' on' : '') + '" data-action="toggle-deload" aria-pressed="' + !!w.deload + '"><span class="sw"></span>Deload session</button>'
       + (w.deload ? '<div class="small deload-hint">Deload: keep your weights (or a little lighter), do about half the sets, stop 3 or more reps short.</div>' : '') + '</div>'
       + sorenessHtml + cards + renderCardioCard(w)
-      + '<div class="btn-row mt12"><button class="btn subtle" data-action="discard-workout">Discard</button><button class="btn success" data-action="finish-workout">Finish workout</button></div>';
+      + '<div class="btn-row mt12"><button class="btn danger" data-action="discard-workout">Discard</button>'
+      + '<button class="btn' + (allTicked ? '' : ' ghost') + '" data-action="finish-workout">' + icon('flag') + 'Finish workout</button></div>';
   }
 
   // ---- Cardio after lifting -----------------------------------------------
@@ -993,17 +1198,18 @@
     const c = ensureCardio(w); if (!c) return '';
     const running = timer.handle && timer.kind === 'cardio';
     const last = lastCardio();
-    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : esc(val)) + '" data-field="cardio" data-k="' + k + '"' + (c.done ? ' disabled' : '') + '></div>';
+    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : esc(val)) + '" data-field="cardio" data-k="' + k + '" aria-label="' + label + '"' + (c.done ? ' disabled' : '') + '></div>';
     // Done keeps the same layout, so nothing slides under the finger that tapped Done: Undo takes the timer
-    // button's place and a disabled "Logged" sits where Done was.
+    // button's place and a disabled "Logged" sits where Done was. Done is a key (something to do); Logged is
+    // solid (recorded).
     return '<div class="card' + (c.done ? ' flat' : '') + '" id="cardio-card"><div class="row between"><h3>' + esc(c.name) + '</h3>' + (c.done ? '<span class="pill green">Done</span>' : '<span class="pill">Cardio</span>') + '</div>'
       + '<div class="field-row mt8">' + field('Minutes', 'min', c.min, '1') + field('Incline %', 'incline', c.incline, '0.5') + field('Speed ' + esc(c.speedUnit || speedUnit()), 'speed', c.speed, '0.1') + '</div>'
       // Last time before Done, today's summary after. Both sit in one spot and it keeps the taller one's height, so Done never changes it.
       + '<div class="tiny muted mb8 cardio-line"><span' + (c.done ? ' class="off"' : '') + '>' + esc(last ? 'Last time: ' + cardioText(last) : 'First time logging cardio') + '</span>'
       + '<span id="cardio-today"' + (c.done ? '' : ' class="off"') + '>Today: ' + esc(cardioText(c)) + '</span></div>'
       + (c.done
-        ? '<div class="btn-row"><button class="btn subtle" data-action="cardio-undo">Undo</button><button class="btn success" disabled>Logged ✓</button></div>'
-        : '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn success" data-action="cardio-done">Done ✓</button></div>')
+        ? '<div class="btn-row"><button class="btn subtle" data-action="cardio-undo">Undo</button><button class="btn success" disabled>' + icon('check') + 'Logged</button></div>'
+        : '<div class="btn-row"><button class="btn ghost" data-action="cardio-timer">' + (running ? 'Restart timer' : 'Start ' + c.min + ':00 timer') + '</button><button class="btn ghost" data-action="cardio-done">' + icon('check') + 'Done</button></div>')
       + '</div>';
   }
 
@@ -1016,13 +1222,22 @@
       // A finished exercise folds to one row: name, sets done, PR mark, next time's weight. Tap to open the full card.
       const n = en.sets.filter((s) => s.done && s.reps > 0).length;
       const nx = en.next || p;
-      return '<div class="card ex-card done compact" data-card="' + idx + '"><button class="ex-fold" data-action="open-entry" data-e="' + idx + '"><span class="ex-fold-tick">✓</span>'
+      return '<div class="card ex-card done compact" data-card="' + idx + '"><button class="ex-fold" data-action="open-entry" data-e="' + idx + '"><span class="ex-fold-tick">' + icon('check') + '</span>'
         + '<span class="grow"><span class="ex-fold-name">' + esc(ex.name) + '</span><span class="ex-fold-sub">' + plural(n, 'set') + ' · next ' + (nx.weight > 0 ? esc(fmtW(nx.weight)) + ' ' + state.settings.units : 'goal ' + esc(nx.targetReps) + ' reps') + '</span></span>'
-        + (en.prs && en.prs.length ? '<span class="pill pr">🏆 PR</span>' : '') + '<span class="chev">›</span></button></div>';
+        + (en.prs && en.prs.length ? '<span class="pill pr">' + icon('trophy') + 'PR</span>' : '') + '<span class="chev">' + icon('chevron-right', 'm') + '</span></button></div>';
     }
+    // The big line of the card and of the next-time box: "150 lb × 12", or "9 reps" when there is no weight
+    // (and only the weight when an old entry carries no goal).
+    const targetLine = (weight, reps) => (weight > 0 || reps > 0 ? '<div class="ex-target">'
+      + (weight > 0 ? '<span class="num">' + fmtW(weight) + '</span><span class="u">' + state.settings.units + '</span>' + (reps > 0 ? '<span class="x">×</span>' : '') : '')
+      + (reps > 0 ? '<span class="num">' + esc(reps) + '</span>' + (weight > 0 ? '' : '<span class="u">reps</span>') : '') + '</div>' : '');
+    const each = ex.equipment === 'Dumbbell' ? ' · each hand' : '';
+    // The head shows what this session was planned at. Once the exercise is finished the prescription has moved on
+    // to next time (shown in the box below), so a finished card takes the plan it was done under.
+    const plan = (en.done && en.prevPresc) || p;
     const last = lastEntryFor(en.exId);
     const lastText = last ? 'Last time' + (last.workout.deload ? ' (deload)' : '') + ': ' + last.entry.sets.filter((s) => s.done).map((s) => fmtW(s.weight) + '×' + s.reps).join(', ') : 'First time logging this';
-    const reason = (!en.done && p.reasons && p.reasons.length) ? '<div class="ex-reason ' + (/\+/.test(p.reasons[0]) ? 'green' : '') + '">' + esc(p.reasons[0]) + '</div>' : '';
+    const reason = (!en.done && p.reasons && p.reasons.length) ? '<div class="ex-reason ' + (/joint pain/i.test(p.reasons[0]) ? 'warn' : /\+/.test(p.reasons[0]) ? 'green' : '') + '">' + esc(p.reasons[0]) + '</div>' : '';
 
     const rir = !!state.settings.trackRir;
     // Reps in reserve: once a set is ticked, four buttons under it (3+ 2 1 0). One tap picks, tapping the picked one clears it.
@@ -1035,19 +1250,22 @@
         + [3, 2, 1, 0].map((v) => { const on = rirIs(s.rir, v); return '<button class="rir-btn' + (on ? ' on' : '') + '" aria-pressed="' + on + '" aria-label="Set ' + (i + 1) + ': ' + rirText(v) + ' reps left" data-action="pick-rir" data-e="' + idx + '" data-s="' + i + '" data-v="' + v + '">' + rirText(v) + '</button>'; }).join('')
         + '</div></td></tr>';
     };
-    const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : '') + '">'
+    // One row in the whole workout is "next": the first unticked set of the first exercise still open (where
+    // scrollToNext goes). GOAL is written under its reps box only when there is a goal to show in it.
+    const nextSet = idx === w.entries.findIndex((e) => !e.done && exById(e.exId)) ? en.sets.findIndex((x) => !x.done) : -1;
+    const rows = en.sets.map((s, i) => '<tr class="set-row ' + (s.done ? 'done' : i === nextSet ? 'next' : '') + '">'
       + '<td class="n">' + (i + 1) + '</td>'
-      + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="' + (en.targetReps || 'reps') + '" data-field="reps" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '></td>'
-      + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" ' + (en.done ? 'disabled' : '') + '>✓</button></td>'
+      + '<td><input class="set-input" type="number" inputmode="decimal" step="any" min="0" value="' + (s.weight || '') + '" placeholder="' + state.settings.units + '" data-field="weight" data-e="' + idx + '" data-s="' + i + '" aria-label="Set ' + (i + 1) + ' weight" ' + (en.done ? 'disabled' : '') + '></td>'
+      + '<td><input class="set-input" type="number" inputmode="numeric" min="0" value="' + (s.reps || '') + '" placeholder="' + (en.targetReps || 'reps') + '" data-field="reps" data-e="' + idx + '" data-s="' + i + '" aria-label="Set ' + (i + 1) + ' reps" ' + (en.done ? 'disabled' : '') + '>' + (en.targetReps > 0 ? '<span class="set-hint">Goal</span>' : '') + '</td>'
+      + '<td class="chk"><button class="check ' + (s.done ? 'on' : '') + '" data-action="toggle-set" data-e="' + idx + '" data-s="' + i + '" aria-label="Set ' + (i + 1) + ' done" aria-pressed="' + !!s.done + '" ' + (en.done ? 'disabled' : '') + '>' + icon('check') + '</button></td>'
       + '</tr>' + (rir && !en.done ? rirRow(s, i) : '')).join('');
 
     let warmHtml = '';
     if (en.warmups && en.warmups.length && !en.done) {
-      warmHtml = '<div class="warmups"><div class="row between"><span class="tiny muted" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em">Warm-up</span><button class="btn small subtle" data-action="clear-warmup" data-e="' + idx + '">✕</button></div>'
-        + en.warmups.map((wu, i) => '<div class="warmup-row ' + (wu.done ? 'done' : '') + '"><span class="n">W' + (i + 1) + '</span><span class="grow"><b>' + fmtW(wu.weight) + '</b> ' + state.settings.units + ' × <b>' + wu.reps + '</b></span><button class="check small ' + (wu.done ? 'on' : '') + '" data-action="toggle-warmup" data-e="' + idx + '" data-s="' + i + '">✓</button></div>').join('') + '</div>';
+      warmHtml = '<div class="warmups"><div class="row between"><span class="label">Warm-up</span><button class="btn small subtle" data-action="clear-warmup" data-e="' + idx + '" aria-label="Clear warm-ups">' + icon('close', 'm') + '</button></div>'
+        + en.warmups.map((wu, i) => '<div class="warmup-row ' + (wu.done ? 'done' : '') + '"><span class="n">W' + (i + 1) + '</span><span class="grow"><b>' + fmtW(wu.weight) + '</b> ' + state.settings.units + ' × <b>' + wu.reps + '</b></span><button class="check small ' + (wu.done ? 'on' : '') + '" data-action="toggle-warmup" data-e="' + idx + '" data-s="' + i + '" aria-label="Warm-up ' + (i + 1) + ' done" aria-pressed="' + !!wu.done + '">' + icon('check') + '</button></div>').join('') + '</div>';
     }
-    const prPill = en.prs && en.prs.length ? '<span class="pill pr">🏆 PR</span>' : '';
+    const prPill = en.prs && en.prs.length ? '<span class="pill pr">' + icon('trophy') + 'PR</span>' : '';
     const swapNote = en.swappedFrom ? (function () { const o = exById(en.swappedFrom); return o ? '<div class="ex-last">Swapped in for ' + esc(o.name) + ' today</div>' : ''; })() : '';
 
     const allDone = en.sets.length > 0 && en.sets.every((s) => s.done);
@@ -1061,7 +1279,9 @@
     }
     let nextBox = '';
     if (en.done && en.next) {
-      nextBox = '<div class="next-box"><div class="headline">Next time: ' + en.next.sets + ' × ' + r.min + '–' + r.max + ' @ ' + fmtW(en.next.weight) + ' ' + state.settings.units + ', goal ' + en.next.targetReps + '</div>'
+      // The number leads, as in the card's head: the target line, the facts, then why.
+      nextBox = '<div class="next-box"><div class="label">Next time</div>' + targetLine(en.next.weight, en.next.targetReps)
+        + '<div class="ex-presc">' + plural(en.next.sets, 'set') + ' · ' + r.min + '–' + r.max + ' reps' + each + '</div>'
         + '<ul>' + en.next.reasons.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>';
     } else if (en.done && w.deload) {
       nextBox = '<div class="next-box"><div class="headline">Deload: plan kept</div><ul><li>' + esc('Next time stays ' + p.sets + ' × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ ' + fmtW(p.weight) + ' ' + state.settings.units : '') + ', goal ' + p.targetReps) + '</li></ul></div>';
@@ -1070,17 +1290,18 @@
     const body = en.done
       ? '<div class="ex-body">' + nextBox + '<div class="card-actions"><button class="btn small subtle" data-action="reopen-entry" data-e="' + idx + '">Edit</button><button class="btn small subtle" data-action="close-entry" data-e="' + idx + '">Hide</button></div></div>'
       : '<div class="ex-body">' + warmHtml + '<table class="set-table"><thead><tr><th class="n">Set</th><th>' + state.settings.units + (ex.equipment === 'Dumbbell' ? ' (each)' : '') + '</th><th>Reps</th>' + '<th></th></tr></thead><tbody>' + rows + '</tbody></table>'
-        + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">+ Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>− Set</button><button class="btn small subtle" data-action="gen-warmup" data-e="' + idx + '" ' + (en.warmups && en.warmups.length ? 'disabled' : '') + '>Warm-up</button></div>'
-        + '<div class="set-tools secondary"><button class="btn small subtle" data-action="swap-entry" data-e="' + idx + '">Swap exercise</button><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
+        + '<div class="set-tools"><button class="btn small ghost" data-action="add-set" data-e="' + idx + '">' + icon('plus') + 'Set</button><button class="btn small subtle" data-action="remove-set" data-e="' + idx + '" ' + (en.sets.length <= 1 ? 'disabled' : '') + '>' + icon('minus') + 'Set</button><button class="btn small subtle" data-action="gen-warmup" data-e="' + idx + '" ' + (en.warmups && en.warmups.length ? 'disabled' : '') + '>Warm-up</button></div>'
+        + '<div class="set-tools secondary"><button class="btn small subtle" data-action="swap-entry" data-e="' + idx + '">' + icon('swap') + 'Swap exercise</button><button class="btn small subtle" data-action="remove-entry" data-e="' + idx + '">Remove</button></div>'
         + feedback
         + '<button class="btn block mt12 ' + (allDone ? '' : 'ghost') + '" data-action="finish-entry" data-e="' + idx + '" ' + (en.sets.some((s) => s.done || s.reps > 0) ? '' : 'disabled') + '>Finish exercise</button></div>';
 
     return '<div class="card ex-card ' + (en.done ? 'done' : '') + '" data-card="' + idx + '"><div class="ex-head">'
-      + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="row" style="gap:6px">' + prPill + '<span class="pill">' + esc(ex.muscle) + '</span></span></div>'
-      + '<div class="ex-presc">' + p.sets + ' sets × ' + r.min + '–' + r.max + (p.weight > 0 ? ' @ <strong>' + fmtW(p.weight) + ' ' + state.settings.units + '</strong>' : '') + ' · goal <strong>' + en.targetReps + ' reps</strong></div>'
+      + '<div class="row between"><div class="ex-name">' + esc(ex.name) + '</div><span class="row tight">' + prPill + '<span class="pill">' + esc(ex.muscle) + '</span></span></div>'
+      + targetLine(plan.weight, en.targetReps)
+      + '<div class="ex-presc">' + plural(plan.sets, 'set') + ' · ' + r.min + '–' + r.max + ' reps' + each + '</div>'
       + '<div class="ex-last">' + esc(lastText) + '</div>' + swapNote
-      + (ex.notes ? '<div class="ex-note">' + esc(ex.notes) + '</div>' : '')
-      + (en.done && en.prs && en.prs.length ? '<div class="ex-reason green">🏆 ' + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
+      + (ex.notes ? '<div class="ex-note">' + icon('note', 's') + '<span>' + esc(ex.notes) + '</span></div>' : '')
+      + (en.done && en.prs && en.prs.length ? '<div class="ex-reason pr">' + icon('trophy', 's', '🏆 ') + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
       + reason + '</div>' + body + '</div>';
   }
 
@@ -1089,8 +1310,8 @@
   function rirIs(stored, v) { return stored != null && (stored === v || (v === 3 && stored >= 3)); }
 
   function choiceRow(label, opts, val, idx, field) {
-    return '<div class="tiny muted mt8 mb8" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em">' + label + '</div><div class="choice-grid">'
-      + opts.map((o, i) => '<button class="choice ' + (val === i ? 'on' : '') + '" data-action="set-fb" data-e="' + idx + '" data-f="' + field + '" data-v="' + i + '">' + o + '</button>').join('') + '</div>';
+    return '<div class="label">' + label + '</div><div class="choice-grid">'
+      + opts.map((o, i) => '<button class="choice ' + (val === i ? 'on' : '') + '" data-action="set-fb" data-e="' + idx + '" data-f="' + field + '" data-v="' + i + '" aria-pressed="' + (val === i) + '">' + o + '</button>').join('') + '</div>';
   }
 
   // ---- Program -------------------------------------------------------------
@@ -1103,13 +1324,13 @@
         + '<div class="small muted">' + (names.join(', ') || 'No exercises') + '</div></div>';
     }).join('');
 
-    const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" style="width:auto;min-width:170px" data-field="schedule" data-i="' + i + '">'
+    const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" data-field="schedule" data-i="' + i + '" aria-label="' + d + '">'
       + '<option value="">Rest</option>' + state.program.days.map((x) => '<option value="' + x.id + '" ' + (state.program.schedule[i] === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></div>').join('');
 
     const templates = state.templates.map((t) => '<div class="list-item"><div class="grow"><div class="title">' + esc(t.name).replace(/\//g, '/<wbr>') + '</div><div class="sub">' + plural(t.days.length, 'day') + ' · saved ' + fmtDate(t.savedAt) + '</div></div>'
-      + '<button class="btn small ghost" data-action="use-template" data-t="' + t.id + '">Use</button><button class="icon-btn danger" data-action="delete-template" data-t="' + t.id + '">✕</button></div>').join('');
+      + '<button class="btn small ghost" data-action="use-template" data-t="' + t.id + '">Use</button><button class="icon-btn danger" data-action="delete-template" data-t="' + t.id + '" aria-label="Delete template">' + icon('trash') + '</button></div>').join('');
 
-    return '<div class="screen-title"><h1>Program</h1><button class="btn small" data-action="add-day">+ Day</button></div>'
+    return '<div class="screen-title"><h1>Program</h1><span class="sub">' + plural(state.program.days.length, 'day') + ' · ' + state.program.schedule.filter(Boolean).length + ' a week</span><button class="btn small" data-action="add-day">' + icon('plus') + 'Day</button></div>'
       + days + '<div class="group-title">Weekly schedule</div><div class="card">' + schedule + '</div>'
       + renderLibrary()
       + '<div class="group-title">Templates</div><div class="card"><p class="small muted mb8">Save this split so you can switch to another one later without rebuilding it. Weights and set counts live on the exercises, so they carry over.</p>'
@@ -1121,12 +1342,12 @@
   function renderLibrary() {
     const list = programs(); if (!list.length) return '';
     return '<div class="group-title">Program library</div><div class="list">' + list.map((p) => '<button class="list-item" data-action="program-view" data-p="' + p.id + '"><div class="grow"><div class="title">' + esc(p.name) + '</div><div class="sub">'
-      + esc(p.by) + ' · ' + plural(p.schedule.filter((x) => x != null).length, 'day') + ' a week</div></div><span class="chev">›</span></button>').join('') + '</div>';
+      + esc(p.by) + ' · ' + plural(p.schedule.filter((x) => x != null).length, 'day') + ' a week</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>').join('') + '</div>';
   }
   function exByName(name) { const n = name.toLowerCase(); return state.exercises.find((e) => e.name.toLowerCase() === n); }
   function sheetProgram(id) {
     const p = programs().find((x) => x.id === id); if (!p) return;
-    const week = WEEKDAYS.map((d, i) => '<span class="pill' + (p.schedule[i] == null ? '' : ' accent') + '">' + d + ' ' + (p.schedule[i] == null ? 'Rest' : esc(p.days[p.schedule[i]].short || p.days[p.schedule[i]].name)) + '</span>').join(' ');
+    const week = WEEKDAYS.map((d, i) => '<span class="pill' + (p.schedule[i] == null ? '' : ' solid') + '">' + d + ' ' + (p.schedule[i] == null ? 'Rest' : esc(p.days[p.schedule[i]].short || p.days[p.schedule[i]].name)) + '</span>').join(' ');
     const days = p.days.map((d) => '<div class="card flat"><b>' + esc(d.name) + '</b>' + d.ex.map(([name, sets, reps, note]) => {
       const fst = /\(FST-7\)$/.test(name);
       return '<div class="hist-set"><span>' + esc(name) + (exByName(name) ? '' : ' <span class="pill">new</span>') + '</span><span class="nowrap">' + (fst ? '<span class="pill amber">FST-7</span> ' : '') + sets + ' × ' + esc(reps) + '</span></div>'
@@ -1134,7 +1355,7 @@
     }).join('') + '</div>').join('');
     openSheet(sheetHeader(esc(p.name))
       + '<p class="small muted mb8">' + esc(p.by) + '. ' + esc(p.about) + '</p>'
-      + '<div class="row mb8" style="flex-wrap:wrap;gap:6px">' + week + '</div>'
+      + '<div class="row wrap mb8">' + week + '</div>'
       + (p.how ? '<div class="card flat small">' + esc(p.how) + '</div>' : '')
       + days
       + '<p class="tiny muted mt8">Sets × reps as the program writes them. Using it gives every exercise these sets and rep ranges; exercises marked <b>new</b> are added to your list. Your weights stay. If some exercises already have your own logged sets, you are asked first whether to switch those too.'
@@ -1248,11 +1469,12 @@
       return '<div class="group-title">' + m + '</div><div class="list">' + items.map((ex) => {
         const p = state.presc[ex.id];
         const sub = p && p.weight > 0 ? p.sets + ' × goal ' + p.targetReps + ' @ ' + fmtW(p.weight) + ' ' + state.settings.units : esc(ex.equipment) + (ex.custom ? ' · custom' : '');
-        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">›</span></button>';
+        return '<button class="list-item" data-action="edit-ex" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + sub + '</div></div><span class="chev">' + icon('chevron-right', 'm') + '</span></button>';
       }).join('') + '</div>';
     }).join('');
-    return '<div class="screen-title"><h1>Exercises</h1><button class="btn small" data-action="new-ex">+ New</button></div>'
-      + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.search) + '" data-field="search">'
+    const muscles = new Set(state.exercises.map((e) => e.muscle)).size;
+    return '<div class="screen-title"><h1>Exercises</h1><span class="sub">' + plural(state.exercises.length, 'exercise') + ' · ' + plural(muscles, 'muscle') + '</span><button class="btn small" data-action="new-ex">' + icon('plus') + 'New</button></div>'
+      + '<div class="search">' + icon('search') + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.search) + '" data-field="search" aria-label="Search exercises"></div>'
       + (groups || '<div class="empty">No matches</div>');
   }
 
@@ -1262,10 +1484,10 @@
     const monthKey = todayKey().slice(0, 7);
     const thisMonth = done.filter((w) => w.date.slice(0, 7) === monthKey).length;
     const st = streakInfo();
-    const stats = '<div class="stat-row mb8"><div class="stat"><div class="v">' + (st.streak ? '🔥 ' + st.streak : '0') + '</div><div class="k">Day streak</div></div><div class="stat"><div class="v">' + thisMonth + '</div><div class="k">This month</div></div><div class="stat"><div class="v">' + done.length + '</div><div class="k">Workouts</div></div></div>';
+    const stats = '<div class="stat-row mb8"><div class="stat"><div class="v">' + (st.streak ? icon('flame', 'm', '🔥 ') + st.streak : '0') + '</div><div class="k">Day streak</div></div><div class="stat"><div class="v">' + thisMonth + '</div><div class="k">This month</div></div><div class="stat"><div class="v">' + done.length + '</div><div class="k">Workouts</div></div></div>';
 
     const tracked = state.exercises.filter((e) => lastEntryFor(e.id));
-    const chartSel = tracked.length ? '<div class="card"><div class="field"><label>Progress</label><select class="select" data-field="chart-ex"><option value="">Pick an exercise…</option>'
+    const chartSel = tracked.length ? '<div class="card"><div class="field"><label>Progress</label><select class="select" data-field="chart-ex" aria-label="Progress"><option value="">Pick an exercise…</option>'
       + tracked.map((e) => '<option value="' + e.id + '" ' + (ui.chartEx === e.id ? 'selected' : '') + '>' + esc(e.name) + '</option>').join('') + '</select></div>'
       + (ui.chartEx ? renderChart(ui.chartEx) : '') + '</div>' : '';
 
@@ -1273,11 +1495,18 @@
       const sets = w.entries.reduce((m, e) => m + e.sets.filter((s) => s.done).length, 0);
       const ups = w.entries.filter((e) => wentUp(e)).length;
       const prs = w.entries.filter((e) => e.prs && e.prs.length).length;
-      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + (w.deload ? ' <span class="pill amber">Deload</span>' : '') + '</div><div class="sub">' + fmtDate(w.date) + ' · ' + plural(w.entries.filter((e) => e.done).length, 'exercise') + ' · ' + plural(sets, 'set') + (durationText(w) ? ' · ' + durationText(w) : '') + (w.cardio && w.cardio.done ? ' · 🚶 ' + w.cardio.min + ' min' : '') + (ups ? ' · <span style="color:var(--green)">' + ups + ' weight ↑</span>' : '') + (prs ? ' · 🏆 ' + prs : '') + '</div></div><span class="chev">›</span></button>';
+      // Each fact is one piece that does not break inside, so the line wraps between facts. The glyphs v2.8 wrote
+      // stay as the icons' hidden text (the chevron's too): the row reads as it always did.
+      const facts = [fmtDate(w.date), plural(w.entries.filter((e) => e.done).length, 'exercise'), plural(sets, 'set')].concat(durationText(w) ? [durationText(w)] : [])
+        .concat(w.cardio && w.cardio.done ? [icon('heart', 's', '🚶') + ' ' + w.cardio.min + ' min'] : [])
+        .concat(ups ? ['<span class="ok-ink">' + ups + ' weight ' + icon('arrow-up', 's', '↑') + '</span>'] : [])
+        .concat(prs ? [icon('trophy', 's', '🏆') + ' ' + prs] : []);
+      return '<button class="list-item" data-action="view-workout" data-w="' + w.id + '"><div class="grow"><div class="title">' + esc(w.dayName) + (w.deload ? ' <span class="pill amber">Deload</span>' : '') + '</div><div class="sub">'
+        + facts.map((x, i) => '<span class="nowrap">' + x + (i < facts.length - 1 ? ' ·' : '') + '</span>').join(' ') + '</div></div><span class="chev">' + icon('chevron-right', 'm', '›') + '</span></button>';
     }).join('');
 
     return '<div class="screen-title"><h1>History</h1></div>' + stats + renderVolumeCard() + renderReviewCard() + renderCalendar() + chartSel + renderBwCard() + renderSleepCard()
-      + '<div class="group-title">Workouts</div><div class="list">' + (items || '<div class="empty">No workouts yet. Finish one and it shows up here.</div>') + '</div>';
+      + '<div class="group-title">Workouts</div><div class="list">' + (items || '<div class="empty">' + icon('dumbbell') + '<b>No workouts yet</b>Finish one and it shows up here.</div>') + '</div>';
   }
 
   // ---- Weekly volume -------------------------------------------------------
@@ -1319,7 +1548,7 @@
     const first = (base.getDay() + 6) % 7; const daysIn = new Date(y, m + 1, 0).getDate();
     const byDate = {};
     state.workouts.forEach((w) => { if (w.finishedAt) (byDate[w.date] = byDate[w.date] || []).push(w); });
-    const today = todayKey();
+    const today = todayKey(), month = base.toLocaleDateString(undefined, { month: 'long' });
     let cells = '';
     for (let i = 0; i < first; i++) cells += '<span class="cal-cell empty"></span>';
     for (let d = 1; d <= daysIn; d++) {
@@ -1327,13 +1556,18 @@
       const ws = byDate[key] || [];
       const wd = (new Date(y, m, d).getDay() + 6) % 7;
       const rest = state.program.schedule[wd] == null;
-      const cls = ['cal-cell', ws.length ? 'hit' : '', key === today ? 'today' : '', key > today ? 'future' : '', rest && !ws.length ? 'rest' : ''].join(' ');
-      cells += ws.length ? '<button class="' + cls + '" data-action="view-workout" data-w="' + ws[0].id + '" title="' + esc(ws.map((w) => w.dayName).join(', ')) + '">' + d + '</button>' : '<span class="' + cls + '">' + d + '</span>';
+      // Trained days are filled (a deload day is hollow), days still to come that have a workout are outlined, a day
+      // with a PR has a dot. A workout cell says the same in words, for a screen reader.
+      const deload = ws.length > 0 && ws.every((w) => w.deload), pr = ws.some((w) => w.entries.some((e) => e.prs && e.prs.length));
+      const cls = ['cal-cell', ws.length ? 'hit' : '', deload ? 'deload' : '', pr ? 'pr' : '', key === today ? 'today' : '', key > today ? 'future' : '',
+        rest && !ws.length ? 'rest' : '', !rest && !ws.length && key >= today ? 'plan' : ''].filter(Boolean).join(' ');
+      cells += ws.length ? '<button class="' + cls + '" data-action="view-workout" data-w="' + ws[0].id + '" title="' + esc(ws.map((w) => w.dayName).join(', ')) + '" aria-label="' + esc(month + ' ' + d) + ': workout' + (deload ? ', deload' : '') + (pr ? ', PR' : '') + '">' + d + '</button>' : '<span class="' + cls + '">' + d + '</span>';
     }
     const count = Object.keys(byDate).filter((k) => k.slice(0, 7) === (y + '-' + String(m + 1).padStart(2, '0'))).length;
-    return '<div class="card"><div class="row between mb8"><button class="icon-btn" data-action="cal-prev">‹</button><b>' + base.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) + '</b><button class="icon-btn" data-action="cal-next" ' + (ui.calOffset >= 0 ? 'disabled' : '') + '>›</button></div>'
+    return '<div class="card cal-card"><div class="row between mb8"><button class="icon-btn" data-action="cal-prev" aria-label="Previous month">' + icon('chevron-left') + '</button><b>' + base.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) + '</b><button class="icon-btn" data-action="cal-next" aria-label="Next month" ' + (ui.calOffset >= 0 ? 'disabled' : '') + '>' + icon('chevron-right') + '</button></div>'
       + '<div class="cal-grid">' + WEEKDAYS.map((d) => '<span class="cal-head">' + d[0] + '</span>').join('') + cells + '</div>'
-      + '<div class="tiny muted mt8">' + plural(count, 'training day') + ' this month. Faded days are rest days in your schedule.</div></div>';
+      + '<div class="cal-legend"><span><i class="cal-key hit"></i>Trained</span><span><i class="cal-key deload"></i>Deload</span><span><i class="cal-key plan"></i>Planned</span><span><i class="cal-key pr"></i>PR that day</span></div>'
+      + '<div class="tiny muted mt8">' + plural(count, 'training day') + ' this month.</div></div>';
   }
 
   // ---- Weekly review -------------------------------------------------------
@@ -1374,9 +1608,9 @@
     const extra = (r.cardioMin ? '<li>Cardio <b>' + r.cardioMin + ' min</b></li>' : '') + (r.sleep ? '<li>Sleep avg <b>' + fmtHM(r.sleep.total) + '</b>' + (r.sleep.rem != null ? ' · REM ' + fmtHM(r.sleep.rem) : '') + (r.sleep.deep != null ? ' · deep ' + fmtHM(r.sleep.deep) : '') + (r.sleep.recovery != null ? ' · recovery ' + Math.round(r.sleep.recovery) + '%' : '') + ' <span class="muted">(' + plural(r.sleep.n, 'night') + ')</span></li>' : '');
     const body = r.workouts
       ? '<div class="stat-row mb8"><div class="stat"><div class="v">' + r.workouts + '</div><div class="k">Workouts</div></div><div class="stat"><div class="v">' + r.sets + '</div><div class="k">Sets</div></div><div class="stat"><div class="v">' + (r.tonnage >= 10000 ? (r.tonnage / 1000).toFixed(1) + 'k' : Math.round(r.tonnage)) + '</div><div class="k">' + u + ' lifted</div></div></div>'
-        + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>🏆 PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + extra + '</ul>'
+        + '<ul class="review-list">' + (r.ups.length ? '<li><b>Weight went up</b> on ' + esc(r.ups.join(', ')) + '</li>' : '<li>No weight increases yet this week.</li>') + (r.prs.length ? '<li><b>' + icon('trophy', 's', '🏆 ') + 'PRs:</b> ' + esc(r.prs.join('; ')) + '</li>' : '') + (r.topMuscles.length ? '<li>Most sets: ' + esc(r.topMuscles.join(', ')) + '</li>' : '') + bwLine + extra + '</ul>'
       : '<div class="empty small">No workouts logged for this week.</div>' + (bwLine || extra ? '<ul class="review-list">' + bwLine + extra + '</ul>' : '');
-    return '<div class="card"><div class="row between mb8"><b>Weekly review</b>' + seg + '</div>' + body + '<button class="btn ghost block mt8" data-action="review-share" ' + (r.workouts ? '' : 'disabled') + '>Share</button></div>';
+    return '<div class="card"><div class="row between mb8"><b>Weekly review</b>' + seg + '</div>' + body + '<button class="btn ghost block mt8" data-action="review-share" ' + (r.workouts ? '' : 'disabled') + '>' + icon('share') + 'Share</button></div>';
   }
 
   // ---- Sleep chart: last 14 nights, deep / REM / other stacked ------------------
@@ -1384,27 +1618,29 @@
     const list = sleepSorted(); if (!list.length) return '';
     const days = []; for (let i = 13; i >= 0; i--) days.push(addDays(todayKey(), -i));
     const by = {}; list.forEach((x) => { by[x.date] = x; });
-    const W = 320, H = 150, padL = 26, padR = 6, padT = 8, padB = 22, top = Math.max(9 * 60, ...days.map((k) => (by[k] ? by[k].total : 0)));
+    // Chart text is 13 units tall (11 px or more on the narrowest phone); the paddings make room for it.
+    const W = 320, H = 160, padL = 30, padR = 6, padT = 8, padB = 26, top = Math.max(9 * 60, ...days.map((k) => (by[k] ? by[k].total : 0)));
     const bw = (W - padL - padR) / days.length;
     const y = (m) => padT + (1 - m / top) * (H - padT - padB);
-    const bars = days.map((k, i) => { const x = by[k]; if (!x) return ''; const x0 = (padL + i * bw + 2).toFixed(1), w = (bw - 4).toFixed(1);
+    const bars = days.map((k, i) => { const x = by[k]; if (!x) return ''; const x0 = (padL + i * bw + 2.5).toFixed(1), w = (bw - 5).toFixed(1);
       const deep = x.deep || 0, rem = x.rem || 0;
-      const seg = (from, to, cls) => (to > from ? '<rect class="' + cls + '" x="' + x0 + '" y="' + y(to).toFixed(1) + '" width="' + w + '" height="' + (y(from) - y(to)).toFixed(1) + '" rx="1.5"/>' : '');
+      // A 1.5-unit gap between the stacked parts, so they read as parts without leaning on their tones alone.
+      const seg = (from, to, cls) => (to > from ? '<rect class="' + cls + '" x="' + x0 + '" y="' + (y(to) + (from ? 0.75 : 0)).toFixed(1) + '" width="' + w + '" height="' + Math.max(1, y(from) - y(to) - (from ? 1.5 : 0.75)).toFixed(1) + '" rx="1.5"/>' : '');
       return '<g><title>' + fmtDate(k) + ': ' + sleepLine(x) + '</title>' + seg(0, deep, 'sl-deep') + seg(deep, deep + rem, 'sl-rem') + seg(deep + rem, x.total, 'sl-other') + '</g>'; }).join('');
-    const grid = [0, 4, 8].map((h) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(h * 60).toFixed(1) + '" y2="' + y(h * 60).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(h * 60) + 3).toFixed(1) + '">' + h + 'h</text>').join('');
-    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(days[0]) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">Today</text>';
+    const grid = [0, 4, 8].map((h) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(h * 60).toFixed(1) + '" y2="' + y(h * 60).toFixed(1) + '"/><text class="lbl" x="0" y="' + (y(h * 60) + 4.5).toFixed(1) + '">' + h + 'h</text>').join('');
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 5) + '">' + fmtDate(days[0]) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 5) + '" text-anchor="end">Today</text>';
     const a = sleepAvg(7), p = sleepAvg(7, addDays(todayKey(), -7));
     const diff = a && p ? Math.round(a.total - p.total) : null;
     return '<div class="card"><div class="row between mb8"><b>Sleep</b><button class="btn small ghost" data-action="sleep-list">' + plural(list.length, 'night') + '</button></div>'
-      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + bars + labels + '</svg>'
-      + '<div class="row tiny muted" style="gap:12px"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
+      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sleep, last 14 nights">' + grid + bars + labels + '</svg>'
+      + '<div class="legend"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
       + (a ? '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtHM(a.total) + '</div><div class="k">7-night avg' + (diff != null ? ' (' + (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' min)' : '') + '</div></div><div class="stat"><div class="v">' + fmtHM(a.rem) + '</div><div class="k">REM avg</div></div><div class="stat"><div class="v">' + fmtHM(a.deep) + '</div><div class="k">Deep avg</div></div></div>' : '')
-      + (a && a.recovery != null ? '<div class="small mt8">Recovery avg <b>' + Math.round(a.recovery) + '%</b>' + (a.rhr != null ? ' · resting HR ' + Math.round(a.rhr) : '') + (a.hrv != null ? ' · HRV ' + Math.round(a.hrv) + ' ms' : '') + ' <span class="muted">(7 nights)</span></div>' : '')
+      + (a && a.recovery != null ? '<div class="small mt8">Recovery avg <b class="num">' + Math.round(a.recovery) + '%</b>' + (a.rhr != null ? ' · resting HR ' + Math.round(a.rhr) : '') + (a.hrv != null ? ' · HRV ' + Math.round(a.hrv) + ' ms' : '') + ' <span class="muted">(7 nights)</span></div>' : '')
       + '</div>';
   }
   function sheetSleep() {
     const list = sleepSorted().reverse();
-    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + (x.recovery != null ? ' · recovery ' + x.recovery + '%' : '') + (x.src === 'whoop' ? ' · WHOOP' : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
+    openSheet(sheetHeader('Sleep') + '<div class="list">' + (list.map((x) => '<div class="list-item"><div class="grow"><div class="title">' + fmtHM(x.total) + '</div><div class="sub">' + fmtDate(x.date) + (x.rem != null ? ' · REM ' + fmtHM(x.rem) : '') + (x.deep != null ? ' · deep ' + fmtHM(x.deep) : '') + (x.recovery != null ? ' · recovery ' + x.recovery + '%' : '') + (x.src === 'whoop' ? ' · WHOOP' : '') + '</div></div><button class="icon-btn danger" data-action="sleep-delete" data-date="' + x.date + '" aria-label="Delete this night">' + icon('trash') + '</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
   }
 
   // ---- Body weight chart ---------------------------------------------------
@@ -1414,21 +1650,24 @@
     const u = state.settings.units;
     const recent = list.slice(-60);
     const avg = recent.map((b, i) => { const win = recent.slice(Math.max(0, i - 6), i + 1); return win.reduce((n, x) => n + x.weight, 0) / win.length; });
-    const W = 320, H = 150, padL = 36, padR = 10, padT = 10, padB = 22;
+    const W = 320, H = 160, padL = 44, padR = 12, padT = 10, padB = 26;
     const ys = recent.map((b) => b.weight);
     let lo = Math.min(...ys), hi = Math.max(...ys); if (hi - lo < 2) { lo -= 1; hi += 1; }
     const x = (i) => padL + (recent.length === 1 ? (W - padL - padR) / 2 : (i / (recent.length - 1)) * (W - padL - padR));
     const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
     const line = (arr) => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
-    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(v) + 3).toFixed(1) + '">' + fmtW(Math.round(v * 10) / 10) + '</text>').join('');
+    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="0" y="' + (y(v) + 4.5).toFixed(1) + '">' + fmtW(Math.round(v * 10) / 10) + '</text>').join('');
     const dots = recent.map((b, i) => '<circle class="pt faint" cx="' + x(i).toFixed(1) + '" cy="' + y(b.weight).toFixed(1) + '" r="2.5"><title>' + b.date + ': ' + fmtW(b.weight) + '</title></circle>').join('');
-    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(recent[0].date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">' + fmtDate(recent[recent.length - 1].date) + '</text>';
+    // Where the running average stands now: the one accent mark of the chart.
+    const now = '<circle class="pt now" cx="' + x(avg.length - 1).toFixed(1) + '" cy="' + y(avg[avg.length - 1]).toFixed(1) + '" r="4.5"><title>Running average: ' + fmtW(Math.round(avg[avg.length - 1] * 10) / 10) + '</title></circle>';
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 5) + '">' + fmtDate(recent[0].date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 5) + '" text-anchor="end">' + fmtDate(recent[recent.length - 1].date) + '</text>';
     const latest = list[list.length - 1];
     const monthAgo = addDays(latest.date, -30);
     const ref = list.filter((b) => b.date <= monthAgo).slice(-1)[0];
     const change = ref ? latest.weight - ref.weight : null;
     return '<div class="card"><div class="row between mb8"><b>Body weight</b><span class="pill">' + plural(list.length, 'weigh-in') + '</span></div>'
-      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + dots + '<path class="line" d="' + line(avg) + '"/>' + labels + '</svg>'
+      + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Body weight, last ' + plural(recent.length, 'weigh-in') + '">' + grid + dots + '<path class="line" d="' + line(avg) + '"/>' + now + labels + '</svg>'
+      + '<div class="legend"><span><i class="swatch dot"></i>Weigh-in</span><span><i class="swatch line"></i>Running average</span></div>'
       + '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtW(latest.weight) + '</div><div class="k">Latest</div></div><div class="stat"><div class="v">' + fmtW(Math.round(avg[avg.length - 1] * 10) / 10) + '</div><div class="k">7-entry avg</div></div><div class="stat"><div class="v">' + (change == null ? '–' : (change >= 0 ? '+' : '') + fmtW(Math.round(change * 10) / 10)) + '</div><div class="k">30-day change</div></div></div>'
       + '<div class="tiny muted mt8">Dots are weigh-ins, the line is the running average. ' + u + '.</div>'
       + '<button class="btn subtle small mt8" data-action="bw-list">Edit weigh-ins</button></div>';
@@ -1447,7 +1686,7 @@
       });
     });
     if (pts.length < 1) return '<div class="empty small">Nothing logged yet.</div>';
-    const W = 320, H = 160, padL = 34, padR = 10, padT = 12, padB = 22;
+    const W = 320, H = 168, padL = 40, padR = 12, padT = 12, padB = 26;
     const ys = pts.map((p) => p.weight);
     let lo = Math.min(...ys), hi = Math.max(...ys);
     if (hi === lo) { lo -= 5; hi += 5; }
@@ -1456,19 +1695,22 @@
     // Deload sessions are lighter on purpose: hollow dots, left out of the line and of "Current top set".
     const lined = pts.some((p) => !p.deload) ? pts.map((p, i) => ({ p, i })).filter((o) => !o.p.deload) : pts.map((p, i) => ({ p, i }));
     const path = lined.map((o, j) => (j ? 'L' : 'M') + x(o.i).toFixed(1) + ' ' + y(o.p.weight).toFixed(1)).join(' ');
-    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="2" y="' + (y(v) + 3).toFixed(1) + '">' + fmtW(v) + '</text>').join('');
-    const dots = pts.map((p, i) => '<circle class="pt' + (p.deload ? ' deload' : '') + '" cx="' + x(i).toFixed(1) + '" cy="' + y(p.weight).toFixed(1) + '" r="3.5"><title>' + p.date + ': ' + fmtW(p.weight) + '×' + p.reps + (p.deload ? ' (deload)' : '') + '</title></circle>').join('');
+    const grid = [lo, (lo + hi) / 2, hi].map((v) => '<line class="grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y(v).toFixed(1) + '" y2="' + y(v).toFixed(1) + '"/><text class="lbl" x="0" y="' + (y(v) + 4.5).toFixed(1) + '">' + fmtW(v) + '</text>').join('');
+    // The latest session on the line is the one accent mark ("Current top set" below is the same session).
+    const nowI = lined[lined.length - 1].i;
+    const dots = pts.map((p, i) => '<circle class="pt' + (p.deload ? ' deload' : i === nowI ? ' now' : '') + '" cx="' + x(i).toFixed(1) + '" cy="' + y(p.weight).toFixed(1) + '" r="' + (!p.deload && i === nowI ? 4.5 : 3.5) + '"><title>' + p.date + ': ' + fmtW(p.weight) + '×' + p.reps + (p.deload ? ' (deload)' : '') + '</title></circle>').join('');
     const first = pts[0], lastP = pts[pts.length - 1], curP = lined[lined.length - 1].p;
-    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 6) + '">' + fmtDate(first.date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 6) + '" text-anchor="end">' + fmtDate(lastP.date) + '</text>';
+    const labels = '<text class="lbl" x="' + padL + '" y="' + (H - 5) + '">' + fmtDate(first.date) + '</text><text class="lbl" x="' + (W - padR) + '" y="' + (H - 5) + '" text-anchor="end">' + fmtDate(lastP.date) + '</text>';
+    const legend = '<div class="legend">' + (curP.deload ? '' : '<span><i class="swatch now"></i>Latest</span>') + (pts.some((p) => p.deload) ? '<span><i class="swatch ring"></i>Deload (off the line)</span>' : '') + '</div>';
     const best = pts.reduce((a, b) => (b.e1rm > a.e1rm ? b : a));
     const heaviest = pts.reduce((a, b) => (b.weight > a.weight || (b.weight === a.weight && b.reps > a.reps) ? b : a));
     const prCount = state.workouts.reduce((n, w) => n + w.entries.filter((e) => e.exId === exId && e.prs && e.prs.length).length, 0);
     const sessions = [];
     state.workouts.forEach((w) => { if (!w.finishedAt) return; w.entries.forEach((e) => { if (e.exId !== exId) return; const done = e.sets.filter((s) => s.done && s.reps > 0); if (done.length) sessions.push({ date: w.date, text: done.map((s) => fmtW(s.weight) + '×' + s.reps).join(', '), pr: !!(e.prs && e.prs.length), deload: !!w.deload }); }); });
-    const recent = '<div class="group-title" style="margin-top:14px">Recent sessions</div>' + sessions.slice(-8).reverse().map((s) => '<div class="hist-set"><span>' + fmtDate(s.date) + (s.pr ? ' 🏆' : '') + (s.deload ? ' <span class="pill amber">Deload</span>' : '') + '</span><span><b>' + s.text + '</b></span></div>').join('');
-    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">' + grid + '<path class="line" d="' + path + '"/>' + dots + labels + '</svg>'
+    const recent = '<div class="group-title">Recent sessions</div>' + sessions.slice(-8).reverse().map((s) => '<div class="hist-set"><span class="nowrap">' + fmtDate(s.date) + (s.pr ? ' ' + icon('trophy', 's', '🏆') : '') + (s.deload ? ' <span class="pill amber">Deload</span>' : '') + '</span><span><b>' + s.text + '</b></span></div>').join('');
+    return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Top set weight per session">' + grid + '<path class="line" d="' + path + '"/>' + dots + labels + '</svg>' + legend
       + '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtW(curP.weight) + '</div><div class="k">Current top set</div></div><div class="stat"><div class="v">' + fmtW(best.weight) + '×' + best.reps + '</div><div class="k">Best set</div></div><div class="stat"><div class="v">' + pts.length + '</div><div class="k">Sessions</div></div></div>'
-      + '<div class="review-list mt8 small"><div>🏆 Heaviest: <b>' + fmtW(heaviest.weight) + ' × ' + heaviest.reps + '</b> on ' + fmtDate(heaviest.date) + '</div><div>Est. 1RM: <b>' + fmtW(Math.round(best.e1rm)) + ' ' + state.settings.units + '</b> from ' + fmtW(best.weight) + ' × ' + best.reps + '</div><div>' + plural(prCount, 'PR session') + ' logged</div></div>' + recent;
+      + '<div class="review-list mt8 small"><div>' + icon('trophy', 's', '🏆 ') + 'Heaviest: <b>' + fmtW(heaviest.weight) + ' × ' + heaviest.reps + '</b> on ' + fmtDate(heaviest.date) + '</div><div>Est. 1RM: <b>' + fmtW(Math.round(best.e1rm)) + ' ' + state.settings.units + '</b> from ' + fmtW(best.weight) + ' × ' + best.reps + '</div><div>' + plural(prCount, 'PR session') + ' logged</div></div>' + recent;
   }
 
   // ---- Settings ------------------------------------------------------------
@@ -1477,55 +1719,58 @@
     return '<div class="screen-title"><h1>Settings</h1></div>'
       + '<div class="card">'
       + '<div class="toggle-row"><div><div>Appearance</div><div class="small muted">System follows your phone</div></div><div class="seg">' + ['system', 'dark', 'light'].map((t) => '<button class="' + ((s.theme || 'system') === t ? 'on' : '') + '" data-action="set-theme" data-v="' + t + '">' + t[0].toUpperCase() + t.slice(1) + '</button>').join('') + '</div></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: barbell</div><div class="small muted">Also cable-free moves and anything else. Per exercise override in Exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: dumbbell</div><div class="small muted">Per hand. Most racks go up in 5s</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.incDumbbell + '" data-field="setting" data-k="incDumbbell"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: machine</div><div class="small muted">Stack pin or plate-loaded</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.incMachine + '" data-field="setting" data-k="incMachine"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: cable</div><div class="small muted">Cable stack</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="decimal" step="any" min="0" value="' + s.incCable + '" data-field="setting" data-k="incCable"></div>'
-      + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax"></div></div>'
-      + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec"></div>'
-      + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets"></div>'
-      + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: barbell</div><div class="small muted">Also cable-free moves and anything else. Per exercise override in Exercises</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment" aria-label="Weight jump: barbell"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: dumbbell</div><div class="small muted">Per hand. Most racks go up in 5s</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incDumbbell + '" data-field="setting" data-k="incDumbbell" aria-label="Weight jump: dumbbell"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: machine</div><div class="small muted">Stack pin or plate-loaded</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incMachine + '" data-field="setting" data-k="incMachine" aria-label="Weight jump: machine"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: cable</div><div class="small muted">Cable stack</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incCable + '" data-field="setting" data-k="incCable" aria-label="Weight jump: cable"></div>'
+      + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin" aria-label="Rep range, lowest"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax" aria-label="Rep range, highest"></div></div>'
+      + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec" aria-label="Rest timer"></div>'
+      + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets" aria-label="Starting sets"></div>'
+      + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets" aria-label="Max sets"></div>'
       + '<div class="toggle-row"><div><div>Reps in reserve</div><div class="small muted">After you tick a set, tap how many reps you had left (3+, 2, 1, 0). 3+ on every set moves weight up early</div></div><div class="seg"><button class="' + (s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="1">On</button><button class="' + (!s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="0">Off</button></div></div>'
-      + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest"></div>'
-      + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row"><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input" style="width:64px;text-align:center" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
-      + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" style="width:auto" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
+      + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest" aria-label="Warm-up rest"></div>'
+      + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin" aria-label="Weekly sets target, lowest"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax" aria-label="Weekly sets target, highest"></div></div>'
+      + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" data-field="setting" data-k="weighEvery" aria-label="Weigh-in reminder">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
       + '<div class="toggle-row"><div><div>Sleep</div><div class="small muted">Time asleep, REM and deep in the morning check-in</div></div><div class="seg"><button class="' + (s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="1">On</button><button class="' + (!s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="0">Off</button></div></div>'
       + '</div>'
       + '<div class="group-title">Cardio</div><div class="card">'
       + '<div class="toggle-row"><div><div>Cardio after lifting</div><div class="small muted">Adds a cardio card with a timer to the end of every workout</div></div><div class="seg"><button class="' + (s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="1">On</button><button class="' + (!s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="0">Off</button></div></div>'
-      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" style="max-width:200px" value="' + esc(s.cardioName) + '" data-field="cardio-name"></div>'
-        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input" style="width:90px;text-align:center" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin"></div>' : '')
+      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" value="' + esc(s.cardioName) + '" data-field="cardio-name" aria-label="What cardio"></div>'
+        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin" aria-label="Cardio minutes"></div>' : '')
       + '</div>'
-      + (window.__overloadConn ? window.__overloadConn.settingsCard() : '')
-      + (window.__overloadFood ? window.__overloadFood.settingsCard() : '')
+      + (part('__overloadConn') ? part('__overloadConn').settingsCard() : '')
+      + '<div id="handover" data-where="settings">' + handoverHtml('settings') + '</div>'
       + renderBackupCard()
       + renderCloudCard()
-      + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">Reset all data</button></div>'
-      + '<p class="tiny muted center mt16">Overload · v' + VERSION + '</p>';
+      + '<div class="group-title">Danger zone</div><div class="card"><button class="btn danger block" data-action="reset">' + icon('trash') + 'Reset all data</button></div>'
+      + '<p class="version">Overload · v' + VERSION + '</p>';
   }
 
   function renderCloudCard() {
-    const sync = window.__overloadSync;
+    const sync = part('__overloadSync');   // one of another release does not sync here (see part)
     let body;
     if (!sync) {
-      body = '<p class="small muted">Cloud sync is loading. If this never changes, the sync module could not load (offline, or sync.js is missing).</p>';
+      body = '<p class="small muted">Cloud sync is not available right now. It starts when the app opens with signal. Your data stays on this phone.</p>';
     } else if (sync.user) {
       const st = ui.sync;
-      const colour = cloudColour(st.status);
-      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill" id="cloud-status" style="color:' + colour + '">' + esc(st.msg || 'Connected') + '</span></div>'
+      body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill ' + st.status + '" id="cloud-status">' + esc(st.msg || 'Connected') + '</span></div>'
         + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
-        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
+        + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
+    } else if (!ui.authSeen && (syncNote() || linkPending())) {
+      // The module has loaded, Firebase has not said who is signed in yet, and this phone was signed in (a note of an
+      // account, or a first link still to be made). Not the sign-in form, which says he is signed out while Reset,
+      // Import and Restore count him as signed in or wait (review finding card#1). Fuel's cloudBody is the same.
+      body = '<p class="small muted">Cloud sync is starting. It says Synced once it has read your account.</p>';
     } else {
       body = '<p class="small muted mb8">Sign in to keep your data in the cloud so it survives clearing this phone and follows you to a new one. First time here? Enter an email and password and tap Create account.</p>'
-        + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required></div>'
-        + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required></div>'
-        + '<div id="cloud-msg" class="small mb8" style="color:var(--accent-2)"></div>'
+        + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required aria-label="Email"></div>'
+        + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required aria-label="Password"></div>'
+        + '<div id="cloud-msg" class="small mb8"></div>'
         + '<div class="btn-row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-action="cloud-signup">Create account</button></div>'
         + '<button class="btn subtle block mt8" type="button" data-action="cloud-reset">Forgot password</button></form>';
     }
     return '<div id="cloud-card"><div class="group-title">Cloud sync</div><div class="card">' + body + '</div></div>';
   }
-  function cloudColour(status) { return status === 'error' ? 'var(--accent-2)' : status === 'synced' ? 'var(--green)' : 'var(--amber)'; }
 
   async function cloudAction(kind) {
     const sync = window.__overloadSync; if (!sync) return;
@@ -1536,7 +1781,9 @@
       if (kind === 'signin') { if (!email || !password) return say('Enter your email and password.'); await sync.signIn(email, password); toast('Signed in'); }
       if (kind === 'signup') { if (!email || !password) return say('Enter an email and a password of at least 6 characters.'); await sync.createAccount(email, password); toast('Account created'); }
       if (kind === 'reset') { if (!email) return say('Enter your email first.'); await sync.resetPassword(email); say('Reset email sent. Check your inbox.'); }
-      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud. Changes you make while signed out are sent when you sign back in.')) { await sync.signOut(); toast('Signed out'); } }
+      // What a sign-in after this does: sync.js keeps its note, so what was logged meanwhile is sent; a Reset,
+      // Import or Restore meanwhile removes the note (forgetCloudIfSignedOut), so the account's data comes back.
+      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud. What you log while signed out is sent when you sign back in. A Reset, Import or Restore done while signed out is not: signing in again brings back what the account holds.')) { await sync.signOut(); toast('Signed out'); } }
       if (kind === 'push') { await sync.pushNow(); toast('Sync requested'); }
     } catch (e) { say(e.message || 'Something went wrong.'); }
   }
@@ -1544,18 +1791,108 @@
   // ---------------------------------------------------------------------------
   // Sheets
   // ---------------------------------------------------------------------------
+  // A sheet is a dialog (#sheet-panel in index.html: role="dialog", aria-modal, named by the title, which gets the id
+  // sheet-heading). While one is open the page behind it is inert; focus moves to its title when it opens, Escape
+  // closes it, and closing gives focus back to what opened it (drawn again by then, often). Touch sees none of it: a
+  // focus moved here after a touch draws no ring (data-quiet-focus), scrolls nothing, and never goes to a text box
+  // (that would bring up the keyboard). Fuel's sheet code (fuel/fuel.js) is the same.
+  const sheetNav = { keys: false, tapped: null, opener: null };
+  const BEHIND = 'body > .topbar, body > #save-warning, body > #app, body > #rest-timer, body > .tabbar';
+  const typingBox = (el) => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    || (el.tagName === 'INPUT' && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(el.type)));
+  // Keys or touch: keys are Tab, or a key pressed outside a text box (the phone's own keyboard types in boxes too).
+  // <html class="keys"> gives the page its scroll padding (shared/ui.css), so Tab never stops under a bar.
+  function usingKeys(on) {
+    if (sheetNav.keys === on) return;
+    sheetNav.keys = on; document.documentElement.classList.toggle('keys', on);
+    if (on) document.querySelectorAll('[data-quiet-focus]').forEach((el) => el.removeAttribute('data-quiet-focus'));
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' || (!typingBox(e.target) && !/^(Shift|Control|Alt|Meta|CapsLock|Fn)$/.test(e.key))) usingKeys(true);
+    if (e.key === 'Escape' && ui.sheet && !e.isComposing) { e.preventDefault(); closeSheet(); }
+    if (e.key === 'Tab' && ui.sheet) tabRound(e);
+  }, true);
+  // Tab goes round inside the open sheet: from its last control to its first, and with Shift from the first (or the
+  // title) to the last.
+  function tabRound(e) {
+    const panel = $('#sheet-panel'), a = document.activeElement;
+    const all = [...panel.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+    if (!all.length) return;
+    const i = all.indexOf(a), inside = panel.contains(a);
+    if (e.shiftKey ? !inside || i <= 0 : !inside || i === all.length - 1) { e.preventDefault(); (e.shiftKey ? all[all.length - 1] : all[0]).focus(); }
+  }
+  // A touch is a pointerdown (no touchstart listener: the page had none, and one can change how a tap looks on iOS).
+  ['pointerdown', 'mousedown'].forEach((type) => document.addEventListener(type, () => usingKeys(false), true));
+  // What was tapped last outside a sheet: on an iPhone a tapped button does not take focus, so this is what opened it.
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest && e.target.closest('button, a[href], input, select, textarea, [tabindex], [data-action]');
+    if (t && !t.closest('#sheet')) sheetNav.tapped = t;
+  }, true);
+  function quietFocus(el) {
+    if (!sheetNav.keys) { el.setAttribute('data-quiet-focus', ''); el.addEventListener('blur', () => el.removeAttribute('data-quiet-focus'), { once: true }); }
+    el.focus({ preventScroll: !sheetNav.keys });
+  }
+  // The control in the opener's place after a redraw: the same tag with the same data-… attributes.
+  function drawnAgain(el) {
+    const keys = Object.keys(el.dataset).filter((k) => k !== 'quietFocus'); if (!keys.length) return null;
+    return document.querySelector(el.tagName.toLowerCase() + keys.map((k) => '[data-' + k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()) + '="' + CSS.escape(el.dataset[k]) + '"]').join(''));
+  }
+  function focusBack(el) {
+    const a = document.activeElement;
+    if (ui.sheet || (a && a !== document.body && !a.closest('#sheet'))) return;   // a sheet again, or focus went somewhere on purpose
+    if (!el.isConnected) el = drawnAgain(el);
+    if (!el || !el.getClientRects().length || el.closest('[inert]') || (!sheetNav.keys && typingBox(el))) return;
+    quietFocus(el);
+  }
+  // Tab inside a sheet never stops under its sticky footer (.sheet-foot, Save) or a strip that sticks at its top: their
+  // heights go to --sheet-foot-h and --sheet-head-h on the panel, which shared/ui.css makes the panel's scroll padding
+  // while keys are used. Measured when the sheet is drawn, and again when one of them changes size. Fuel's is the same.
+  let sheetEdgeWatch = null;
+  function sheetEdges(panel) {
+    if (sheetEdgeWatch) { sheetEdgeWatch.disconnect(); sheetEdgeWatch = null; }
+    const stuck = [...panel.querySelectorAll(':scope > *, :scope > form > *')].filter((el) => getComputedStyle(el).position === 'sticky');
+    const foot = stuck.find((el) => getComputedStyle(el).bottom !== 'auto'), head = stuck.find((el) => getComputedStyle(el).top !== 'auto');
+    const measure = () => {
+      panel.style.setProperty('--sheet-foot-h', (foot && foot.isConnected ? foot.offsetHeight : 0) + 'px');
+      panel.style.setProperty('--sheet-head-h', (head && head.isConnected ? head.offsetHeight : 0) + 'px');
+    };
+    measure();
+    if ((foot || head) && typeof ResizeObserver === 'function') { sheetEdgeWatch = new ResizeObserver(measure); [foot, head].forEach((el) => { if (el) sheetEdgeWatch.observe(el); }); }
+  }
   function openSheet(html, key) {
     // key names what the sheet shows (for example 'day:' + id); without one the title does.
     const panel = $('#sheet-panel'), fresh = $('#sheet').hidden, was = panel.dataset.sheet;
+    const hadFocus = !fresh && panel.contains(document.activeElement);
+    if (fresh) {
+      const a = document.activeElement, t = sheetNav.tapped;
+      sheetNav.opener = a && a !== document.body && !panel.contains(a) && (sheetNav.keys || !typingBox(a)) ? a : t && t.isConnected ? t : null;
+    }
     ui.sheet = true; panel.innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden';
     const h = panel.querySelector('.sheet-title h2'), now = key != null ? 'k:' + key : 't:' + (h ? h.textContent : '');
     panel.dataset.sheet = now;
+    sheetEdges(panel);
     // A new sheet starts at its top, also when it replaces another one (Edit sets from a workout,
     // Duplicate day); redrawing the open one (a renamed meal, a moved exercise) keeps its place.
     if (fresh || was !== now) panel.scrollTop = 0;
+    if (h) { h.id = 'sheet-heading'; h.tabIndex = -1; }
+    // Into the sheet when it opens; after a redraw only when keys are in use and the focus went with the old content.
+    // A box marked autofocus (the exercise picker's search) is where keys go; after a touch the browser handles it as
+    // it always did, so focus is not moved for it.
+    const auto = panel.querySelector('[autofocus]');
+    if (fresh || (hadFocus && sheetNav.keys && !panel.contains(document.activeElement))) {
+      if (auto) { if (sheetNav.keys) quietFocus(auto); } else if (h) quietFocus(h);
+    }
+    if (fresh) document.querySelectorAll(BEHIND).forEach((el) => { el.inert = true; });
   }
-  function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; document.dispatchEvent(new CustomEvent('overload:sheetclose')); }
-  function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close">✕</button></div></div>'; }
+  function closeSheet() {
+    ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = '';
+    sheetEdges($('#sheet-panel'));   // nothing sticks now: 0 px, and nothing is watched
+    document.querySelectorAll(BEHIND).forEach((el) => { el.inert = false; });
+    const opener = sheetNav.opener; sheetNav.opener = null;
+    if (opener) setTimeout(() => focusBack(opener), 0);   // after the redraw that usually follows (save, then render)
+    document.dispatchEvent(new CustomEvent('overload:sheetclose'));
+  }
+  function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close" aria-label="Close">' + icon('close') + '</button></div></div>'; }
 
   function sheetExercise(exId) {
     const ex = exId ? exById(exId) : { id: null, name: '', muscle: 'Chest', equipment: 'Dumbbell', increment: null, repMin: null, repMax: null, custom: true };
@@ -1563,16 +1900,17 @@
     const opt = (arr, v) => arr.map((o) => '<option ' + (o === v ? 'selected' : '') + '>' + o + '</option>').join('');
     openSheet(sheetHeader(exId ? 'Edit exercise' : 'New exercise')
       + '<form id="ex-form" data-ex="' + (ex.id || '') + '">'
-      + '<div class="field"><label>Name</label><input class="input" name="name" required value="' + esc(ex.name) + '" placeholder="e.g. Incline Dumbbell Press"></div>'
-      + '<div class="field-row"><div class="field"><label>Muscle</label><select class="select" name="muscle">' + opt(MUSCLES, ex.muscle) + '</select></div><div class="field"><label>Equipment</label><select class="select" name="equipment">' + opt(EQUIPMENT, ex.equipment) + '</select></div></div>'
-      + '<div class="field"><label>Notes</label><input class="input" name="notes" value="' + esc(ex.notes || '') + '" placeholder="Seat 4, handles high, pin at 7…"></div>'
-      + '<div class="group-title" style="margin-top:6px">Current prescription</div>'
-      + '<div class="field-row"><div class="field"><label>Weight (' + state.settings.units + ')</label><input class="input" name="weight" type="number" inputmode="decimal" step="any" min="0" value="' + (p.weight || '') + '"></div><div class="field"><label>Sets</label><input class="input" name="sets" type="number" inputmode="numeric" min="1" value="' + p.sets + '"></div><div class="field"><label>Goal reps</label><input class="input" name="targetReps" type="number" inputmode="numeric" min="1" value="' + p.targetReps + '"></div></div>'
-      + '<div class="group-title" style="margin-top:6px">Overrides <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">(blank = use settings)</span></div>'
-      + '<div class="field-row"><div class="field"><label>Weight jump</label><input class="input" name="increment" type="number" inputmode="decimal" step="any" min="0" placeholder="' + state.settings.increment + '" value="' + (ex.increment || '') + '"></div><div class="field"><label>Rep min</label><input class="input" name="repMin" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMin + '" value="' + (ex.repMin || '') + '"></div><div class="field"><label>Rep max</label><input class="input" name="repMax" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMax + '" value="' + (ex.repMax || '') + '"></div></div>'
-      + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '"></div><div class="field"><label>Fixed sets</label><input class="input" name="fixedSets" type="number" inputmode="numeric" min="1" placeholder="auto" value="' + (ex.fixedSets || '') + '"></div><div class="field"></div></div>'
-      + '<button class="btn block mt8" type="submit">Save</button>'
-      + (exId ? '<button class="btn subtle block mt8" type="button" data-action="delete-ex" data-ex="' + exId + '">Delete exercise</button>' : '')
+      + '<div class="field"><label>Name</label><input class="input" name="name" required value="' + esc(ex.name) + '" placeholder="e.g. Incline Dumbbell Press" aria-label="Name"></div>'
+      + '<div class="field-row"><div class="field"><label>Muscle</label><select class="select" name="muscle" aria-label="Muscle">' + opt(MUSCLES, ex.muscle) + '</select></div><div class="field"><label>Equipment</label><select class="select" name="equipment" aria-label="Equipment">' + opt(EQUIPMENT, ex.equipment) + '</select></div></div>'
+      + '<div class="field"><label>Notes</label><input class="input" name="notes" value="' + esc(ex.notes || '') + '" placeholder="Seat 4, handles high, pin at 7…" aria-label="Notes"></div>'
+      + '<div class="group-title">Current prescription</div>'
+      + '<div class="field-row"><div class="field"><label>Weight (' + state.settings.units + ')</label><input class="input" name="weight" type="number" inputmode="decimal" step="any" min="0" value="' + (p.weight || '') + '" aria-label="Weight (' + state.settings.units + ')"></div><div class="field"><label>Sets</label><input class="input" name="sets" type="number" inputmode="numeric" min="1" value="' + p.sets + '" aria-label="Sets"></div><div class="field"><label>Goal reps</label><input class="input" name="targetReps" type="number" inputmode="numeric" min="1" value="' + p.targetReps + '" aria-label="Goal reps"></div></div>'
+      + '<div class="group-title">Overrides <span class="muted">(blank = use settings)</span></div>'
+      + '<div class="field-row"><div class="field"><label>Weight jump</label><input class="input" name="increment" type="number" inputmode="decimal" step="any" min="0" placeholder="' + state.settings.increment + '" value="' + (ex.increment || '') + '" aria-label="Weight jump"></div><div class="field"><label>Rep min</label><input class="input" name="repMin" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMin + '" value="' + (ex.repMin || '') + '" aria-label="Rep min"></div><div class="field"><label>Rep max</label><input class="input" name="repMax" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMax + '" value="' + (ex.repMax || '') + '" aria-label="Rep max"></div></div>'
+      + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '" aria-label="Rest (seconds)"></div><div class="field"><label>Fixed sets</label><input class="input" name="fixedSets" type="number" inputmode="numeric" min="1" placeholder="auto" value="' + (ex.fixedSets || '') + '" aria-label="Fixed sets"></div><div class="field"></div></div>'
+      + (exId ? '<button class="btn danger block mt8" type="button" data-action="delete-ex" data-ex="' + exId + '">' + icon('trash') + 'Delete exercise</button>' : '')
+      // Save stays in reach at the bottom of the sheet while the form scrolls under it.
+      + '<div class="sheet-foot"><button class="btn block" type="submit">Save</button></div>'
       + '</form>');
   }
 
@@ -1580,14 +1918,14 @@
     const d = dayById(dayId); if (!d) return;
     const items = d.exercises.map((exId, i) => { const ex = exById(exId); if (!ex) return '';
       return '<div class="list-item"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + esc(ex.muscle) + '</div></div>'
-        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="-1" ' + (i === 0 ? 'disabled' : '') + '>↑</button>'
-        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="1" ' + (i === d.exercises.length - 1 ? 'disabled' : '') + '>↓</button>'
-        + '<button class="icon-btn danger" data-action="day-remove-ex" data-day="' + dayId + '" data-i="' + i + '">✕</button></div>'; }).join('');
+        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="-1" ' + (i === 0 ? 'disabled' : '') + ' aria-label="Move up">' + icon('arrow-up') + '</button>'
+        + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="1" ' + (i === d.exercises.length - 1 ? 'disabled' : '') + ' aria-label="Move down">' + icon('arrow-down') + '</button>'
+        + '<button class="icon-btn danger" data-action="day-remove-ex" data-day="' + dayId + '" data-i="' + i + '" aria-label="Remove from this day">' + icon('close') + '</button></div>'; }).join('');
     openSheet(sheetHeader('Edit day')
-      + '<div class="field"><label>Name</label><input class="input" value="' + esc(d.name) + '" data-field="day-name" data-day="' + dayId + '"></div>'
+      + '<div class="field"><label>Name</label><input class="input" value="' + esc(d.name) + '" data-field="day-name" data-day="' + dayId + '" aria-label="Name"></div>'
       + '<div class="list">' + (items || '<div class="empty small">No exercises yet</div>') + '</div>'
-      + '<button class="btn block mt12" data-action="pick-ex" data-day="' + dayId + '">+ Add exercise</button>'
-      + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn subtle" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>', 'day:' + dayId);
+      + '<button class="btn block mt12" data-action="pick-ex" data-day="' + dayId + '">' + icon('plus') + 'Add exercise</button>'
+      + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn danger" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>', 'day:' + dayId);
   }
 
   function sheetPicker(target) {
@@ -1601,9 +1939,9 @@
     const title = ui.pickTarget.swap != null ? 'Swap exercise' : 'Add exercise';
     const list = state.exercises.filter((e) => !exclude.includes(e.id) && (!q || e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q)));
     const groups = MUSCLES.map((m) => { const items = list.filter((e) => e.muscle === m); if (!items.length) return '';
-      return '<div class="group-title">' + m + '</div><div class="list">' + items.map((ex) => '<button class="list-item" data-action="pick-ex-choose" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + esc(ex.equipment) + '</div></div><span class="chev">+</span></button>').join('') + '</div>'; }).join('');
+      return '<div class="group-title">' + m + '</div><div class="list">' + items.map((ex) => '<button class="list-item" data-action="pick-ex-choose" data-ex="' + ex.id + '"><div class="grow"><div class="title">' + esc(ex.name) + '</div><div class="sub">' + esc(ex.equipment) + '</div></div><span class="chev">' + icon('plus', 'm') + '</span></button>').join('') + '</div>'; }).join('');
     openSheet(sheetHeader(title, '<button class="btn small ghost" data-action="pick-new-ex">New</button>')
-      + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.pickSearch || '') + '" data-field="pick-search" autofocus>'
+      + '<div class="search">' + icon('search') + '<input class="input" type="search" placeholder="Search" value="' + esc(ui.pickSearch || '') + '" data-field="pick-search" aria-label="Search exercises" autofocus></div>'
       + (groups || '<div class="empty">No matches</div>'));
   }
 
@@ -1615,13 +1953,13 @@
       return '<div class="card flat"><div class="row between"><b>' + esc(ex ? ex.name : 'Deleted exercise') + (en.swappedFrom ? ' <span class="muted small">(swap)</span>' : '') + '</b>' + (ex ? '<span class="pill">' + esc(ex.muscle) + '</span>' : '') + '</div>'
         + (en.warmups && en.warmups.some((x) => x.done) ? '<div class="hist-set"><span>Warm-up</span><span>' + en.warmups.filter((x) => x.done).map((x) => fmtW(x.weight) + '×' + x.reps).join(', ') + '</span></div>' : '')
         + done.map((s, i) => '<div class="hist-set"><span>Set ' + (i + 1) + '</span><span><b>' + fmtW(s.weight) + '</b> ' + state.settings.units + ' × <b>' + s.reps + '</b>' + (s.rir != null ? ' <span class="muted">· ' + s.rir + ' RIR</span>' : '') + '</span></div>').join('')
-        + (en.prs && en.prs.length ? '<div class="tiny mt8" style="color:var(--green)">🏆 ' + esc(en.prs.map((x) => x.text).join(' · ')) + '</div>' : '')
+        + (en.prs && en.prs.length ? '<div class="pr-line">' + icon('trophy', 's') + '<span>' + esc(en.prs.map((x) => x.text).join(' · ')) + '</span></div>' : '')
         + (fb ? '<div class="tiny muted mt8">' + fb + '</div>' : '')
-        + (en.next && en.next.reasons.length ? '<div class="tiny mt8" style="color:var(--amber)">' + esc(en.next.reasons[0]) + '</div>' : '') + '</div>'; }).join('');
+        + (en.next && en.next.reasons.length ? '<div class="tiny muted mt8">' + esc(en.next.reasons[0]) + '</div>' : '') + '</div>'; }).join('');
     const sore = Object.keys(w.soreness || {}).map((m) => m + ': ' + SORENESS[w.soreness[m]]).join(' · ');
     openSheet(sheetHeader(esc(w.dayName)) + '<p class="small muted mb8">' + (w.deload ? '<span class="pill amber">Deload</span> ' : '') + fmtDate(w.date) + (durationText(w) ? ' · ' + durationText(w) : '') + (sore ? ' · ' + esc(sore) : '') + '</p>' + (body || (w.cardio ? '' : '<div class="empty">Nothing logged</div>'))
       + (w.cardio && w.cardio.done ? '<div class="card flat"><div class="row between"><b>' + esc(w.cardio.name) + '</b><span class="pill">Cardio</span></div><div class="hist-set"><span>' + esc(cardioText(w.cardio)) + '</span></div></div>' : '')
-      + '<div class="btn-row mt8"><button class="btn ghost" data-action="edit-workout" data-w="' + w.id + '">Edit sets</button><button class="btn subtle" data-action="delete-workout" data-w="' + w.id + '">Delete workout</button></div>');
+      + '<div class="btn-row mt8"><button class="btn ghost" data-action="edit-workout" data-w="' + w.id + '">' + icon('edit') + 'Edit sets</button><button class="btn danger" data-action="delete-workout" data-w="' + w.id + '">Delete workout</button></div>');
   }
 
   // Fix a typo in a finished workout. Trophies follow; next time is redone only where this is the latest session.
@@ -1629,9 +1967,9 @@
     const w = state.workouts.find((x) => x.id === wId); if (!w) return;
     const u = state.settings.units;
     const body = w.entries.map((en, ei) => { const ex = exById(en.exId);
-      const rows = en.sets.map((s, si) => !s.done ? '' : '<div class="row mt8"><span class="muted small" style="width:52px;flex-shrink:0;white-space:nowrap">Set ' + (si + 1) + '</span>'
-        + '<input class="input" style="text-align:center" type="number" inputmode="decimal" step="any" min="0" name="w-' + ei + '-' + si + '" value="' + (s.weight || '') + '" placeholder="' + u + '">'
-        + '<input class="input" style="text-align:center" type="number" inputmode="numeric" min="0" name="r-' + ei + '-' + si + '" value="' + (s.reps || '') + '" placeholder="reps"></div>').join('');
+      const rows = en.sets.map((s, si) => !s.done ? '' : '<div class="row mt8"><span class="set-lbl">Set ' + (si + 1) + '</span>'
+        + '<input class="input num fill" type="number" inputmode="decimal" step="any" min="0" name="w-' + ei + '-' + si + '" value="' + (s.weight || '') + '" placeholder="' + u + '" aria-label="Set ' + (si + 1) + ' weight">'
+        + '<input class="input num fill" type="number" inputmode="numeric" min="0" name="r-' + ei + '-' + si + '" value="' + (s.reps || '') + '" placeholder="reps" aria-label="Set ' + (si + 1) + ' reps"></div>').join('');
       return rows ? '<div class="card flat"><b>' + esc(ex ? ex.name : 'Deleted exercise') + '</b>' + rows + '</div>' : ''; }).join('');
     openSheet(sheetHeader('Edit sets') + '<form id="edit-workout-form" data-w="' + w.id + '"><p class="small muted mb8">' + esc(w.dayName) + ' · ' + fmtDate(w.date) + '. ' + (w.deload ? 'Deload workout: corrections fix the log only. Next-time numbers and trophies stay as they are.' : 'Trophies follow your corrections. If this is the latest time you did an exercise and a correction changes how it went, its next-time numbers are worked out again with its current rep range. Older sessions keep the ones already set.') + '</p>'
       + body + '<button class="btn block mt12" type="submit">Save changes</button></form>');
@@ -1689,7 +2027,7 @@
 
   function sheetBodyweight() {
     const list = bwSorted().slice().reverse();
-    openSheet(sheetHeader('Weigh-ins') + '<div class="list">' + (list.map((b) => '<div class="list-item"><div class="grow"><div class="title">' + fmtW(b.weight) + ' ' + state.settings.units + '</div><div class="sub">' + fmtDate(b.date) + '</div></div><button class="icon-btn danger" data-action="bw-delete" data-date="' + b.date + '">✕</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
+    openSheet(sheetHeader('Weigh-ins') + '<div class="list">' + (list.map((b) => '<div class="list-item"><div class="grow"><div class="title">' + fmtW(b.weight) + ' ' + state.settings.units + '</div><div class="sub">' + fmtDate(b.date) + '</div></div><button class="icon-btn danger" data-action="bw-delete" data-date="' + b.date + '" aria-label="Delete this weigh-in">' + icon('trash') + '</button></div>').join('') || '<div class="empty">Nothing yet</div>') + '</div>');
   }
 
   // ---------------------------------------------------------------------------
@@ -1780,7 +2118,7 @@
     en.next = next;
     en.done = true;
     en.prs = detectPrs(en.exId, en, w.id);
-    if (en.prs.length) toast('🏆 PR! ' + en.prs[0].text);
+    if (en.prs.length) toast('PR! ' + en.prs[0].text);
     else if (ticked) toast('Counted ' + plural(ticked, 'set') + ' you typed but did not tick');
     state.presc[en.exId] = { weight: next.weight, targetReps: next.targetReps, sets: next.sets, soreCut: next.soreCut, reasons: next.reasons, updatedAt: next.updatedAt };
     return ticked;
@@ -1922,17 +2260,50 @@
       });
     } catch (e) { /* ignore */ }
   }
-  function startTimer(sec, kind) {
+  // next: one line for the dock about what this rest is before ("Set 3 of 3 next"). The caller writes it: the
+  // timer is given seconds, not a set.
+  function startTimer(sec, kind, next) {
     if (!sec) return;
     if (timer.handle && timer.kind === 'cardio' && kind !== 'cardio') return;  // cardio keeps running
     unlockAudio();
+    runTimer(kind, sec, Date.now() + sec * 1000, next);
+  }
+  function runTimer(kind, total, end, next) {
     timer.kind = kind || 'rest';
     const label = $('.rest-label'); if (label) label.textContent = timer.kind === 'cardio' ? 'Cardio' : 'Rest';
-    timer.total = sec; timer.end = Date.now() + sec * 1000;
+    const line = $('#rest-next'); if (line) line.textContent = next || '';
+    timer.total = total; timer.end = end; timer.next = next || '';
+    showRestOf();
     $('#rest-timer').hidden = false;
-    tick();
     clearInterval(timer.handle);
     timer.handle = setInterval(tick, 500);
+    keepTimer();
+    tick();
+  }
+  // A running timer is also kept for this session (sessionStorage), so a reload during a workout ("Update ready")
+  // does not drop it: resumeTimer starts it again at start. With it goes what it is for: the workout in progress,
+  // whose cardio a cardio timer logs when it ends.
+  const TIMER_KEY = 'overload.timer';
+  function keepTimer() {
+    try {
+      if (timer.handle) sessionStorage.setItem(TIMER_KEY, JSON.stringify({ end: timer.end, total: timer.total, kind: timer.kind, next: timer.next || '', workout: state.active }));
+      else sessionStorage.removeItem(TIMER_KEY);
+    } catch (e) { /* not available: the timer lasts as long as the page */ }
+  }
+  function resumeTimer() {
+    let t = null;
+    try { t = JSON.parse(sessionStorage.getItem(TIMER_KEY)); sessionStorage.removeItem(TIMER_KEY); } catch (e) { t = null; }
+    const w = activeWorkout();
+    if (!isObj(t) || !w || t.workout !== w.id || !(t.total > 0) || !(t.end > 0)) return;   // not this workout's
+    const kind = t.kind === 'cardio' ? 'cardio' : 'rest';
+    if (t.end <= Date.now()) {
+      // It ran out while the page was being loaded again: a cardio timer logs the cardio, as it would have.
+      if (kind === 'cardio' && w.cardio && !w.cardio.done) { w.cardio.done = true; save(); toast('Cardio done · ' + w.cardio.min + ' min logged'); }
+      return;
+    }
+    runTimer(kind, t.total, t.end, String(t.next || ''));
+    // An iPhone plays the beep only once a tap has allowed sound in this page: the next tap does.
+    ['touchend', 'click'].forEach((ev) => document.addEventListener(ev, unlockAudio, { once: true, passive: true }));
   }
   function tick() {
     const left = Math.max(0, Math.ceil((timer.end - Date.now()) / 1000));
@@ -1946,7 +2317,9 @@
       else toast(kind === 'cardio' ? 'Cardio done' : 'Rest over');
     }
   }
-  function stopTimer() { clearInterval(timer.handle); timer.handle = null; timer.kind = 'rest'; $('#rest-timer').hidden = true; }
+  // The whole rest beside the time left ("1:24 / 2:00"). It changes only with +30s.
+  function showRestOf() { const el = $('#rest-of'); if (el) el.textContent = '/ ' + fmtTime(timer.total); }
+  function stopTimer() { clearInterval(timer.handle); timer.handle = null; timer.kind = 'rest'; $('#rest-timer').hidden = true; keepTimer(); }
 
   // ---------------------------------------------------------------------------
   // Toast
@@ -1965,48 +2338,60 @@
   async function exportJson() {
     if (await shareFile(JSON.stringify(state, null, 2), 'overload-backup-' + todayKey() + '.json', 'Overload backup')) exported();
   }
-  // Resolves true when the file was handed over (false when he cancelled the share sheet).
+  // Resolves true when the file was handed over: the share sheet finished, or the phone has no share sheet for
+  // files and the download is the only way. False when he cancelled the sheet, when a second tap came while a
+  // sheet is open (it is ignored), and when the sheet refused: the phone answers InvalidStateError or
+  // NotAllowedError then, which is treated as a cancel. Any other failure of the sheet still offers the download,
+  // but does not count it, as it cannot be told whether a file came of it.
   async function shareFile(text, name, title) {
-    try {
-      const file = new File([text], name, { type: 'application/json' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title });
-        return true;
-      }
-    } catch (e) {
-      if (e && e.name === 'AbortError') return false;
+    // A sheet opened in the last minute is still open (a second share() would be refused); after that a tap is
+    // let through, so a sheet that never answers cannot block saving for the rest of the session.
+    if (ui.sharing && Date.now() - ui.sharing < 60000) return false;
+    let file = null, sheet = false;
+    try { file = new File([text], name, { type: 'application/json' }); sheet = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { sheet = false; }
+    if (sheet) {
+      const mine = ui.sharing = Date.now();
+      try { await navigator.share({ files: [file], title }); return true; }
+      catch (e) { if (e && /^(AbortError|InvalidStateError|NotAllowedError)$/.test(e.name)) return false; }
+      finally { if (ui.sharing === mine) ui.sharing = 0; }
+      download(text, name);
+      return false;
     }
+    download(text, name);
+    return true;
+  }
+  function download(text, name) {
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    return true;
   }
   // ---- Saved data that could not be read at start ----
   function renderUnreadable() {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    markTabs(null);
     renderTopbar();
     const raw = ui.unreadable.raw;
     $('#app').innerHTML = '<div class="screen-title"><h1>Your data</h1></div>'
       + '<div class="card"><p><b>Overload could not read the data saved on this phone.</b></p>'
       + '<p class="small muted mt8">' + (raw ? 'Nothing has been changed or deleted. Save a copy of it first, then choose what to do.' : 'The phone did not let the app read its storage. Try again first.') + '</p>'
-      + '<div class="list mt12">' + (raw ? '<button class="btn block" data-action="unreadable-export">Export the unreadable copy</button>' : '')
-      + '<button class="btn ghost block" data-action="unreadable-retry">Try again</button></div></div>'
+      + '<div class="btn-row mt12">' + (raw ? '<button class="btn" data-action="unreadable-export">' + icon('export') + 'Export the unreadable copy</button>' : '')
+      + '<button class="btn ghost" data-action="unreadable-retry">Try again</button></div></div>'
       + '<div id="restore-section" hidden><div class="group-title">Restore an automatic copy</div><div class="card"><div id="safety-copies"></div></div></div>'
-      + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty app with the default program. If you used cloud sync, your cloud copy comes back once you are signed in.</p>'
-      + '<button class="btn danger block" data-action="unreadable-fresh">Start fresh</button></div>';
+      + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty app with the default program. If you used cloud sync, your training data comes back once you are signed in, but not the old food log.</p>'
+      + '<button class="btn danger block" data-action="unreadable-fresh">' + icon('trash') + 'Start fresh</button></div>';
     fillCopies(true);
   }
   // He chose: the data now in memory is the app's again. Sync starts over with a full download and merge.
   function leaveUnreadable() {
     const raw = ui.unreadable && ui.unreadable.raw;
     ui.unreadable = null;
+    noteSplit();   // from here on this version saves: what was stored before is kept as "Unreadable data", not as the split copy
     const sync = window.__overloadSync;
     if (sync && sync.user && sync.pushNow) Promise.resolve(sync.pushNow()).catch(() => {});
     // The hidden copy takes room from the app: drop it once the automatic copy of the same text is confirmed.
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     if (raw && B) B.get('before-unreadable').then((c) => { if (c && c.text === raw) { try { localStorage.removeItem(STORAGE_KEY + '.bak'); } catch (e) { /* ignore */ } } }, () => {});
   }
   async function unreadableAction(a, d) {
@@ -2014,7 +2399,7 @@
     if (a === 'unreadable-retry') { location.reload(); return; }
     if (a === 'unreadable-export') { if (raw) shareFile(raw, 'overload-unreadable-' + todayKey() + '.json', 'Overload data that could not be read'); return; }
     if (a === 'export-copy') {
-      const B = window.__overloadBackup; let c = null;
+      const B = part('__overloadBackup'); let c = null;
       try { c = B && await B.get(d.id); } catch (e) { c = null; }
       if (c) shareFile(c.text, 'overload-unreadable-' + todayKey(new Date(c.at)) + '.json', 'Overload data that could not be read'); else toast('Could not read that copy');
       return;
@@ -2022,7 +2407,7 @@
     if (a === 'unreadable-fresh') {
       if (!ui.unreadable) return;
       let kept = false;
-      try { const c = raw && window.__overloadBackup && await window.__overloadBackup.get('before-unreadable'); kept = !!(c && c.text === raw); } catch (e) { kept = false; }
+      try { const B = part('__overloadBackup'), c = raw && B && await B.get('before-unreadable'); kept = !!(c && c.text === raw); } catch (e) { kept = false; }
       const msg = !raw ? 'Start fresh? The app could not read its storage, so it cannot tell what is there. Starting fresh replaces it.'
         : 'Start fresh with an empty app?\n\n' + (kept ? 'The data that could not be read stays in Settings > Automatic copies, where you can export it.' : 'Export the unreadable copy first if you might need it: it is not kept anywhere else.');
       if (!confirm(msg)) return;
@@ -2036,39 +2421,450 @@
     const el = $('#last-export'); if (el) el.textContent = lastExportText();
     refreshNotices();
   }
+  // Signed in to cloud sync, as far as Reset, Import and Restore go: { email } (email may be '') or null.
+  // Once the sync module has said who is signed in (syncChanged, at each sign-in and sign-out and once at every
+  // start), its word counts. Before that (its files have not arrived: a start without signal before they were
+  // stored; or Firebase has not answered yet), cloud sync's note counts: a note that names an account means signed
+  // in, unless it is in its signed-out form (noteSignIn): the module's last word on this phone was that nobody is
+  // signed in to that account, and no signed-in sync module has saved the note since.
+  // So a Reset, Import or Restore on such a start says that the account changes too, keeps the note, and the next
+  // link sends it, as when the module is there (review finding sync#2: the next start undid it). The note of this
+  // release's sync.js has no email; a note marked signedOut (as Fuel's sync.js marks its own) counts as signed out.
+  // Without a note, a first link still to be made (linkPending) counts as signed in too (review finding link#1);
+  // cloudStillReading lets nothing start then anyway.
+  function cloudAccount() {
+    const sync = window.__overloadSync;
+    if (sync && sync.user) return { email: sync.user.email || '' };
+    if (sync && ui.authSeen) return null;
+    const note = syncNote();
+    return note ? { email: typeof note.email === 'string' ? note.email : '' } : linkPending() ? { email: '' } : null;
+  }
+  function syncNote() {
+    try {
+      const raw = localStorage.getItem(SYNC_KEY), n = JSON.parse(raw);
+      return isObj(n) && typeof n.uid === 'string' && n.uid && !n.signedOut && !/\n$/.test(raw) ? n : null;
+    } catch (e) { return null; }
+  }
+  // The module's word, kept for a start without it (review findings sync#10, sync#10b). sync.js keeps its note when
+  // he signs out (signing back in sends what was logged meanwhile), so what the note says cannot tell. Its form can:
+  // while nobody is signed in to the note's account, its text ends with a line break. Every save of the note by a
+  // signed-in sync module, this release's or 2.8's, writes it without one (2.8 saves it a second after every
+  // sign-in, also when nothing changed), so a sign-in made on 2.8 after a sign-out here counts, and a sign-in here
+  // ends the form at once. A mark kept beside the note would outlive a sign-in on 2.8, which keeps fields it does not
+  // know. A sign-out made on 2.8 leaves nothing this app can read (only Firebase's own storage): the phone counts as
+  // signed in until the sync module runs here again, so Reset, Import and Restore say the account changes too, keep
+  // the note, and the next sign-in to that account sends them, as 2.8's sign-out question promised.
+  function noteSignIn() {
+    const sync = window.__overloadSync; if (!sync) return;
+    ui.authSeen = true;
+    noteLinking(sync.user);
+    let raw = null, n = null;
+    try { raw = localStorage.getItem(SYNC_KEY); n = JSON.parse(raw); } catch (e) { n = null; }
+    if (!isObj(n) || typeof n.uid !== 'string' || !n.uid) return;
+    const out = !(sync.user && sync.user.uid === n.uid);
+    const text = raw.replace(/\s+$/, '') + (out ? '\n' : '');
+    if (text !== raw) { try { localStorage.setItem(SYNC_KEY, text); } catch (e) { /* ignore */ } }
+  }
+  // The account the stored note names, in either form, or ''.
+  function noteUid() {
+    try { const n = JSON.parse(localStorage.getItem(SYNC_KEY)); return isObj(n) && typeof n.uid === 'string' ? n.uid : ''; } catch (e) { return ''; }
+  }
+  // A first link still to be made, kept across starts (review finding link#1). The module says who is signed in only
+  // once it has loaded and Firebase has answered; until the first link has read the account there is no note. So a
+  // start where that read failed, then the app was closed, looked signed out to the next start without the module (or
+  // before Firebase answered): Reset and Import went ahead, and the next link merged the account's data back over
+  // them. overload.backup's `linking` holds the account's uid while the module reports it signed in and no note names
+  // it; it goes when the module reports nobody, or names it while a note does. Kept out of the note, which v2.8 would
+  // take as an account it has read. A note of that account (the first link worked, here or on 2.8) outweighs it.
+  function noteLinking(user) {
+    const want = user && user.uid && noteUid() !== user.uid ? user.uid : undefined;
+    if (backupInfo().linking !== want) setBackupInfo({ linking: want });
+  }
+  function linkPending() { const id = backupInfo().linking; return typeof id === 'string' && !!id && noteUid() !== id; }
+  // Signed in, but cloud sync has not read the account yet (sync.js `linked`: the first read from the server is under
+  // way, or failed and is tried again). A Reset, Import or Restore now would be undone without a word: once the read
+  // works, the first link merges the account's data back over it, and the account is not changed (review finding
+  // sync#6). So none of them starts, and the toast says when they can. A phone that linked before (it has a note) is
+  // linked at once, offline too. The same on a later start, before the module has said who is signed in (no module,
+  // or Firebase has not answered), while a first link is still to be made (linkPending; review finding link#1).
+  // A sync module of another release (2.8's, from a stale server) has no `linked` and is given nothing here (part):
+  // signed in without a note of that account, nothing would ever send the change, and the next start of this
+  // release would merge the account back over it (review finding v28#1). A phone with a note of the account is not
+  // held up: its change goes up at that next start.
+  function cloudStillReading() {
+    if (ui.unreadable) return false;
+    const sync = window.__overloadSync, ours = !!part('__overloadSync');
+    let why = '';
+    if (sync && sync.user) { if (ours ? sync.linked === false : noteUid() !== sync.user.uid) why = ours ? 'still' : 'not'; }
+    else if (!(sync && ui.authSeen) && linkPending()) why = sync && ours ? 'still' : 'not';
+    if (!why) return false;
+    toast(why === 'still' ? 'Cloud sync is still reading your account. Try again once it says Synced.' : 'Cloud sync is not available right now. It starts when the app opens with signal.');
+    return true;
+  }
+  // When the training data on this phone was last replaced (Reset, Import, Restore), for sync.js (markLifted): a
+  // deletion record missing after that may be gone with the replaced data, not because the entry was logged again.
+  // Kept in overload.backup, so a start without the sync module counts too.
+  function noteReplaced() { setBackupInfo({ replaced: Date.now() }); }
+  // The time a weigh-in or night logged in the check-in carries (`at`), or null (review findings sync#7, relog#1).
+  // Cloud sync keeps an entry over a deletion record of its date older than its time (sync.js settleDated). Given here,
+  // where he logs it, whatever a Reset, Import or Restore before says:
+  // - when this phone holds such a record (it is taken away now): later than it, whatever this phone's clock says;
+  // - for 90 days after a Reset, Import or Restore here (noteReplaced): the replaced data took this phone's records
+  //   with it, while the account and the other phones may still hold one of this date. Their merge would delete
+  //   again what he logs now (as with a second phone closed meanwhile, or no signal). sync.js markLifted gives no
+  //   time then: it cannot tell an entry logged by hand from one the file or copy brought back.
+  // An entry logged after a deletion made elsewhere that this phone has not seen yet then stays too (the later wins).
+  function loggedAt(kind, date) {
+    const t = state.deleted[kind][date], now = Date.now();
+    if (t) return Math.max(now, t + 1);
+    return now - (+backupInfo().replaced || 0) < 90 * 864e5 ? now : null;
+  }
   // Signed out, a reset or import must not keep the note of what the cloud holds: the next sign-in would treat
   // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
   function forgetCloudIfSignedOut() {
-    const sync = window.__overloadSync;
-    if (!(sync && sync.user)) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
+    if (!cloudAccount()) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
   }
-  // Signed in, a reset or import syncs out and replaces the cloud copy too. Say so.
-  function cloudNote(verb) {
-    const sync = window.__overloadSync;
-    return sync && sync.user ? '\n\nYou are signed in to cloud sync, so the copy in your account (' + sync.user.email + ') is ' + verb + ' too.' : '';
+  // Signed in, a reset or import syncs out and replaces the training data in the cloud too. Say so.
+  // The food log in the account is never changed from this app any more (sync.js), so say that as well.
+  // A Reset, Import or Restore writes no deletion records. Another phone signed in to the account on this release
+  // takes the new data date by date and key by key (sync.js mergeCore, mergeDated), except for what it logged or
+  // changed itself since it last synced, and its workout in progress: those it keeps and sends back. So does a
+  // phone signed out meanwhile that signs in again. After an Import or Restore (what: 'the backup' or 'the copy')
+  // it also sends back its deletion records (merged), so a workout, weigh-in or night deleted in the last 90 days
+  // is deleted again although the file holds it. A phone still on 2.8 merges its weigh-ins and nights back by date
+  // (for the dates the file or copy does not have) and loses its workout in progress (dev/notes/sync.md 1.5).
+  // The way out is the same for all; tests/train-cloud.js runs each part on the fake cloud, tests/train-sync.js the rest.
+  function cloudNote(verb, what) {
+    const acct = cloudAccount();
+    if (!acct) return '';
+    const other = ' Another phone signed in to it does the same, except for what was logged or changed on it since it last synced, and a workout in progress there: those come back.'
+      + (verb === 'erased'
+        ? ' A phone still on version 2.8 sends back all of its weigh-ins and nights, and loses a workout in progress. To be sure nothing comes back, sign out on that phone first and reset it before it signs in again.'
+        : ' That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. A phone still on version 2.8 sends back its weigh-ins and nights for the dates ' + what + ' does not have, and loses a workout in progress. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.');
+    return '\n\nYou are signed in to cloud sync, so the training data in your account' + (acct.email ? ' (' + acct.email + ')' : '') + ' is ' + verb + ' too.' + other
+      + ' The food log in your account is not changed.';
   }
-  function importJson(file) {
-    const r = new FileReader();
-    r.onload = () => {
-      try {
-        const parsed = JSON.parse(r.result, noProto);
-        if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
-        if (!confirm('Replace everything on this phone with the backup?\n\n' + dataSummary(parsed, 'The backup') + '\n' + dataSummary(state, 'This phone now')
-          + activeLine(parsed, 'the backup') + cloudNote('replaced'))) return;
-        // A backup carries the WHOOP connector link. Take it from the file only when he says so;
-        // a backup without one (made before pairing) keeps this phone's link.
-        const cur = state.settings, inc = isObj(parsed.settings) ? parsed.settings : (parsed.settings = {});
-        if (!inc.connUrl && !inc.connKey) ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; });
-        else if (inc.connUrl !== cur.connUrl || inc.connKey !== cur.connKey) {
-          const okUrl = typeof inc.connUrl === 'string' && /^https:\/\/[^/@\s"'<>]+$/.test(inc.connUrl);
-          if (!(okUrl && confirm('This backup is linked to a WHOOP connector at ' + inc.connUrl + '. Use that link on this phone?\n\nCancel keeps ' + (cur.connUrl ? 'this phone\'s own link.' : 'this phone without one.')))) {
-            ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; else delete inc[k]; });
-          }
+  // Reset all data: the training data and the settings go back to a new install, the WHOOP link included (as in
+  // every version before; the copy "Before reset" holds them, and Restore of it brings the link back). The old
+  // food log is not part of it: it leaves this phone only through "Remove the old food log" in Settings > Food,
+  // and the questions say so. The copy "Before reset" is stored first: if it cannot be, nothing is erased.
+  async function resetAll() {
+    if (busy() || cloudStillReading()) return;
+    if (noCopies('erased', 'Reset all data')) return;   // before the questions (ask#1)
+    const days = foodFacts().days;
+    const food = days ? '\n\nThe old food log (' + plural(days, 'day') + ') is not erased. It stays on this phone until you remove it in Settings > Food.' : '';
+    const link = state.settings.connUrl || state.settings.connKey ? ', the WHOOP link included' : '';
+    if (!confirm('Erase all exercises, program, history and settings on this phone' + link + '?' + food + cloudNote('erased'))) return;
+    if (!confirm('Really erase all training data and settings?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) return;
+    ui.replacing = true;
+    try {
+      const c = await copyFirst('reset');
+      if (c !== 'kept') { notDone(c, 'Reset all data', 'erased'); return; }
+      forgetCloudIfSignedOut();
+      const fresh = seedState(); keepFoodCopy(fresh);
+      state = fresh;
+      noteReplaced();
+      stopTimer();   // a rest or cardio timer of the data just erased
+      applyTheme(); save(); render(); toast('Reset to defaults');
+    } finally { ui.replacing = false; }
+  }
+  const readText = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(r.error); r.readAsText(file); });
+  async function importJson(file) {
+    if (busy() || cloudStillReading()) return;
+    if (noCopies('replaced', 'Import JSON')) return;   // before the question (ask#1)
+    ui.replacing = true;
+    try {
+      const parsed = JSON.parse(await readText(file), noProto);
+      if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
+      if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
+      if (!confirm(replaceQuestion('the backup') + '\n\n' + dataSummary(parsed, 'The backup') + '\n' + dataSummary(state, 'This phone now')
+        + activeLine(parsed, 'the backup') + foodLine(parsed, 'the backup') + cloudNote('replaced', 'the backup'))) return;
+      // A backup carries the WHOOP connector link. Take it from the file only when he says so;
+      // a backup without one (made before pairing) keeps this phone's link.
+      const cur = state.settings, inc = isObj(parsed.settings) ? parsed.settings : (parsed.settings = {});
+      if (!inc.connUrl && !inc.connKey) ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; });
+      else if (inc.connUrl !== cur.connUrl || inc.connKey !== cur.connKey) {
+        const okUrl = typeof inc.connUrl === 'string' && /^https:\/\/[^/@\s"'<>]+$/.test(inc.connUrl);
+        if (!(okUrl && confirm('This backup is linked to a WHOOP connector at ' + inc.connUrl + '. Use that link on this phone?\n\nCancel keeps ' + (cur.connUrl ? 'this phone\'s own link.' : 'this phone without one.')))) {
+          ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; else delete inc[k]; });
         }
-        replaceState(parsed, 'import', 'Backup restored');
-      } catch (e) { toast('That file is not an Overload backup'); }
-    };
-    r.readAsText(file);
+      }
+      await replaceState(parsed, 'import', 'Backup restored');
+    } catch (e) { toast('That file is not an Overload backup'); }
+    finally { ui.replacing = false; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Food has moved to Fuel: the hand-over
+  // ---------------------------------------------------------------------------
+  // This app keeps the food data it held (the old food copy) and offers it to Fuel as text on the clipboard and
+  // as a file. Nothing here changes the food data, except "Remove the old food log", which empties state.diary
+  // and only after the log was copied. What was copied when is noted beside the data (splitInfo).
+
+  // A short fingerprint of a text (the same one sync.js uses for its bookkeeping).
+  function hashText(str) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const c = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return 'h' + (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36) + '.' + str.length.toString(36);
+  }
+  // What the old food copy holds, and a fingerprint of it: the saved foods with the targets, and the log. The
+  // deletion records are left out of the fingerprint (they drop out by themselves after 90 days, which would make
+  // the copy look changed; a deletion changes the log anyway). Worked out once and kept until the data is replaced:
+  // everything that can change food (cloud data, Import, Restore, Reset, Remove) puts new objects in place.
+  function foodFacts() {
+    const k = ui.foodFacts;
+    if (k && k.of === state && k.food === state.food && k.diary === state.diary) return k;
+    const food = state.food, diary = state.diary, t = food.targets || {};
+    const foodText = JSON.stringify(food), diaryText = JSON.stringify(diary), dayKeys = Object.keys(diary);
+    const f = { of: state, food, diary, days: dayKeys.length,
+      entries: dayKeys.reduce((n, d) => n + (Array.isArray(diary[d]) ? diary[d].length : 0), 0),
+      foods: Object.keys(food.foods).length, meals: Object.keys(food.meals).length,
+      chars: foodText.length + diaryText.length, diaryChars: diaryText.length, hash: hashText(foodText + diaryText) };
+    f.catalogue = !!(f.foods || f.meals || ['kcal', 'protein', 'carbs', 'fat'].some((x) => t[x] != null && t[x] !== ''));
+    f.any = !!(f.days || f.catalogue);
+    return (ui.foodFacts = f);
+  }
+  // The hand-over payload (dev/notes/SPEC.md, section 5): the food data as it is, the two settings Fuel starts
+  // from (units and theme) and the latest weigh-in for its protein guide. Named fields only: nothing else from
+  // settings may ever leave this app (settings.connKey is a secret), and never an "exercises" field, which
+  // together with v: 1 is what this app's own Import takes for a full backup.
+  const lastWeighIn = () => state.bodyweight.filter((b) => b && +b.weight > 0).sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
+  function foodPayload() {
+    const st = state, last = lastWeighIn();
+    return { kind: 'overload-food', v: 1, madeAt: Date.now(), from: 'Overload ' + VERSION,
+      food: { targets: st.food.targets, foods: st.food.foods, meals: st.food.meals },
+      diary: st.diary, deleted: { food: st.deleted.food },
+      settings: { units: st.settings.units, theme: st.settings.theme },
+      bodyweight: last ? [{ date: last.date, weight: last.weight }] : [] };
+  }
+  // base64 of bytes, a piece at a time (one call with a million arguments fails).
+  function base64(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  // The clipboard text: 'OVERLOAD-FOOD:1:' + base64 of the gzipped JSON, or 'OVERLOAD-FOOD:0:' + base64 of the JSON
+  // itself where the browser cannot gzip. Always from UTF-8 bytes: btoa on the text fails on the '×' in an amount
+  // and on names in other alphabets. Gzip brings a long log down to about a fifth, which a clipboard takes more easily.
+  async function foodText(payload) {
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    if (window.CompressionStream) {
+      try {
+        const zip = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+        return 'OVERLOAD-FOOD:1:' + base64(new Uint8Array(zip));
+      } catch (e) { /* the plain form below always works */ }
+    }
+    return 'OVERLOAD-FOOD:0:' + base64(bytes);
+  }
+  // Everything the payload holds but madeAt, as one short text: the food data's fingerprint, then the latest
+  // weigh-in, the units, the theme and the food deletion records.
+  function payloadKey() {
+    const last = lastWeighIn();
+    return foodFacts().hash + '|' + hashText(JSON.stringify([last ? [last.date, last.weight] : null, state.settings.units, state.settings.theme, state.deleted.food]));
+  }
+  // The text is made ahead, when a card with the Copy button is drawn: an iPhone lets a page write to the
+  // clipboard only during the tap itself, and gzip takes longer than that. Made again whenever anything it holds
+  // changed (a weigh-in or a new theme in the same session must reach Fuel too); madeAt is when it was made.
+  // The check-in and Settings draw the card again, so the new text is normally ready before the tap.
+  function prepareFoodText() {
+    const key = payloadKey();
+    if (ui.foodText && ui.foodText.key === key) return ui.foodText;
+    const job = { key, hash: foodFacts().hash, text: null, ready: null };
+    job.ready = foodText(foodPayload()).then((t) => { job.text = t; return t; });
+    job.ready.catch(() => { if (ui.foodText === job) ui.foodText = null; });   // made again at the next try
+    return (ui.foodText = job);
+  }
+  function warmFoodText() { if ($('[data-action="handover-copy"]')) setTimeout(() => { if (!ui.unreadable) prepareFoodText(); }, 0); }   // after the screen is drawn
+  async function copyFoodLog() {
+    const f = foodFacts(); if (ui.unreadable || !f.any) return;
+    const job = prepareFoodText();
+    try {
+      if (job.text != null) await navigator.clipboard.writeText(job.text);
+      // Tapped before the text was ready: given a promise, the clipboard takes the write as part of this tap.
+      else if (window.ClipboardItem && navigator.clipboard.write) await navigator.clipboard.write([new ClipboardItem({ 'text/plain': job.ready.then((t) => new Blob([t], { type: 'text/plain' })) })]);
+      else await navigator.clipboard.writeText(await job.ready);
+    } catch (e) { toast('Could not copy the food log. Use Save as a file instead.'); return; }
+    setSplit({ copied: { at: Date.now(), hash: job.hash, days: f.days, entries: f.entries } });
+    refreshHandover(); toast('Food log copied. Open ' + FUEL + ' and tap Paste from Overload.');
+  }
+  // The same payload as a file (overload-food-YYYY-MM-DD.json), through the share sheet where the phone has one.
+  async function saveFoodFile() {
+    const f = foodFacts(); if (ui.unreadable || !f.any) return;
+    if (!(await shareFile(JSON.stringify(foodPayload()), 'overload-food-' + todayKey() + '.json', 'Overload food log'))) return;
+    setSplit({ filed: { at: Date.now(), hash: f.hash } });
+    refreshHandover(); toast('Food log saved as a file. In ' + FUEL + ', tap Choose a file.');
+  }
+  // Fuel lives in the folder fuel/ next to this page.
+  function fuelUrl() { return new URL('fuel/', location.href); }
+  // Get Fuel and Copy link. A Home Screen app on an iPhone opens a link to its own site inside itself, where Fuel
+  // would run on this app's storage and could not be added to the Home Screen. The x-safari-https address asks the
+  // phone to open Safari instead. That address form is not documented anywhere, so Copy link is always there too.
+  // Both are keys, not the accent: on Today, Start workout stays the one main action. The link's text is exactly
+  // "Get Fuel" (its icon adds none). The address hint is fine print, which Today leaves out ("more").
+  function fuelButtons() {
+    const u = fuelUrl();
+    const get = navigator.standalone === true
+      ? '<a class="btn ghost" href="' + esc('x-safari-https://' + location.host + u.pathname) + '">Get ' + FUEL + icon('external') + '</a>'
+      : '<a class="btn ghost" href="' + esc(u.href) + '" target="_blank" rel="noopener">Get ' + FUEL + icon('external') + '</a>';
+    return '<div class="btn-row mt8">' + get + '<button class="btn ghost" data-action="handover-link">' + icon('link') + 'Copy link</button></div>'
+      + '<p class="tiny muted mt8 break more">In Safari tap Share, then Add to Home Screen. If Safari does not open, tap Copy link and paste it into Safari\'s address bar: ' + esc(u.host + u.pathname) + '</p>';
+  }
+  async function copyFuelLink() {
+    const link = fuelUrl().href;
+    try { await navigator.clipboard.writeText(link); toast('Link copied. Paste it into Safari.'); }
+    catch (e) { toast('Could not copy. The address is ' + link); }
+  }
+  const fmtSize = (chars) => (chars >= 1e6 ? (chars / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(chars / 1000)) + ' KB');
+  const entriesText = (n) => n.toLocaleString() + (n === 1 ? ' entry' : ' entries');
+  // Where the hand-over stands on this phone.
+  function handoverInfo() {
+    const f = foodFacts(), s = splitInfo();
+    const copied = isObj(s.copied) && s.copied.at ? s.copied : null, filed = isObj(s.filed) && s.filed.at ? s.filed : null;
+    const current = !!((copied && copied.hash === f.hash) || (filed && filed.hash === f.hash));   // the last copy or file holds what is here now
+    const removed = !!(isObj(s.removed) && s.removed.at) && !f.days;                             // the log was removed and nothing was logged here since
+    return { f, copied, filed, current, removed, removedAt: removed ? s.removed.at : null,
+      // Changed after it was copied: an older version of the app can run again while an update is half arrived, and log food.
+      stale: !current && !removed && !!(copied || filed),
+      // On Today until it is hidden: in full, then (once copied or saved) short, with the way to Fuel and the next
+      // step. Hiding remembers what the food data was, so the card returns when that changes.
+      today: f.any && !removed && s.dismissed !== f.hash,
+      // What was made last of the two that hold what is here now: 'copied' or 'filed' (null when neither does).
+      done: !current ? null : (copied && copied.hash === f.hash ? copied.at : 0) >= (filed && filed.hash === f.hash ? filed.at : 0) ? 'copied' : 'filed' };
+  }
+  // The card "Food has moved to Fuel": on Today until it is hidden (short once the log was copied), always in Settings.
+  function handoverHtml(where) {
+    if (ui.unreadable) return '';
+    const h = handoverInfo(), f = h.f, today = where === 'today';
+    if (today && !h.today) return '';
+    const title = today ? '' : '<div class="group-title">Food</div>';
+    const tile = '<span class="app-tile l" data-app="fuel">' + icon('mark-fuel') + '</span>';   // Fuel's Home Screen icon, in its own colour
+    const hide = today ? '<button class="icon-btn" data-action="handover-hide" aria-label="Hide this card">' + icon('close') + '</button>' : '';
+    // Nothing to hand over (a new install, or the old log was removed): one line and the way to Fuel.
+    if (!f.any || h.removed) {
+      return title + '<div class="card handover"><div class="handover-head">' + tile + '<p class="small muted">Food is logged in a separate app, ' + FUEL + '.'
+        + (h.removed ? ' The old food log was removed from Overload on ' + fmtDate(todayKey(new Date(h.removedAt))) + '.' : '') + '</p></div>' + fuelButtons() + '</div>';
+    }
+    // On Today, once copied or saved as a file: a short card in the same place, until he hides it. It still has
+    // the way to get Fuel (he may copy before he has it) and the step that comes next, and lets him do it again.
+    // Its head, the line under it and the last line keep the card about as tall as where Copy my food log was:
+    // the second tap of a double tap lands on the card, not on what would move up under it.
+    if (today && h.done) {
+      const file = h.done === 'filed';
+      return '<div class="card handover"><div class="handover-head">' + tile + '<b>Food has moved to ' + FUEL + '</b>' + hide + '</div>'
+        + '<p class="small mt8">' + (file ? 'Saved as a file. Open ' + FUEL + ' and tap Choose a file.' : 'Copied. Open ' + FUEL + ' and tap Paste from Overload.') + '</p>'
+        + fuelButtons()
+        + '<div class="btn-row mt8">' + (file ? '<button class="btn ghost" data-action="handover-file">' + icon('export') + 'Save again</button>' : '<button class="btn ghost" data-action="handover-copy">' + icon('copy') + 'Copy again</button>') + '</div>'
+        + '<p class="tiny muted mt12">This card is also in Settings, under Food.</p></div>';
+    }
+    const holds = [plural(f.days, 'day'), entriesText(f.entries), plural(f.foods, 'saved food')].concat(f.meals ? [plural(f.meals, 'saved meal')] : []).join(', ') + ' (about ' + fmtSize(f.chars) + ')';
+    const made = [h.copied && h.copied.hash === f.hash ? 'Copied ' + agoText(h.copied.at) : '', h.filed && h.filed.hash === f.hash ? 'Saved as a file ' + agoText(h.filed.at) : ''].filter(Boolean);
+    // The last thing made, for the wording when it is out of date: a copy or a file.
+    const file = !!h.filed && (!h.copied || h.filed.at > h.copied.at);
+    const lastDay = fmtDate(todayKey(new Date(Math.max(h.copied ? h.copied.at : 0, h.filed ? h.filed.at : 0))));
+    const status = h.stale ? 'The ' + (file ? 'file' : 'copy') + ' from ' + lastDay + ' is out of date.' : made.length ? made.join(' · ') + '.' : 'Not copied yet.';
+    // For cloud sync users. Signing in to Fuel is never the whole answer: this app no longer uploads food, so the
+    // account can be behind this phone, and once Fuel has signed in it never reads this app's copy in the account
+    // again (food an older version logs after that only goes across by Copy or a file). So: always copy, sign-in extra.
+    const cloud = !syncOn() ? '' : '<p class="small muted mt12">Using cloud sync? Copy the food log or save it as a file from here as well. Signing in to ' + FUEL + ' with the same email may bring some of it across, but not always all of it.</p>';
+    // Offered only when the last copy or file holds exactly what is here now.
+    const remove = !today && h.current && f.days ? '<div class="handover-remove"><b>When ' + FUEL + ' shows your food log</b>'
+      + '<p class="small muted">You can remove the old food log from Overload. That frees about ' + fmtSize(f.diaryChars) + ' on this phone. A safety copy is kept first, and your saved foods and targets stay.</p>'
+      + '<button class="btn danger block mt8" data-action="handover-remove">' + icon('trash') + 'Remove the old food log from Overload</button></div>' : '';
+    // One markup for both places. The stylesheet draws it short on Today (#handover[data-where="today"]): no step
+    // numbers, no step headings, no fine print. The steps are numbered by the list; the second is done (solid)
+    // while the last copy or file holds what is here now.
+    return title + '<div class="card handover">'
+      + '<div class="handover-head">' + tile + '<b>Food has moved to ' + FUEL + '</b>' + hide + '</div>'
+      + '<p class="small muted mt8">The food log is now its own app, ' + FUEL + '. Your log is still on this phone: ' + holds + '. Nothing is taken away until you remove it yourself.</p>'
+      + (h.stale ? '<div class="banner warn mt8">' + icon('warning') + '<span>The food log here changed after you ' + (file ? 'saved it as a file' : 'copied it') + ' on ' + lastDay + '. ' + (file ? 'Save' : 'Copy') + ' it again so ' + FUEL + ' gets the rest.</span></div>' : '')
+      + '<ol class="steps">'
+      + '<li><b>Get ' + FUEL + '</b>' + fuelButtons() + '</li>'
+      + '<li' + (h.current ? ' class="done"' : '') + '><b>Take your food log along</b>'
+      + '<div class="btn-row mt8"><button class="btn ghost" data-action="handover-copy">' + icon('copy') + 'Copy my food log</button><button class="btn ghost" data-action="handover-file">' + icon('export') + 'Save as a file</button></div>'
+      + '<p class="small muted mt8">' + status + '</p></li>'
+      + '<li><b>In ' + FUEL + ', tap Paste from Overload</b><p class="small muted more">If you saved a file, tap Choose a file there instead.</p></li>'
+      + '</ol>'
+      + cloud + remove
+      + (today ? '<p class="tiny muted mt12">This card is also in Settings, under Food.</p>' : '') + '</div>';
+  }
+  // After a copy, a file or Hide: only the card changes (a whole redraw would lose a half-typed check-in or setting).
+  function refreshHandover() { const el = $('#handover'); if (el) { el.innerHTML = handoverHtml(el.dataset.where); warmFoodText(); } }
+  // Cloud sync's note lists the food days the account holds, and v2.8 deletes from the account every listed day
+  // that is gone from the phone. So days removed here are taken off the note (this version's sync.js does the same
+  // when it next sends): an older version started on this data then leaves the account's food log alone.
+  function forgetSyncedDays() {
+    try {
+      const raw = localStorage.getItem(SYNC_KEY), known = JSON.parse(raw);
+      if (!isObj(known) || !isObj(known.days)) return;
+      Object.keys(known.days).forEach((d) => { if (!state.diary[d]) delete known.days[d]; });
+      localStorage.setItem(SYNC_KEY, JSON.stringify(known) + (/\n$/.test(raw) ? '\n' : ''));   // its signed-out form stays (noteSignIn)
+    } catch (e) { /* no note, or the storage cannot be used */ }
+  }
+  // Remove the old food log. Only once it was copied or saved as a file on this phone and that copy still holds
+  // what is here. Asks twice, then keeps a safety copy of everything (it must be stored, or nothing is removed),
+  // then empties the log itself (state.diary) and nothing else: the saved foods with the targets and the deletion
+  // records are small, and with them an older version of the app and the cloud's copy still find what they expect.
+  // While signed in, only beside this release's own sync module: one of another release (a half-arrived update)
+  // may still send food, and 2.8's deletes from the account every food day that is gone from the phone. A sync
+  // module that is not signed in holds no note of the account in memory: it reads the note at sign-in, after
+  // forgetSyncedDays has taken the removed days off it.
+  const otherSync = () => { const sync = window.__overloadSync; return !!(sync && sync.user && sync.release !== VERSION); };
+  const UPDATE_FIRST = 'Finish the update first: open Overload once with good signal, then try again.';
+  // Round-5 finding ask#1: without a backup.js of this release (during the first starts of 3.0, 2.8's worker can hand
+  // out 2.8's file, or none arrives), no safety copy can be kept in this session. Remove the old food log, Reset and
+  // Import then refuse before their questions, which promise one, and say what helps: the app opened again with
+  // signal gets the right file. Restore is offered only from the list of copies, which needs backup.js. Data that
+  // could not be read is replaced without a copy (it has its own), so it is not held up. With a title: the sheet
+  // that Reset and Import show when their copy cannot be stored, with Export; without: a toast.
+  const noCopiesText = (did) => 'Automatic copies are not available right now, so nothing was ' + did + '. Close Overload and open it again with good signal.';
+  function noCopies(did, title) {
+    if (ui.unreadable || part('__overloadBackup')) return false;
+    if (!title) { toast(noCopiesText(did)); return true; }
+    openSheet(sheetHeader(title) + '<div class="banner warn" role="alert">' + icon('warning') + '<span>' + noCopiesText(did) + '</span></div>'
+      + '<button class="btn block mt12" data-action="export">' + icon('export') + 'Export backup</button>', 'copy-failed');
+    return true;
+  }
+  async function removeFoodLog() {
+    const h = handoverInfo(), f = h.f;
+    if (ui.unreadable || busy() || !f.days) return;   // busy: a second tap while the safety copy is being stored, or a Restore, Import or Reset under way
+    if (!h.current) { toast('Copy your food log or save it as a file first.'); return; }
+    if (otherSync()) { toast(UPDATE_FIRST); return; }
+    if (noCopies('removed')) return;
+    // Every removal keeps a safety copy of its own, and the newest few are kept (backup.js): when that lets an
+    // older one go, the question says so. When the list cannot be read (backup.js gives up after a few seconds),
+    // nothing is removed: the question could not say which copy is let go.
+    const B = part('__overloadBackup'), keep = (B && B.KEEP_REMOVALS) || 3;
+    ui.removing = true;
+    let earlier = [];
+    try { earlier = B ? (await B.list()).filter((m) => m.kind === 'foodremove').sort((a, b) => a.at - b.at) : []; } catch (e) { earlier = null; }
+    ui.removing = false;
+    if (!earlier) { toast('The automatic copies could not be read, so nothing was removed. Try again.'); return; }
+    // Each by its date, as Settings lists it; with the time as well when two removal copies are from the same day.
+    const dayOf = (m) => todayKey(new Date(m.at));
+    const named = (m) => fmtDate(dayOf(m)) + (earlier.filter((x) => dayOf(x) === dayOf(m)).length > 1 ? ', ' + timeOf(m.at) : '');
+    const going = earlier.slice(0, Math.max(0, earlier.length + 1 - keep)).map(named);
+    const sync = window.__overloadSync;   // signed in: this release's, which never changes the account's food log
+    if (!confirm('Remove the old food log from Overload?\n\n' + plural(f.days, 'day') + ' of food (' + entriesText(f.entries) + ') leave this app. Do this only when ' + FUEL + ' shows your food log.'
+      + '\n\nA safety copy is kept first, in Settings > Automatic copies. Your saved foods and targets stay.'
+      + (going.length ? '\n\nSettings keeps the copies of the last ' + keep + ' removals, so the ' + (going.length === 1 ? 'copy' : 'copies') + ' from ' + joinWords(going) + (going.length === 1 ? ' is' : ' are') + ' let go.' : '')
+      + (sync && sync.user ? '\n\nThe food log in your cloud account is not changed.' : ''))) return;
+    if (!confirm('Really remove the old food log from Overload?')) return;
+    ui.removing = true;
+    const kept = await safetyCopy('foodremove', false, JSON.stringify(state));
+    ui.removing = false;
+    if (!kept) { toast('The safety copy could not be stored, so nothing was removed. Try again.'); return; }
+    if (foodFacts().hash !== f.hash) { toast('The food log changed just now. Nothing was removed.'); return; }   // cloud data arrived while the copy was stored
+    if (otherSync()) { toast(UPDATE_FIRST); return; }   // signed in while the questions were open or the copy was stored
+    const old = state.diary;
+    state.diary = {};
+    const ok = save();
+    if (ok) { forgetSyncedDays(); setSplit({ removed: { at: Date.now() } }); } else state.diary = old;   // not saved: nothing was removed
+    render(); toast(ok ? 'Old food log removed from Overload' : NOT_SAVED);
   }
 
   // ---------------------------------------------------------------------------
@@ -2080,14 +2876,21 @@
     const btn = e.target.closest('[data-action]');
     if (!btn || btn.disabled) return;
     const a = btn.dataset.action, d = btn.dataset;
-    if (a.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.click(a, d, btn); return; }
-    if (a.startsWith('conn-')) { if (window.__overloadConn) window.__overloadConn.click(a, d, btn); return; }
+    if (a.startsWith('conn-')) { if (part('__overloadConn')) part('__overloadConn').click(a, d, btn); return; }
     const w = activeWorkout();
 
     switch (a) {
       // Today
       case 'select-day': ui.selectedDay = +d.i; ui.showOthers = false; render(); break;
-      case 'toggle-others': ui.showOthers = !ui.showOthers; render(); break;
+      case 'toggle-others': {
+        ui.showOthers = !ui.showOthers; render();
+        // The button is in the day's card now and the list opens under the card, mostly below the screen's edge.
+        // Bring the list's heading to where the button is, so the list shows up at the finger as it did when the
+        // button sat under the card. Bottom edge on bottom edge: the first Start then lies clear below the finger.
+        const list = $('#other-days'), at = $('[data-action="toggle-others"]');
+        if (list && at) window.scrollBy(0, list.getBoundingClientRect().bottom - at.getBoundingClientRect().bottom);
+        break;
+      }
       case 'reload': location.reload(); break;
       case 'start-workout': startWorkout(d.day); break;
       case 'start-deload': startWorkout(d.day, true); break;
@@ -2114,7 +2917,11 @@
           }
           // Empty reps box: one tap logs the goal shown in it (marked, so unticking takes it back out).
           if (!(s.reps > 0)) { if (!(en.targetReps > 0)) { toast('Enter reps first'); return; } s.reps = en.targetReps; s.auto = true; }
-          s.done = true; startTimer(restFor(ex));
+          s.done = true;
+          // What the rest is before: the next set of this exercise (the first one not ticked, the row the screen
+          // marks as next), else the next exercise still open.
+          const nextSet = en.sets.findIndex((x) => !x.done), later = w.entries.slice(+d.e + 1).find((o) => !o.done && exById(o.exId));
+          startTimer(restFor(ex), 'rest', nextSet >= 0 ? 'Set ' + (nextSet + 1) + ' of ' + en.sets.length + ' next' : later ? 'Next: ' + exById(later.exId).name : 'Last set done');
         } else {
           s.done = false; s.rir = null;  // its RIR row is hidden while unticked, so a picked value must not linger and count later
           if (s.auto) { s.reps = 0; delete s.auto; }  // reps typed by hand stay
@@ -2132,7 +2939,7 @@
       }
       case 'gen-warmup': genWarmups(w.entries[+d.e]); save(); render(); break;
       case 'clear-warmup': w.entries[+d.e].warmups = null; save(); render(); break;
-      case 'toggle-warmup': { const wu = w.entries[+d.e].warmups[+d.s]; wu.done = !wu.done; if (wu.done) startTimer(state.settings.warmupRest); save(); render(); break; }
+      case 'toggle-warmup': { const wu = w.entries[+d.e].warmups[+d.s]; wu.done = !wu.done; if (wu.done) startTimer(state.settings.warmupRest, 'rest', 'Warm-up'); save(); render(); break; }
       case 'swap-entry': sheetPicker({ swap: +d.e }); break;
       case 'remove-set': {
         const en = w.entries[+d.e]; if (en.sets.length <= 1) break;
@@ -2150,12 +2957,12 @@
       case 'remove-entry': if (confirm('Remove this exercise from today?')) { if (w.entries[+d.e].done) reopenEntry(w, +d.e); w.entries.splice(+d.e, 1); save(); render(); } break;
       case 'add-entry': sheetPicker({ workout: true }); break;
       case 'finish-workout': finishWorkout(); break;
-      case 'cardio-timer': { const c = ensureCardio(w); if (!c || !(c.min > 0)) break; startTimer(Math.round(c.min * 60), 'cardio'); render(); break; }
+      case 'cardio-timer': { const c = ensureCardio(w); if (!c || !(c.min > 0)) break; startTimer(Math.round(c.min * 60), 'cardio', c.name); render(); break; }
       case 'cardio-done': { const c = ensureCardio(w); if (!c) break; if (timer.kind === 'cardio') stopTimer(); c.done = true; save(); render(); toast('Cardio logged'); break; }
       case 'cardio-undo': if (w && w.cardio) { w.cardio.done = false; save(); render(); } break;
       case 'discard-workout': discardWorkout(); break;
       case 'rest-skip': { const k = timer.kind; stopTimer(); if (k === 'cardio') render(); break; }
-      case 'rest-add': timer.end += 30000; timer.total += 30; tick(); break;
+      case 'rest-add': timer.end += 30000; timer.total += 30; showRestOf(); tick(); keepTimer(); break;
 
       // Program
       case 'add-day': { const day = { id: uid(), name: 'New day', exercises: [] }; state.program.days.push(day); save(); render(); sheetDay(day.id); break; }
@@ -2231,11 +3038,18 @@
       // Settings
       case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
-      case 'import': $('#import-file').click(); break;
+      // importJson's checks, before the file picker opens: he is not sent to find a file only to be told no (review
+      // findings sync#6, pick#1). importJson checks again for a file given another way.
+      case 'import': if (!busy() && !cloudStillReading() && !noCopies('replaced', 'Import JSON')) $('#import-file').click(); break;
       case 'restore-copy': restoreCopy(d.id); break;
       case 'export-copy': case 'unreadable-export': case 'unreadable-retry': case 'unreadable-fresh': unreadableAction(a, d); break;
       case 'export-nag-off': setBackupInfo({ nagOff: Date.now() }); refreshNotices(); break;
-      case 'reset': if (confirm('Erase all exercises, program, history and food log on this phone?' + cloudNote('erased')) && confirm('Really erase everything?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) { safetyCopy('reset'); forgetCloudIfSignedOut(); state = seedState(); save(); render(); toast('Reset to defaults'); } break;
+      case 'handover-copy': copyFoodLog(); break;
+      case 'handover-file': saveFoodFile(); break;
+      case 'handover-hide': setSplit({ dismissed: foodFacts().hash }); refreshHandover(); toast('Hidden here. It stays in Settings > Food.'); break;
+      case 'handover-remove': removeFoodLog(); break;
+      case 'handover-link': copyFuelLink(); break;
+      case 'reset': resetAll(); break;
 
       case 'sheet-close': closeSheet(); break;
 
@@ -2249,7 +3063,6 @@
   });
 
   document.addEventListener('submit', (e) => {
-    if (/^food-/.test(e.target.id || '')) { e.preventDefault(); if (window.__overloadFood) window.__overloadFood.submit(e.target); return; }
     if (e.target.closest('#cloud-form')) { e.preventDefault(); cloudAction('signin'); return; }
     if (e.target.closest('#bw-form')) { e.preventDefault(); saveCheckin(e.target.closest('#bw-form')); return; }
     const ef = e.target.closest('#edit-workout-form');
@@ -2308,15 +3121,13 @@
 
   document.addEventListener('input', (e) => {
     const el = e.target; const f = el.dataset.field; if (!f) return;
-    if (f.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.input(el, f); return; }
     if (f === 'search') { ui.search = el.value; const app = $('#app'); const html = renderExercises(); const tmp = document.createElement('div'); tmp.innerHTML = html; app.replaceChildren(...tmp.childNodes); const inp = $('[data-field="search"]'); inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     else if (f === 'pick-search') { ui.pickSearch = el.value; renderPicker(); const inp = $('[data-field="pick-search"]'); inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
   });
 
   document.addEventListener('change', (e) => {
     const el = e.target; const f = el.dataset.field; if (!f) return;
-    if (f.startsWith('food-')) { if (window.__overloadFood) window.__overloadFood.change(el, f); return; }
-    if (f.startsWith('conn-')) { if (window.__overloadConn) window.__overloadConn.change(el, f); return; }
+    if (f.startsWith('conn-')) { if (part('__overloadConn')) part('__overloadConn').change(el, f); return; }
     const w = activeWorkout();
     switch (f) {
       case 'weight': case 'reps': {
@@ -2377,15 +3188,17 @@
   state = load();
   applyTheme();
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
-  if (ui.unreadable) { if (ui.unreadable.raw) safetyCopy('unreadable', true, ui.unreadable.raw); } else save();
+  if (ui.unreadable) { if (ui.unreadable.raw) safetyCopy('unreadable', true, ui.unreadable.raw); } else { noteSplit(); save(); }
   if (activeWorkout()) ui.screen = 'today';
   if (!backupInfo().since) setBackupInfo({ since: Date.now() });
+  if (!ui.unreadable) resumeTimer();   // a rest or cardio timer that was running when the page was loaded again
   render();
   ui.booted = true;
   if (!ui.unreadable) safetyCopy('day');
   // Ask the browser to keep this app's storage when the phone runs low on space (no question is shown on iPhone).
   try { navigator.storage.persisted().then((p) => p || navigator.storage.persist()).catch(() => {}); } catch (e) { /* not available */ }
-  setInterval(() => { const el = $('#elapsed'); const w = activeWorkout(); if (el && w) el.textContent = durationText(w); }, 30000);
+  // The time so far is shown in the top bar (#tb-elapsed) and kept in the screen's sub line (#elapsed, read aloud).
+  setInterval(() => { const w = activeWorkout(); ['#elapsed', '#tb-elapsed'].forEach((q) => { const el = $(q); if (el && w) el.textContent = durationText(w); }); }, 30000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.dayKey !== todayKey() && !ui.sheet) render(); });
   // A workout in progress opens at the next set, not at the top (and the browser must not restore an old position over it).
   try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) { /* ignore */ }
@@ -2398,9 +3211,10 @@
     let reloading = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloading || !hadController) return;
-      // Mid-workout, or while typing, a reload could eat what is in the box. Offer it instead.
+      // Mid-workout, or while typing, a reload could eat what is in the box; with a sheet open it would close
+      // what he is in the middle of (the first start after an update reloads within seconds). Offer it instead.
       const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-      if (activeWorkout() || typing) { ui.updateReady = true; renderTopbar(); return; }
+      if (activeWorkout() || typing || ui.sheet) { ui.updateReady = true; renderTopbar(); return; }
       reloading = true; location.reload();
     });
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
@@ -2419,23 +3233,34 @@
     get state() { return state; },
     get screen() { return ui.screen; },
     get saveFailed() { return !!ui.saveFailed; },
-    get unreadable() { return !!ui.unreadable; },   // sync waits while the stored data could not be read
+    // Sync waits while the stored data could not be read, and a sync module of another release never starts (see part):
+    // 2.8's links and sends only while this is false.
+    get unreadable() { return !!ui.unreadable || !!(window.__overloadSync && !part('__overloadSync')); },
+    get replacedAt() { return +backupInfo().replaced || 0; },   // the last Reset, Import or Restore here (noteReplaced)
     safetyCopy,
     setState, computeNext, save, render, toast, checkinDone,
-    // Shared with food.js
+    // Helpers other scripts take from here (connector.js; Fuel's own shell offers food.js the same names)
     lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast, markDeleted },
     noteUpdateReady() { ui.updateReady = true; renderTopbar(); },
+    // For the page's line at the top (index.html): the helper files that ran but are of another release (see part).
+    otherParts: () => Object.keys(PARTS).filter((n) => window[n] && window[n].release !== VERSION).map((n) => PARTS[n]),
+    // For tests and the console: the hand-over payload, the clipboard text (a promise) and what the old food copy holds
+    _handover: { payload: foodPayload, text: () => prepareFoodText().ready, facts: foodFacts },
     // Sync status: only the top-bar pill and the status text in Settings change. Redrawing the screen here
     // threw away whatever was being typed in Settings (it changes twice for every upload).
     setSyncStatus(status, msg) {
+      // A sync module of another release syncs nothing here (see part), so what it reports is not true: no pill, as
+      // the Cloud sync card says sync is not available (round-5 finding pill#1: 2.8's said 'Synced' going offline).
+      if (window.__overloadSync && !part('__overloadSync')) { status = 'off'; msg = ''; }
       ui.sync = { status, msg: msg || '' };
       const pill = $('.sync-pill');
-      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.textContent = syncIcon(status); pill.title = ui.sync.msg; }
+      if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.innerHTML = syncIcon(status); pill.title = ui.sync.msg; pill.setAttribute('aria-label', 'Cloud sync: ' + status); }
       else renderTopbar();
-      const cs = $('#cloud-status'); if (cs) { cs.textContent = ui.sync.msg || 'Connected'; cs.style.color = cloudColour(status); }
+      const cs = $('#cloud-status'); if (cs) { cs.textContent = ui.sync.msg || 'Connected'; cs.className = 'pill ' + status; }
     },
     // Signed in or out: redraw the pill and the Cloud sync card only, not the screen.
     syncChanged() {
+      noteSignIn();   // for a start without the sync module (cloudAccount)
       renderTopbar();
       const card = $('#cloud-card');
       if (card) { const tmp = document.createElement('div'); tmp.innerHTML = renderCloudCard(); if (!card.isEqualNode(tmp.firstElementChild)) card.replaceWith(tmp.firstElementChild); }
