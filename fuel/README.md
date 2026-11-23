@@ -158,11 +158,15 @@ one account holds both apps' data, in documents of their own:
   starts when the app opens with signal.", and until cloud sync has said who is signed in, the message above.
   The account still to be read is kept in `fuel.backup` (this phone only), not in the note; it no longer counts
   once the read has worked, and goes when cloud sync says nobody is signed in. At Welcome, where nothing is
-  stored yet, it is not kept: the phone holds nothing the read could undo.
+  stored yet, it is not kept: the phone holds nothing the read could undo. A Safari tab held at Add to Home
+  Screen neither keeps nor removes it (gate#1): Use it here anyway, and cloud sync's word after it, decide.
 - The sign-out question says what the next sign-in does: what was logged while signed out is sent; after a
   Reset or Restore done while signed out, signing in brings back what the account holds (review finding
   look#1). While the sync module has not loaded, Settings says "Cloud sync is not available right now. It
   starts when the app opens with signal. Your food log stays on this phone." (look#11, Overload's words).
+  Until cloud sync has said who is signed in, the card of a phone that was signed in (a note of an account, or
+  that first sign-in) says "Cloud sync is starting. It says Synced once it has read your account." instead of
+  the sign-in form, as Overload's does (card#1); a phone never signed in gets the form at once.
 
 ## Where it runs on an iPhone
 

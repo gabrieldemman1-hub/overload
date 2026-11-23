@@ -657,7 +657,12 @@ v2.5 and later). A storage where a diet worker is active keeps running the diet 
 worker's update check just fails while `fuel/sw.js` is gone. So after a roll-back, 3.0 may be published again only
 unchanged; a fix needs a number higher than any published before (round-5 finding pub#1: `fuel/sw.js` byte for byte
 the same never installs again, and the changed pages would run with `fuel-v1`'s old files). `sh bump.sh --check`
-compares with the newest commit of `origin/main`'s history that carries the tree's release, not only its newest commit.
+compares with the newest published commit that carries the tree's release, not only with `origin/main`'s newest
+commit. Publish the v2.8 files as a new commit on top of `main` (`git revert`, or a commit of v2.8's files), never by
+moving `main` back with a force-push: the check sees only `origin/main`'s history and this clone's record of what
+`origin/main` was (its reflog, round 6 fp#1), and a clone made after the force-push has no such record.
+`sh bump.sh <N>` numbers both caches above every published one (round 6 cache#1), so a fix after a roll-back of 3.1
+never takes 3.1's `overload-v25` or `fuel-v2`.
 
 ## 7. Paths the workflows and tools depend on
 
@@ -914,7 +919,7 @@ preload checks start an ordinary page.
 Not covered: WebKit and a real notch; a phone with no worker at all (a Safari tab) meeting a stale `fuel/`
 file of another 3.x release, since only Overload's helper modules name a release the page reads.
 
-## 13. Review round 5 (release: pub#1, pub#2, split#1, pill#1, ask#1)
+## 13. Review rounds 5 and 6 (release: pub#1, pub#2, split#1, pill#1, ask#1; round 6: fp#1, cache#1, hint#1, order#1)
 
 Run by `tests/train-bump.js`, `tests/train-release.js` (section v28), `tests/train-mixed.js` (sync28) and
 `tests/train-replace.js` (automatic copies not available).
@@ -948,3 +953,34 @@ stored, the order stays: the questions, then the refusal.
 
 Not covered: a start where no `backup.js` loaded at all still leaves the split copy to a later start, which then
 holds what was saved meanwhile.
+
+Round 6, run by `tests/train-bump.js` (fp#1, cache#1, hint#1, and a fresh and a shallow clone):
+
+**Rolled back by a force-push** (fp#1). Moving `main` back to v2.8's commit (`git push -f`) leaves no commit of
+`origin/main`'s history that carries 3.0, so a changed 3.0 passed again; when the force-push was made elsewhere, the
+round-5 fetch took away the stale `origin/main` that had refused it. "Published" is now `origin/main`'s own line and
+then each commit this clone saw `origin/main` at that is not on it, with its own first parents (`git log -g`, newest
+first; an entry whose commit is gone is skipped), read once by `read_published` before the change and the checks.
+The fetch writes that record, so a force-push made elsewhere counts once it is fetched here. Each entry's old value
+counts too: `git gc` drops an entry about 30 days after its commit left `origin/main`, but the force-push's own
+entry, which names what `main` was before it, stays 30 days after the force-push. A shallow clone (a cloud session
+clones 50 commits) fetches `main` with `--unshallow` first; when that fails, or with `BUMP_NO_FETCH`, a line warns
+"this clone has origin/main's history only back to <date> (a shallow clone), …" (`SHALLOW_CUT`: a commit of the
+clone's `shallow` file on the published line). A clone made after the force-push (a fresh clone's record is empty)
+cannot know: section 6 and README say to roll back with a new commit instead.
+
+**Cache names above every published one** (cache#1). After 3.1 was rolled back (`git revert`), `sh bump.sh 3.2` took
+the tree's cache number + 1, `overload-v25` and `fuel-v2`, 3.1's own, and phones still on 3.1 installed 3.2 into the
+cache their running worker serves from. `sh bump.sh <N>` now takes one more than the highest of the tree's and every
+published worker's. Check 5 also compares a worker with the newest published commit whose worker had its cache name
+("… differs from the published one (origin/main at <commit>, release 3.1), but its cache is still overload-v25"). The
+newest only: a branch merged with all its commits (fast-forward or rebase) puts workers on `main`'s line that changed
+under one name before it was published, and comparing with each of them would refuse every later check.
+
+**The next number** (hint#1). The FAILED lines name one more than the highest release published (rolled back or not)
+and the tree's, not the tree's + 1, and when the tree's release is below it, one line says so: "release 3.1 was
+published before (rolled back): a fix needs 3.2" ("release 3.1 is published: …" on a branch older than the tip).
+
+Not covered (order#1): the check sees a pull request only once it is merged. Two release pull requests checked while
+both are open pass, and merging both on GitHub publishes the second one's changes under the first one's number. README
+says to run the check on a branch again right before its pull request is merged, after merging `main` into it.

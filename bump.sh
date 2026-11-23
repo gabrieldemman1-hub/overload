@@ -19,24 +19,30 @@
 #   - the first line  /* release 3.0 ... */  of every other file with ?v= in a worker's install list (scripts
 #     and stylesheets of both apps and shared/): the workers store and run such a file only when it names the
 #     release of its address;
-#   - both offline cache names by one step: overload-vN in sw.js and fuel-vN in fuel/sw.js. Both, also when
-#     only one app changed: a worker file that did not change is never installed again, and a page with a
-#     new ?v= cannot be stored by a worker that still expects the old one.
+#   - both offline cache names: overload-vN in sw.js and fuel-vN in fuel/sw.js, each to one more than the highest
+#     the tree or any published worker used (published: see below). Both, also when only one app changed: a
+#     worker file that did not change is never installed again, and a page with a new ?v= cannot be stored by a
+#     worker that still expects the old one. Never a name a published worker had: after a roll-back the tree's
+#     number is lower, and a phone that kept the newer worker would install the new one into the cache it runs from.
 # Then it checks, and fails loudly (exit code 1) when:
 #   - a ?v= with another number is left in those four files, or a VERSION, the release in sync.js, backup.js
 #     or connector.js or the first line of another versioned file differs, or one of these marks is not there
 #     exactly once;
-#   - sw.js or fuel/sw.js differs from the published one (origin/main: GitHub Pages serves main) while its
-#     cache name is the same: phones would install the changed worker into the cache the running one serves
-#     from. Skipped where git or origin/main is not there, and for a worker that is new since then;
-#   - the release was published before (VERSION in overload.js of a commit on origin/main's own line, the
-#     newest such commit: after a roll-back to an older release, phones that had this one still keep it) and a
-#     page, a file with ?v= in an install list or a worker under the same cache name differs from that copy: a
-#     phone that has the release keeps its stored copies of the ?v= files for the whole release and runs them
-#     under the new page. Skipped like the check above, and for the page and files of a worker that is new
-#     since then (no phone stored them). Before these two it fetches origin/main (a pull request merged on
-#     GitHub is published too; BUMP_NO_FETCH=1 compares with the copy here as it is), and it names the
-#     published commit and release it compared with;
+#   - sw.js or fuel/sw.js differs from the published one (origin/main: GitHub Pages serves main), or from the
+#     newest published worker that had its cache name, while its cache name is the same: phones would install
+#     the changed worker into the cache the running one serves from. Skipped where git or origin/main is not
+#     there, and for a worker that is new since then;
+#   - the release was published before (VERSION in overload.js of a published commit, the newest such: after a
+#     roll-back to an older release, phones that had this one still keep it) and a page, a file with ?v= in an
+#     install list or a worker under the same cache name differs from that copy: a phone that has the release
+#     keeps its stored copies of the ?v= files for the whole release and runs them under the new page. Skipped
+#     like the check above, and for the page and files of a worker that is new since then (no phone stored
+#     them). "Published" is every commit on origin/main's own line (its first parents) and every commit this
+#     clone saw origin/main at (its reflog: a roll-back made by moving main back with a force-push leaves the
+#     newer commits only there; a fresh clone has no such record, a shallow one only its depth). Before these
+#     two it fetches origin/main (a pull request merged on GitHub is published too; BUMP_NO_FETCH=1 compares
+#     with the copy here as it is). It names the published commit and release it compared with, and the next
+#     number to take: one more than the highest release published and the tree's;
 #   - app.js, styles.css or food.js is at the root: v2.8's page asks the server for these names, and its
 #     worker would run (and store) whatever answers there in the v2.8 page;
 #   - a file in a worker's install list (ASSETS in sw.js and fuel/sw.js, one address per line) is not on
@@ -140,6 +146,88 @@ elif [ -z "$NEW" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# What is published: origin/main (GitHub Pages serves main). Read once, before the change (its cache numbers) and
+# the checks (check 5). Without git or origin/main nothing is read, and those parts are skipped.
+# ---------------------------------------------------------------------------
+PUBLISHED=origin/main
+PUBREF=refs/remotes/origin/main
+FETCH="" HAVE_PUB=0 PUBS="" PUB_REL="" PUB_OVL="" PUB_FUEL="" SHALLOW_CUT=""
+NL='
+'
+# With BUMP_NO_FETCH set nothing here reaches the network, git's own fetch of a missing object included (a partial clone).
+if [ -n "${BUMP_NO_FETCH:-}" ]; then GIT_NO_LAZY_FETCH=1; export GIT_NO_LAZY_FETCH; fi
+# Fetched first, so that a pull request merged on GitHub counts; BUMP_NO_FETCH=1 leaves the copy here as it is (a
+# copy of the repository that must not reach GitHub, or a test).
+fetch_published() {
+  [ "$IN_GIT" = 1 ] && git config --get remote.origin.url >/dev/null 2>&1 || return 0
+  if [ -n "${BUMP_NO_FETCH:-}" ]; then FETCH=off; return 0; fi
+  LIMIT=""; if command -v timeout >/dev/null 2>&1; then LIMIT="timeout 20"; fi
+  # No password prompt, and at most about 20 seconds (a stalled download ends too where there is no timeout). A
+  # shallow clone (a cloud session clones 50 commits) fetches main's whole history: a release published and rolled
+  # back before its oldest commit would not be seen. If that takes too long, main is fetched as it is (warned below).
+  DEEPEN=""; [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ] && DEEPEN=--unshallow
+  if GIT_TERMINAL_PROMPT=0 $LIMIT git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q $DEEPEN origin main >/dev/null 2>&1; then FETCH=done
+  elif [ -n "$DEEPEN" ] && GIT_TERMINAL_PROMPT=0 $LIMIT git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q origin main >/dev/null 2>&1; then FETCH=done
+  else FETCH=failed; fi
+}
+# said_by FILE PATTERN: "<commit> <word>" for each published commit, newest first, whose FILE has a line that the sed
+# PATTERN matches (its \(...\) is the word; the first such line).
+said_by() {
+  printf '%s\n' "$PUBS" | sed "s|.*|&:$1 &|" \
+    | git cat-file --batch-check='%(objectname) %(objecttype) %(rest)' 2>/dev/null | {
+      last="" word=""
+      while read -r b t c; do
+        [ "$t" = blob ] || continue   # no such file in that commit
+        if [ "$b" != "$last" ]; then last=$b; word=$(git cat-file blob "$b" 2>/dev/null | sed -n "s/.*$2.*/\1/p" | sed -n 1p); fi
+        [ -z "$word" ] || printf '%s %s\n' "$c" "$word"
+      done
+    }
+}
+# The commits that were the published site, newest first, each once: origin/main's own line (its first parents, each
+# of them the published site for a while), then each commit this clone saw origin/main at that is not on that line,
+# with its own first parents (the reflog, newest first: a roll-back made by moving main back with a force-push leaves
+# the newer commits only there; an entry whose commit is gone is left out). Each entry's old value too, newest
+# first: git gc drops an entry about 30 days after its commit left origin/main, but the force-push's own entry still
+# names what main was before it. A fresh clone has no such record yet and a shallow one only its depth: then what is
+# there (SHALLOW_CUT: the oldest commit here of origin/main's line, when the clone stops there). And what their
+# overload.js, sw.js and fuel/sw.js say.
+read_published() {
+  [ "$IN_GIT" = 1 ] && git rev-parse -q --verify "$PUBREF^{commit}" >/dev/null 2>&1 || return 0
+  HAVE_PUB=1
+  PUBS=$(git rev-list --first-parent "$PUBREF" 2>/dev/null)
+  RLOG=$(git rev-parse --git-path "logs/$PUBREF" 2>/dev/null) OLDS=""
+  [ -f "$RLOG" ] && OLDS=$(awk '{ a[NR] = $1 } END { for (i = NR; i > 0; i--) print a[i] }' "$RLOG")
+  for c in $(git log -g --format=%H "$PUBREF" 2>/dev/null) $OLDS; do
+    case "$c" in *[!0]*) ;; *) continue ;; esac   # all zeros: the entry that made the ref has no old value
+    case "$NL$PUBS$NL" in *"$NL$c$NL"*) continue ;; esac
+    git cat-file -e "$c^{commit}" 2>/dev/null || continue
+    PUBS="$PUBS$NL$(git rev-list --first-parent "$c" 2>/dev/null)"
+  done
+  PUBS=$(printf '%s\n' "$PUBS" | awk 'NF && !seen[$0]++')
+  SHALLOW_CUT="" SF=$(git rev-parse --git-path shallow 2>/dev/null)
+  if [ -s "$SF" ]; then
+    for s in $(cat "$SF"); do case "$NL$PUBS$NL" in *"$NL$s$NL"*) SHALLOW_CUT=$s; break ;; esac; done
+  fi
+  PUB_REL=$(said_by overload.js "const VERSION = '\([^']*\)'")
+  PUB_OVL=$(said_by sw.js "const CACHE = 'overload-v\([0-9][0-9]*\)'")
+  PUB_FUEL=$(said_by fuel/sw.js "const CACHE = 'fuel-v\([0-9][0-9]*\)'")
+}
+# top_cache LIST N: the highest of N and the numbers of LIST ("<commit> <number>" lines).
+top_cache() { { printf '%s\n' "$1" | awk 'NF == 2 { print $2 }'; printf '%s\n' "$2"; } | grep -x '[0-9][0-9]*' | sort -n | tail -n 1; }
+# The highest release among the words given (each may be several lines), compared number by number; nothing if none.
+top_release() { printf '%s\n' "$@" | grep -x '[0-9][0-9]*\.[0-9][0-9]*' | sort -t . -k 1,1n -k 2,2n | tail -n 1; }
+# The newest published commit whose overload.js says  const VERSION = '$1', or nothing. Not only the newest commit:
+# after a roll-back to an older release, phones that had this one keep its stored files, and they get them again
+# when it is published again. (Compared as words: 3.10 is not 3.1.)
+released_at() { printf '%s\n' "$PUB_REL" | awk -v r="$1" '$2 "" == r "" { print $1; exit }'; }
+# The release a published commit says: VERSION in its overload.js, or in app.js (2.8 and before); else "unknown".
+release_named() {
+  rn=$(printf '%s\n' "$PUB_REL" | awk -v c="$1" '$1 "" == c "" { print $2; exit }')
+  [ -n "$rn" ] || rn=$(git show "$1:app.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p" | sed -n 1p)
+  printf '%s\n' "${rn:-unknown}"
+}
+
+# ---------------------------------------------------------------------------
 # The change
 # ---------------------------------------------------------------------------
 if [ "$MODE" = bump ]; then
@@ -180,6 +268,12 @@ if [ "$MODE" = bump ]; then
     die "--major is for a new first number; $OLD -> $NEW keeps it: run sh bump.sh $NEW"
   fi
 
+  # The new cache names: one more than the highest the tree or any published worker used. After a roll-back the
+  # tree's is lower than that of the newer release, which phones not opened since still run from.
+  fetch_published; read_published
+  NN=$(( $(top_cache "$PUB_OVL" "$N") + 1 ))
+  if have fuel/sw.js; then MM=$(( $(top_cache "$PUB_FUEL" "$M") + 1 )); fi
+
   # Every ?v=<number> becomes the new one, whatever number it was: after this the four files agree.
   for f in $STAMPED; do
     if have "$f"; then edit "$f" "s/?v=[0-9][0-9]*\(\.[0-9][0-9]*\)*/?v=$NEW/g"; fi
@@ -190,18 +284,20 @@ if [ "$MODE" = bump ]; then
   for f in $MARKED; do
     if [ -f "$f" ]; then edit "$f" "s|^/\* release [^ ]* |/* release $NEW |"; fi
   done
-  edit sw.js "s/const CACHE = 'overload-v$N'/const CACHE = 'overload-v$((N + 1))'/"
-  CACHES="overload-v$((N + 1))"
+  edit sw.js "s/const CACHE = 'overload-v$N'/const CACHE = 'overload-v$NN'/"
+  CACHES="overload-v$NN" ABOVE=""; [ "$NN" = $((N + 1)) ] || ABOVE=1
   if have fuel/sw.js; then
-    edit fuel/sw.js "s/const CACHE = 'fuel-v$M'/const CACHE = 'fuel-v$((M + 1))'/"
-    CACHES="$CACHES, fuel-v$((M + 1))"
+    edit fuel/sw.js "s/const CACHE = 'fuel-v$M'/const CACHE = 'fuel-v$MM'/"
+    CACHES="$CACHES, fuel-v$MM"; [ "$MM" = $((M + 1)) ] || ABOVE=1
   fi
+  [ -z "$ABOVE" ] || CACHES="$CACHES (higher than any published before)"
   say "$OLD -> $NEW, caches: $CACHES"
   WANT=$NEW
 else
   WANT=$(version_of overload.js)
   [ "$(lines "$WANT")" = 1 ] || die "overload.js must have exactly one line  const VERSION = '...'"
   say "checking release $WANT (nothing is changed)"
+  fetch_published; read_published
 fi
 
 # ---------------------------------------------------------------------------
@@ -292,36 +388,7 @@ if have fuel/sw.js && [ "$HAVE_FOOD" = 1 ]; then
   fi
 fi
 
-# 5. What is published: origin/main (GitHub Pages serves main). It is fetched first, so that a pull request merged
-# on GitHub counts; BUMP_NO_FETCH=1 leaves the copy here as it is (a copy of the repository that must not reach
-# GitHub, or a test). Without git or origin/main these checks are skipped.
-PUBLISHED=origin/main
-FETCH=""
-if [ "$IN_GIT" = 1 ] && git config --get remote.origin.url >/dev/null 2>&1; then
-  if [ -n "${BUMP_NO_FETCH:-}" ]; then FETCH=off
-  else
-    LIMIT=""; if command -v timeout >/dev/null 2>&1; then LIMIT="timeout 20"; fi
-    # No password prompt, and at most about 20 seconds (a stalled download ends too where there is no timeout).
-    if GIT_TERMINAL_PROMPT=0 $LIMIT git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q origin main >/dev/null 2>&1; then FETCH=done
-    else FETCH=failed; fi
-  fi
-fi
-# The release a commit's overload.js says, if any.
-release_at() { git show "$1:overload.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p"; }
-# The newest commit on origin/main's own line (its first parents: each of them was the published site for a while)
-# whose overload.js says  const VERSION = '$1', or nothing. Not only the newest commit: after a roll-back to an older
-# release, phones that had this one keep its stored files, and they get them again when it is published again.
-released_at() {
-  git rev-list --first-parent "$PUBLISHED" 2>/dev/null | sed 's|.*|&:overload.js &|' \
-    | git cat-file --batch-check='%(objectname) %(rest)' 2>/dev/null | {
-      last="" v=""
-      while read -r b c; do
-        if [ "$c" = missing ]; then last=""; continue; fi   # no overload.js in that commit (2.8 and before)
-        if [ "$b" != "$last" ]; then last=$b; v=$(git cat-file blob "$b" | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p"); fi
-        if [ "$v" = "$1" ]; then printf '%s\n' "$c"; break; fi
-      done
-    }
-}
+# 5. What is published (origin/main, fetched and read above). Without git or origin/main these checks are skipped.
 # A worker that changed since a published one has a new cache name. Otherwise a phone installs the changed worker
 # into the cache the running one serves from, and an install that fails there (one file not arriving on a weak
 # signal) leaves the app with nothing to start from offline. A worker new since then is not compared.
@@ -333,20 +400,43 @@ same_cache() {
     git cat-file -e "$1:$f" 2>/dev/null || continue
     if git show "$1:$f" | cmp -s - "$f"; then continue; fi
     THEN=$(git show "$1:$f" | sed -n "s/.*const CACHE = '$pre-v\([0-9][0-9]*\)'.*/\1/p")
-    [ "$THEN" != "$(cache_of "$f" "$pre")" ] || fail "$f differs from the published one ($2), but its cache is still $pre-v$THEN: phones would install it into the cache the running worker serves from. Run sh bump.sh with the next release"
+    [ "$THEN" != "$(cache_of "$f" "$pre")" ] || fail "$f differs from the published one ($2), but its cache is still $pre-v$THEN: phones would install it into the cache the running worker serves from. Run $RUN"
   done
 }
-if [ "$IN_GIT" = 1 ] && git rev-parse -q --verify "$PUBLISHED^{commit}" >/dev/null 2>&1; then
-  TIP=$(git rev-parse "$PUBLISHED")
-  WHEN=$(git log -1 --format=%cd --date=short "$PUBLISHED")
+# A worker under the cache name of an earlier published worker (a newer release rolled back: phones not opened since
+# still run that worker) must be that worker. reused WORKER PREFIX LIST: compared with the newest published commit
+# whose worker had the name (LIST: "<commit> <number>" lines), when that is not one compared already. Only the
+# newest: a branch merged with all its commits brings workers changed under one name before it was published.
+reused() {
+  [ -f "$1" ] || return 0
+  RC=$(cache_of "$1" "$2"); [ "$(lines "$RC")" = 1 ] || return 0
+  RU=$(printf '%s\n' "$3" | awk -v n="$RC" '$2 "" == n "" { print $1; exit }')
+  [ -n "$RU" ] && [ "$RU" != "$TIP" ] && [ "$RU" != "$REL" ] || return 0
+  if git show "$RU:$1" | cmp -s - "$1"; then return 0; fi
+  fail "$1 differs from the published one ($PUBLISHED at $(git rev-parse --short "$RU"), release $(release_named "$RU")), but its cache is still $2-v$RC: phones would install it into the cache the running worker serves from. Run $RUN"
+}
+if [ "$HAVE_PUB" = 1 ]; then
+  TIP=$(git rev-parse "$PUBREF")
+  WHEN=$(git log -1 --format=%cd --date=short "$PUBREF")
   case "$FETCH" in
     off) say "$PUBLISHED not fetched (BUMP_NO_FETCH is set): this is the copy here, from $WHEN (its last commit)" ;;
     failed) say "warning: could not fetch $PUBLISHED: compared with the copy here, from $WHEN (its last commit). Fetch it and check again before you push." ;;
   esac
-  TIPREL=$(release_at "$TIP")
-  # (2.8 and before had app.js; read only to name it here.)
-  [ -n "$TIPREL" ] || TIPREL=$(git show "$TIP:app.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p" | sed -n 1p)
-  say "published: $PUBLISHED at $(git rev-parse --short "$TIP"), release ${TIPREL:-unknown}"
+  TIPREL=$(release_named "$TIP")
+  say "published: $PUBLISHED at $(git rev-parse --short "$TIP"), release $TIPREL"
+  [ -z "$SHALLOW_CUT" ] || say "warning: this clone has $PUBLISHED's history only back to $(git log -1 --format=%cd --date=short "$SHALLOW_CUT") (a shallow clone), so a release published and rolled back before that is not seen. Run git fetch --unshallow origin main, then check again before you push."
+  # The next number to take: one more than the highest release published (also one rolled back since) and the tree's.
+  TOP=$(top_release "$(printf '%s\n' "$PUB_REL" | awk 'NF == 2 { print $2 }')" "$WANT")
+  NEXT="" RUN="sh bump.sh with the next release"
+  if [ -n "$TOP" ]; then
+    NEXT="${TOP%%.*}.$((${TOP#*.} + 1))"
+    RUN="sh bump.sh $NEXT"
+    if is_release "$WANT" && [ "${TOP%%.*}" != "${WANT%%.*}" ]; then RUN="sh bump.sh --major $NEXT"; fi
+    if is_release "$WANT" && [ "$TOP" != "$WANT" ]; then
+      if [ "$TOP" = "$TIPREL" ]; then say "release $TOP is published: a fix needs $NEXT"
+      else say "release $TOP was published before (rolled back): a fix needs $NEXT"; fi
+    fi
+  fi
   same_cache "$TIP" "$PUBLISHED"
   # Under a release that was published, every page and every file with ?v= the workers store must be its published
   # copy, and so must a worker under the same cache name. A phone that has the release answers the ?v= addresses
@@ -356,7 +446,6 @@ if [ "$IN_GIT" = 1 ] && git rev-parse -q --verify "$PUBLISHED^{commit}" >/dev/nu
   REL=""
   if is_release "$WANT"; then REL=$(released_at "$WANT"); fi
   if [ -n "$REL" ]; then
-    NEXT="${WANT%%.*}.$((${WANT#*.} + 1))"
     if [ "$REL" != "$TIP" ]; then
       say "release $WANT was published before, last at $(git rev-parse --short "$REL"): phones may still have it, so this compares with that too"
       same_cache "$REL" "$PUBLISHED at $(git rev-parse --short "$REL"), the last of release $WANT"
@@ -374,11 +463,13 @@ if [ "$IN_GIT" = 1 ] && git rev-parse -q --verify "$PUBLISHED^{commit}" >/dev/nu
       git cat-file -e "$REL:$f" 2>/dev/null || continue   # new since then: its worker's install list changed too (above)
       if git show "$REL:$f" | cmp -s - "$f"; then continue; fi
       case "$f" in
-        index.html|fuel/index.html) fail "$f changed but the release is still $WANT: phones run it with their old copies of the other files. Run sh bump.sh $NEXT" ;;
-        *) fail "$f changed but the release is still $WANT: phones keep the old copy. Run sh bump.sh $NEXT" ;;
+        index.html|fuel/index.html) fail "$f changed but the release is still $WANT: phones run it with their old copies of the other files. Run $RUN" ;;
+        *) fail "$f changed but the release is still $WANT: phones keep the old copy. Run $RUN" ;;
       esac
     done
   fi
+  reused sw.js overload "$PUB_OVL"
+  reused fuel/sw.js fuel "$PUB_FUEL"
 else
   [ "$FETCH" != failed ] || say "warning: could not fetch $PUBLISHED"
   say "not compared with the published workers and files (no git repository here, or no $PUBLISHED)"

@@ -22,7 +22,8 @@
  * erased), what another phone signed in to it sends back and how to stop that, and that the account's food log
  * is not changed. (tests/train-cloud.js runs Reset and Restore with two phones on the fake cloud.)
  * Round 5, ask#1: with v2.8's backup.js on the page (no automatic copies), Reset, Import and Remove the old food log
- * refuse before any question ("Automatic copies are not available right now, …"), and nothing changes.
+ * refuse before any question ("Automatic copies are not available right now, …"), and nothing changes. Round 6,
+ * pick#1: the Import JSON button refuses before the file picker opens.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -541,18 +542,25 @@ async function noCopiesHere(browser, server) {
     same(await T.text(page, '#safety-copies'), 'Automatic copies are not available.', 'the list of copies');
     return 'v2.8\'s backup.js ran';
   });
+  // Round-6 finding pick#1: the Import button refuses before the file picker opens (he is not sent to find a file
+  // only to be told no); a file given to Import another way is refused the same.
   for (const [what, did, title, act] of [
     ['Reset', 'erased', 'Reset all data', async () => { await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]'); }],
-    ['Import', 'replaced', 'Import JSON', () => importFile(page, file)]
+    ['Import JSON (the button), before the file picker opens', 'replaced', 'Import JSON', async () => { await lib.openTab(page, 'settings'); await page.click('[data-action="import"]'); }],
+    ['Import (a file given to it)', 'replaced', 'Import JSON', () => importFile(page, file)]
   ]) {
     await run.step(name, what + ': refused before any question, in its sheet with Export: "' + NOT(did) + '"', async () => {
       await T.closeSheet(page);
       page.dialogs.length = 0;
+      let choosers = 0; const onChooser = () => { choosers++; };
+      page.on('filechooser', onChooser);
       await act();
       await page.waitForFunction(() => !document.querySelector('#sheet').hidden, null, { timeout: 8000 }).catch(() => {});
       await lib.sleep(300);
+      page.off('filechooser', onChooser);
       const sheet = await page.evaluate(() => ({ open: !document.querySelector('#sheet').hidden, title: ((document.querySelector('#sheet .sheet-title h2') || {}).textContent || '').trim(), text: ((document.querySelector('#sheet .banner') || {}).textContent || '').trim(), exp: !!document.querySelector('#sheet [data-action="export"]') }));
       const asked = page.dialogs.map((d) => JSON.stringify(plain(d).slice(0, 60)));
+      need(!choosers, 'the file picker opened first (' + choosers + ' times); the sheet: ' + JSON.stringify(sheet));
       need(!asked.length, 'asked first: ' + asked.join(', ') + '; then the sheet: ' + sheet.text);
       need(sheet.open && sheet.title === title && sheet.text === NOT(did) && sheet.exp, 'the sheet: ' + JSON.stringify(sheet));
       need((await text(page)) === fx.text, 'the stored data changed');

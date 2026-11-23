@@ -36,6 +36,16 @@
  *     counts), says which published commit and release it compared with, and with BUMP_NO_FETCH=1 or a fetch
  *     that fails compares with the copy here and says so. These run in throw-away repositories with a bare origin
  *     in a temporary folder; nothing reaches GitHub.
+ *   - round 6, fp#1: a roll-back that moved main back to v2.8's commit with a force-push (from this clone, or from
+ *     a second one and then fetched) leaves 3.0 only in this clone's record of origin/main (its reflog): --check
+ *     still compares with it, so a changed fuel/fuel.js under 3.0 fails and the same 3.0 passes;
+ *   - round 6, cache#1 and hint#1: after 3.1 is rolled back to 3.0 (git revert, published), a change under 3.0 is
+ *     told to take 3.2 and why, sh bump.sh 3.2 takes caches above 3.1's, and a worker set back by hand to 3.1's
+ *     cache name fails, naming that published commit and its release;
+ *   - round 6: in a fresh clone (no record of origin/main) and a shallow one, both read what is there and pass.
+ *   - round 6, after review: once git has dropped the record entry of 3.0 itself, the force-push's entry (whose old
+ *     value is 3.0) still counts; a shallow clone that does not reach a rolled-back 3.1 fetches main's whole
+ *     history (or, with BUMP_NO_FETCH=1, warns that it is shallow).
  *   --tree=DIR   the tree to copy. Default: the repo this file is in.
  * No server, no browser: --port is accepted and ignored, like the other tests' runner passes it.
  * Prints one PASS or FAIL line per check; exit code 1 when a check failed.
@@ -123,6 +133,33 @@ function publishFiles(dir, src, message) {
 }
 let v28 = null;
 const v28Tree = () => { if (!v28) { v28 = T.extractV28(); temp.push(v28); } return v28; };
+const tempDir = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); temp.push(d); return d; };
+// Round 6, fp#1: a repository whose history is v2.8's files, then the tree (3.0) on top, with a bare origin in a
+// temporary folder whose main is that 3.0, pushed from here (so this clone's record of origin/main holds it).
+function v28Then30() {
+  const dir = copy();
+  const git = (...a) => gitIn(dir, ...a);
+  git('init', '-q');
+  git('--work-tree=' + v28Tree(), 'add', '-A'); git('commit', '-q', '-m', 'v2.8');
+  const v28c = git('rev-parse', 'HEAD');
+  git('add', '-A'); git('commit', '-q', '-m', '3.0');
+  const r30 = git('rev-parse', 'HEAD');
+  const origin = tempDir('overload-bump-origin-');
+  gitIn(origin, 'init', '-q', '--bare');
+  git('remote', 'add', 'origin', origin); git('push', '-q', 'origin', 'HEAD:main'); git('fetch', '-q', 'origin');
+  return { dir, git, origin, v28c, r30 };
+}
+// Round 6, cache#1 and hint#1: 3.0 published, then 3.1 (sh bump.sh 3.1 and a change to train.css) published, then 3.1
+// rolled back by git revert, published: the tree and origin/main are 3.0's files again, 3.1 is in the history.
+function rolledBack31(shell) {
+  const { dir, git } = gitCopy();
+  need(bump(shell, dir, ['3.1']).code === 0, 'set-up: sh bump.sh 3.1 was refused');
+  fs.appendFileSync(path.join(dir, 'train.css'), '\n/* 3.1 */\n');
+  git('commit', '-q', '-am', '3.1'); git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const r31 = git('rev-parse', 'HEAD').trim();
+  git('revert', '--no-edit', 'HEAD'); git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  return { dir, git, r31 };
+}
 // What a copy says about its release, everywhere bump.sh writes it.
 function releaseOf(dir) {
   const stamps = (rel) => [...new Set((read(dir, rel).match(/\?v=[0-9A-Za-z._-]+/g) || []).map((s) => s.replace(/\.$/, '').slice(3)))];
@@ -350,16 +387,22 @@ const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', '
       if (!HAVE_GIT) return 'skipped: no git here';
       const { dir, git } = gitCopy();
       const main = git('symbolic-ref', '--short', 'HEAD').trim();
+      const r30 = git('rev-parse', 'HEAD').trim();
       git('branch', '-q', 'feat-b');
       need(bump(shell, dir, ['3.1']).code === 0, 'branch A: sh bump.sh 3.1 was refused');
       fs.appendFileSync(path.join(dir, 'programs.js'), '\n/* A */\n');
-      git('commit', '-q', '-am', 'A'); git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      git('commit', '-q', '-am', 'A');
+      // Branch B takes 3.1 too while 3.0 is still the published release (round 6: a branch that takes it only after A
+      // was published gets caches above A's, and its merge conflicts in sw.js), and changes train.css.
       git('checkout', '-q', 'feat-b');
-      const atB = bump(shell, dir, ['3.1']);   // 3.1 is published already: even here it says to take the next one
-      need(atB.code === 1 && /programs\.js changed but the release is still 3\.1/.test(atB.out), 'sh bump.sh 3.1 on branch B, after A published 3.1: exit ' + atB.code);
+      need(bump(shell, dir, ['3.1']).code === 0, 'branch B: sh bump.sh 3.1 was refused');
       fs.appendFileSync(path.join(dir, 'train.css'), '\n/* B */\n');
       git('commit', '-q', '-am', 'B');
-      git('checkout', '-q', main); git('merge', '-q', '--no-edit', 'feat-b');
+      git('checkout', '-q', main); git('update-ref', 'refs/remotes/origin/main', 'HEAD');   // A is published
+      git('checkout', '-q', '-b', 'feat-c', r30);
+      const atC = bump(shell, dir, ['3.1']);   // 3.1 is published already: even here it says to take the next one
+      need(atC.code === 1 && /programs\.js changed but the release is still 3\.1/.test(atC.out), 'sh bump.sh 3.1 on branch C, after A published 3.1: exit ' + atC.code);
+      git('checkout', '-q', '-f', main); git('merge', '-q', '--no-edit', 'feat-b');
       need(spawnSync('sh', ['-c', 'git show origin/main:sw.js | cmp -s - sw.js'], { cwd: dir }).status === 0, 'sw.js after the merge is not the published one: the test lost its point');
       const r = bump(shell, dir, ['--check']);
       need(r.code === 1 && /train\.css changed but the release is still 3\.1: phones keep the old copy\. Run sh bump\.sh 3\.2/.test(r.out) && !/programs\.js changed/.test(r.out), 'after the merge: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-3).join(' / '));
@@ -465,6 +508,163 @@ const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', '
       if (!(r.code === 1 && /warning: could not fetch origin\/main: compared with the copy here, from \d{4}-\d\d-\d\d \(its last commit\)/.test(r.out) && /train\.css changed but the release is still 3\.1/.test(r.out))) wrong.push('origin not there: exit ' + r.code + ' ' + tail(r));
       need(!wrong.length, wrong.join('; '));
       return 'not fetched: passes and says so; fetched: programs.js and train.css named; fetch failed: a warning, compared with the copy here';
+    });
+
+    // Round 6: the last lines bump.sh printed, without the lines about the copy and files not committed.
+    const brief = (r) => r.out.trim().split('\n').filter((l) => !/^(warning: not committed|origin\/main not fetched)/.test(l)).slice(-3).join(' / ');
+    // Round 6, fp#1: the roll-back made by moving main back to v2.8's commit (git push -f), not by a new commit. No
+    // commit of origin/main's history carries 3.0 any more; this clone's record of origin/main (its reflog) does.
+    await step('after a roll-back that moved main back to v2.8 with a force-push, from here or from a second clone and then fetched, --check still compares with 3.0 as it was published: the same 3.0 passes, a changed fuel/fuel.js fails (fp#1)', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const SEEN = /release 3\.0 was published before, last at ([0-9a-f]+): phones may still have it/;
+      const FIX = /fuel\/fuel\.js changed but the release is still 3\.0: phones keep the old copy\. Run sh bump\.sh 3\.1/;
+      const AT28 = /published: origin\/main at [0-9a-f]+, release 2\.8/;
+      const wrong = [];
+      // From this clone.
+      const a = v28Then30();
+      a.git('push', '-q', '-f', 'origin', a.v28c + ':main');
+      need(a.git('rev-parse', 'refs/remotes/origin/main') === a.v28c, 'set-up: origin/main here is not v2.8 after the force-push');
+      need(a.git('rev-list', a.v28c).split('\n').every((c) => spawnSync('git', ['cat-file', '-e', c + ':overload.js'], { cwd: a.dir }).status !== 0), 'set-up: a commit of origin/main\'s history carries overload.js');
+      let r = bump(shell, a.dir, ['--check'], { BUMP_NO_FETCH: '1' });
+      let m = SEEN.exec(r.out);
+      if (!(r.code === 0 && m && a.r30.startsWith(m[1]) && AT28.test(r.out))) wrong.push('from here, the same 3.0: exit ' + r.code + ' ' + brief(r));
+      fs.appendFileSync(path.join(a.dir, 'fuel/fuel.js'), '\nwindow.__fixed = true;\n');
+      a.git('commit', '-q', '-am', 'a fix, still 3.0');
+      r = bump(shell, a.dir, ['--check'], { BUMP_NO_FETCH: '1' });
+      m = SEEN.exec(r.out);
+      if (!(r.code === 1 && m && a.r30.startsWith(m[1]) && FIX.test(r.out))) wrong.push('from here, fuel/fuel.js changed under 3.0: exit ' + r.code + ' ' + brief(r));
+      r = bump(shell, a.dir, ['3.1'], { BUMP_NO_FETCH: '1' });
+      if (r.code !== 0) wrong.push('from here, sh bump.sh 3.1 after the fix: exit ' + r.code + ' ' + brief(r));
+      // From a second clone (GitHub's web page, another computer); the check here fetches it.
+      const b = v28Then30();
+      const web = tempDir('overload-bump-web-');
+      gitIn(web, 'clone', '-q', '-b', 'main', b.origin, '.');
+      gitIn(web, 'push', '-q', '-f', 'origin', b.v28c + ':main');
+      need(b.git('rev-parse', 'refs/remotes/origin/main') === b.r30, 'set-up: this clone has seen the force-push already');
+      fs.appendFileSync(path.join(b.dir, 'fuel/fuel.js'), '\nwindow.__fixed = true;\n');
+      b.git('commit', '-q', '-am', 'a fix, still 3.0');
+      r = bump(shell, b.dir, ['--check'], { BUMP_NO_FETCH: null });
+      m = SEEN.exec(r.out);
+      if (!(r.code === 1 && m && b.r30.startsWith(m[1]) && FIX.test(r.out) && AT28.test(r.out))) wrong.push('from a second clone, fetched: exit ' + r.code + ' ' + brief(r));
+      if (b.git('rev-parse', 'refs/remotes/origin/main') !== b.v28c) wrong.push('origin/main here is not v2.8 after the check: it did not fetch');
+      need(!wrong.length, wrong.join('; '));
+      return 'from here: the same 3.0 passes, fuel/fuel.js refused, sh bump.sh 3.1 passes; from a second clone: fetched, fuel/fuel.js refused';
+    });
+
+    // Round 6, cache#1: a release made from rolled-back files never takes a cache name a published worker had.
+    await step('after 3.1 is rolled back to 3.0 (git revert, published), sh bump.sh 3.2 takes caches above 3.1\'s and --check passes; a worker set back by hand to 3.1\'s cache name fails, naming that commit and release (cache#1)', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const { dir, git, r31 } = rolledBack31(shell);
+      same(releaseOf(dir).caches, start.caches, 'set-up: the caches after the revert');
+      const wrong = [];
+      fs.appendFileSync(path.join(dir, 'train.css'), '\n/* the fix */\n');
+      fs.appendFileSync(path.join(dir, 'fuel/fuel.js'), '\nwindow.__fixed = true;\n');
+      let r = bump(shell, dir, ['3.2']);
+      const took = releaseOf(dir).caches;
+      if (!(r.code === 0 && took.join() === cachesAfter(2).join() && /caches: overload-v\d+, fuel-v\d+ \(higher than any published before\)/.test(r.out))) wrong.push('sh bump.sh 3.2: exit ' + r.code + ', caches ' + took.join(', ') + ' (3.1 had ' + cachesAfter(1).join(', ') + ')' + (r.code ? ' ' + brief(r) : ''));
+      git('commit', '-q', '-am', '3.2');
+      r = bump(shell, dir, ['--check']);
+      if (r.code !== 0) wrong.push('--check on 3.2: exit ' + r.code + ' ' + brief(r));
+      // The same 3.2 with 3.1's cache names put back by hand: phones that kept 3.1 would install it into 3.1's cache.
+      const [o31, f31] = cachesAfter(1);
+      fs.writeFileSync(path.join(dir, 'sw.js'), read(dir, 'sw.js').replace(/const CACHE = 'overload-v\d+'/, "const CACHE = '" + o31 + "'"));
+      fs.writeFileSync(path.join(dir, 'fuel/sw.js'), read(dir, 'fuel/sw.js').replace(/const CACHE = 'fuel-v\d+'/, "const CACHE = '" + f31 + "'"));
+      git('commit', '-q', '--allow-empty', '-am', '3.2 under 3.1\'s cache names');
+      r = bump(shell, dir, ['--check']);
+      const named = (f, c) => { const x = new RegExp('FAILED: ' + f.replace(/[./]/g, '\\$&') + ' differs from the published one \\(origin/main at ([0-9a-f]+), release 3\\.1\\), but its cache is still ' + c + ': phones would install it into the cache the running worker serves from\\. Run sh bump\\.sh 3\\.3').exec(r.out); return !!x && r31.startsWith(x[1]); };
+      if (!(r.code === 1 && named('sw.js', o31) && named('fuel/sw.js', f31))) wrong.push('3.2 under ' + o31 + ' and ' + f31 + ' by hand: exit ' + r.code + ' ' + brief(r));
+      need(!wrong.length, wrong.join('; '));
+      return 'sh bump.sh 3.2: ' + took.join(', ') + '; set back to ' + o31 + ' and ' + f31 + ': both refused';
+    });
+
+    // Round 6, hint#1: the number to take is above every published one, rolled back or not.
+    await step('after 3.1 is rolled back to 3.0, a change under 3.0 is told to take 3.2 (not 3.1) and why; sh bump.sh 3.2 then passes (hint#1)', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const { dir, git } = rolledBack31(shell);
+      const wrong = [];
+      fs.appendFileSync(path.join(dir, 'train.css'), '\n/* the fix */\n');
+      git('commit', '-q', '-am', 'the fix, still 3.0');
+      let r = bump(shell, dir, ['--check']);
+      if (!(r.code === 1 && /train\.css changed but the release is still 3\.0: phones keep the old copy\. Run sh bump\.sh 3\.2/.test(r.out)
+        && /release 3\.1 was published before \(rolled back\): a fix needs 3\.2/.test(r.out) && !/sh bump\.sh 3\.1/.test(r.out))) wrong.push('--check: exit ' + r.code + ' ' + brief(r));
+      r = bump(shell, dir, ['3.2']);
+      if (r.code !== 0) wrong.push('sh bump.sh 3.2 as told: exit ' + r.code + ' ' + brief(r));
+      need(!wrong.length, wrong.join('; '));
+      return 'Run sh bump.sh 3.2, and "release 3.1 was published before (rolled back): a fix needs 3.2"; then it passes';
+    });
+
+    // Round 6: what bump.sh reads of git works in a fresh clone (no record of origin/main yet) and a shallow one.
+    await step('in a fresh clone with no record of origin/main and in a shallow clone, --check and sh bump.sh 3.1 read what is there and pass', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const a = v28Then30();
+      const fresh = tempDir('overload-bump-fresh-');
+      gitIn(fresh, 'clone', '-q', '-b', 'main', a.origin, '.');
+      gitIn(fresh, 'reflog', 'expire', '--expire=now', '--expire-unreachable=now', '--all');
+      need(gitIn(fresh, 'log', '-g', '--format=%H', 'refs/remotes/origin/main') === '', 'set-up: the fresh clone has a record of origin/main');
+      const shallow = tempDir('overload-bump-shallow-');
+      gitIn(shallow, 'clone', '-q', '--depth', '1', '-b', 'main', 'file://' + a.origin, '.');
+      need(gitIn(shallow, 'rev-parse', '--is-shallow-repository') === 'true', 'set-up: the clone is not shallow');
+      const wrong = [];
+      for (const [name, d] of [['fresh', fresh], ['shallow', shallow]]) {
+        let r = bump(shell, d, ['--check'], { BUMP_NO_FETCH: '1' });
+        if (!(r.code === 0 && /published: origin\/main at [0-9a-f]+, release 3\.0/.test(r.out) && !/fatal|error:|usage:/i.test(r.out))) wrong.push(name + ' --check: exit ' + r.code + ' ' + brief(r));
+        r = bump(shell, d, ['3.1'], { BUMP_NO_FETCH: '1' });
+        if (!(r.code === 0 && releaseOf(d).caches.join() === cachesAfter(1).join() && !/fatal|error:|usage:/i.test(r.out))) wrong.push(name + ' sh bump.sh 3.1: exit ' + r.code + ', caches ' + releaseOf(d).caches.join(', ') + ' ' + brief(r));
+      }
+      need(!wrong.length, wrong.join('; '));
+      return 'fresh and shallow: --check and sh bump.sh 3.1 pass';
+    });
+
+    // Round 6, after review: git gc drops a record entry about 30 days after its commit left origin/main. The
+    // force-push's own entry still names 3.0 as what main was before it, and bump.sh reads that too.
+    await step('after a force-push roll-back, once git has dropped the record entry of 3.0 itself, the force-push entry\'s old value still counts: a changed fuel/fuel.js under 3.0 fails', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const SEEN = /release 3\.0 was published before, last at ([0-9a-f]+): phones may still have it/;
+      const FIX = /fuel\/fuel\.js changed but the release is still 3\.0: phones keep the old copy\. Run sh bump\.sh 3\.1/;
+      const a = v28Then30();
+      a.git('push', '-q', '-f', 'origin', a.v28c + ':main');
+      // 3.0's own entry made six weeks ago, the force-push's today; then what git gc does after 30 days.
+      const log = path.join(a.dir, '.git', 'logs', 'refs', 'remotes', 'origin', 'main');
+      const lines = fs.readFileSync(log, 'utf8').split('\n');
+      const old = Math.floor(Date.now() / 1000) - 42 * 86400;
+      for (let i = 0; i < lines.length; i++) if (lines[i].split(' ')[1] === a.r30) lines[i] = lines[i].replace(/> \d+ ([+-]\d{4})\t/, '> ' + old + ' $1\t');
+      fs.writeFileSync(log, lines.join('\n'));
+      a.git('reflog', 'expire', '--expire=never', '--expire-unreachable=30.days.ago', 'refs/remotes/origin/main');
+      need(a.git('log', '-g', '--format=%H', 'refs/remotes/origin/main').split('\n').filter(Boolean).length === 1, 'set-up: the record does not hold only the force-push');
+      need(!a.git('log', '-g', '--format=%H', 'refs/remotes/origin/main').split('\n').includes(a.r30), 'set-up: the record still lists 3.0 as a value origin/main had');
+      fs.appendFileSync(path.join(a.dir, 'fuel/fuel.js'), '\nwindow.__fixed = true;\n');
+      a.git('commit', '-q', '-am', 'a fix, still 3.0');
+      const r = bump(shell, a.dir, ['--check'], { BUMP_NO_FETCH: '1' });
+      const m = SEEN.exec(r.out);
+      need(r.code === 1 && m && a.r30.startsWith(m[1]) && FIX.test(r.out), 'exit ' + r.code + ' ' + brief(r));
+      return 'refused, naming 3.0 as published at ' + m[1];
+    });
+
+    // Round 6, after review: a shallow clone (a cloud session clones 50 commits) that does not reach a release
+    // published and rolled back before its oldest commit: --check fetches main's whole history first; with
+    // BUMP_NO_FETCH it says the clone is shallow.
+    await step('in a shallow clone that does not reach 3.1 (published, then rolled back by a revert), --check fetches the whole history and names 3.2; with BUMP_NO_FETCH=1 it warns that the clone is shallow', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const a = v28Then30();
+      need(bump(shell, a.dir, ['3.1'], { BUMP_NO_FETCH: '1' }).code === 0, 'set-up: sh bump.sh 3.1 was refused');
+      fs.appendFileSync(path.join(a.dir, 'train.css'), '\n/* 3.1 */\n');
+      a.git('commit', '-q', '-am', '3.1'); a.git('push', '-q', 'origin', 'HEAD:main');
+      a.git('revert', '--no-edit', 'HEAD'); a.git('push', '-q', 'origin', 'HEAD:main');
+      for (let i = 1; i <= 3; i++) { fs.appendFileSync(path.join(a.dir, 'notes.txt'), 'note ' + i + '\n'); a.git('add', 'notes.txt'); a.git('commit', '-q', '-m', 'docs ' + i); }
+      a.git('push', '-q', 'origin', 'HEAD:main');
+      const d = tempDir('overload-bump-shallow31-');
+      gitIn(d, 'clone', '-q', '--depth', '2', '-b', 'main', 'file://' + a.origin, '.');
+      need(gitIn(d, 'rev-parse', '--is-shallow-repository') === 'true', 'set-up: the clone is not shallow');
+      fs.appendFileSync(path.join(d, 'train.css'), '\n/* the fix */\n');
+      gitIn(d, 'commit', '-q', '-am', 'the fix, still 3.0');
+      const wrong = [];
+      let r = bump(shell, d, ['--check'], { BUMP_NO_FETCH: '1' });
+      if (!(r.code === 1 && /warning: this clone has origin\/main's history only back to \d{4}-\d\d-\d\d \(a shallow clone\), so a release published and rolled back before that is not seen\. Run git fetch --unshallow origin main/.test(r.out))) wrong.push('BUMP_NO_FETCH=1: exit ' + r.code + ' ' + brief(r));
+      r = bump(shell, d, ['--check'], { BUMP_NO_FETCH: null });
+      if (!(r.code === 1 && /Run sh bump\.sh 3\.2/.test(r.out) && /release 3\.1 was published before \(rolled back\): a fix needs 3\.2/.test(r.out) && !/shallow clone/.test(r.out))) wrong.push('fetched: exit ' + r.code + ' ' + brief(r));
+      if (gitIn(d, 'rev-parse', '--is-shallow-repository') !== 'false') wrong.push('the clone is still shallow after the check');
+      need(!wrong.length, wrong.join('; '));
+      return 'not fetched: warned; fetched: whole history, names 3.2';
     });
   }
   run.done();

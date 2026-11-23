@@ -841,6 +841,10 @@
         + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
         + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
     }
+    // The module has loaded, Firebase has not said who is signed in yet, and this phone was signed in (a note of an
+    // account, or a first link still to be made). Not the sign-in form, which says he is signed out while Reset,
+    // Restore and the imports count him as signed in or wait (review finding card#1). Overload's card is the same.
+    if (!ui.authSeen && (syncNote() || linkPending())) return '<p class="small muted">Cloud sync is starting. It says Synced once it has read your account.</p>';
     return '<p class="small muted mb8">Sign in to keep your food log in the cloud so it survives clearing this phone and follows you to a new one. Use the same email and password as in Overload: the food log that account holds comes across the first time. New here? Enter an email and a password and tap Create account.</p>'
       + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required aria-label="Email"></div>'
       + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required aria-label="Password"></div>'
@@ -1121,10 +1125,13 @@
   // account's uid while the module reports it signed in and no note names it; it goes when the module reports nobody,
   // or names it while a note does. Kept out of the note (fuel.sync.v1), which sync.js would take as an account it has
   // read. A note of that account (the first link worked) outweighs it. Not set at Welcome, where nothing is stored
-  // until he chooses (the phone holds nothing a link could undo; leaving Welcome sets it), nor while held at Add to
-  // Home Screen, where this may be another app's storage (sync waits there; "Use it here anyway" sets it).
+  // until he chooses (the phone holds nothing a link could undo; leaving Welcome sets it). Neither set nor removed
+  // while held at Add to Home Screen: this may be another app's storage, and the module's word there is not "nobody"
+  // (review finding gate#1: removed there, a later tab without signal let Reset through). "Use it here anyway", and
+  // the next syncChanged after it, decide.
   function noteLinking(user) {
-    const want = !ui.welcome && !ui.gate && user && user.uid && noteUid() !== user.uid ? user.uid : undefined;
+    if (ui.gate) return;
+    const want = !ui.welcome && user && user.uid && noteUid() !== user.uid ? user.uid : undefined;
     if (backupInfo().linking !== want) setBackupInfo({ linking: want });
   }
   function linkPending() { const id = backupInfo().linking; return typeof id === 'string' && !!id && noteUid() !== id; }
@@ -1491,7 +1498,8 @@
       case 'fuel-import': sheetImport(); break;
       case 'fuel-paste': pasteFromOverload(); break;
       case 'fuel-paste-box': sheetImport({ box: true }); break;
-      case 'fuel-file': case 'import': if (!cloudStillReading()) $('#import-file').click(); break;   // review finding sync#6
+      // importFrom's checks that can be made before the file picker opens (review findings sync#6, pick#1)
+      case 'fuel-file': case 'import': if (!ui.importing && !cloudStillReading()) $('#import-file').click(); break;
       case 'fuel-here': importHere(); break;
 
       // Trends

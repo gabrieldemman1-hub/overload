@@ -1756,6 +1756,11 @@
       body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill ' + st.status + '" id="cloud-status">' + esc(st.msg || 'Connected') + '</span></div>'
         + '<p class="small muted mt8">Every change is mirrored to your account. Offline changes are queued and sent when you are back online.</p>'
         + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
+    } else if (!ui.authSeen && (syncNote() || linkPending())) {
+      // The module has loaded, Firebase has not said who is signed in yet, and this phone was signed in (a note of an
+      // account, or a first link still to be made). Not the sign-in form, which says he is signed out while Reset,
+      // Import and Restore count him as signed in or wait (review finding card#1). Fuel's cloudBody is the same.
+      body = '<p class="small muted">Cloud sync is starting. It says Synced once it has read your account.</p>';
     } else {
       body = '<p class="small muted mb8">Sign in to keep your data in the cloud so it survives clearing this phone and follows you to a new one. First time here? Enter an email and password and tap Create account.</p>'
         + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required aria-label="Email"></div>'
@@ -3033,7 +3038,9 @@
       // Settings
       case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
-      case 'import': if (!cloudStillReading()) $('#import-file').click(); break;   // review finding sync#6
+      // importJson's checks, before the file picker opens: he is not sent to find a file only to be told no (review
+      // findings sync#6, pick#1). importJson checks again for a file given another way.
+      case 'import': if (!busy() && !cloudStillReading() && !noCopies('replaced', 'Import JSON')) $('#import-file').click(); break;
       case 'restore-copy': restoreCopy(d.id); break;
       case 'export-copy': case 'unreadable-export': case 'unreadable-retry': case 'unreadable-fresh': unreadableAction(a, d); break;
       case 'export-nag-off': setBackupInfo({ nagOff: Date.now() }); refreshNotices(); break;

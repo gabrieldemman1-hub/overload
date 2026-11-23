@@ -15,7 +15,9 @@
  *     back what the account holds;
  *   - signed in while cloud sync has not read the account yet, the toast that says why Reset, Restore and the
  *     imports do not start is Overload's, word for word (review finding sync#6), and so is the one on a later start
- *     without the sync module, the first two sentences of the Cloud sync card (link#1).
+ *     without the sync module, the first two sentences of the Cloud sync card (link#1); until Firebase has said who is
+ *     signed in, the Cloud sync card of a phone that was signed in says "Cloud sync is starting. ..." in Overload's
+ *     words (card#1).
  * The fake Firebase of tests/fake-firebase; no other host is contacted. Prints one PASS/FAIL line per check and
  * exits 1 if anything failed.
  */
@@ -41,6 +43,7 @@ const SIGN_OUT = 'confirm: Sign out? Your food log stays on this phone and in th
 const NO_MODULE = 'Cloud sync is not available right now. It starts when the app opens with signal. Your food log stays on this phone.';
 const STILL_READING = 'Cloud sync is still reading your account. Try again once it says Synced.';
 const NOT_NOW = 'Cloud sync is not available right now. It starts when the app opens with signal.';
+const STARTING = 'Cloud sync is starting. It says Synced once it has read your account.';
 
 async function newPhone(browser, cloud, name) {
   const phone = await lib.newPhone(browser, { now: NOW, timezoneId: fx.meta.tz });
@@ -151,6 +154,21 @@ async function settle(cloud, pages) {
       need(JSON.stringify(fuel) === JSON.stringify(want) && JSON.stringify(overload) === JSON.stringify(want), 'Fuel says ' + JSON.stringify(fuel) + ', Overload ' + JSON.stringify(overload));
       need(NO_MODULE.startsWith(NOT_NOW + ' '), 'the card without the module reads ' + JSON.stringify(NO_MODULE));
       return want.join(' / ');
+    });
+    // Review finding card#1: until Firebase has said who is signed in, the Cloud sync card of a phone that was signed in
+    // says cloud sync is starting (not the sign-in form), in the same words in both apps, and points to the Synced the
+    // "still reading" toast waits for. (tests/fuel-sync.js and tests/train-cloud.js run it on the fake cloud.)
+    await run.step('cloud sync', 'until Firebase has answered, the Cloud sync card of a phone that was signed in says "' + STARTING + '", in both apps, word for word (card#1)', async () => {
+      const said = (file, fn) => {
+        const src = fs.readFileSync(path.join(lib.REPO, file), 'utf8'), at = src.indexOf(fn);
+        if (at < 0) return null;
+        const body = src.slice(at, src.indexOf('\n  }\n', at));
+        return [...new Set(body.match(/Cloud sync is starting[^<']*/g) || [])];
+      };
+      const fuel = said('fuel/fuel.js', 'function cloudBody()'), overload = said('overload.js', 'function renderCloudCard()');
+      need(JSON.stringify(fuel) === JSON.stringify([STARTING]) && JSON.stringify(overload) === JSON.stringify([STARTING]), 'Fuel says ' + JSON.stringify(fuel) + ', Overload ' + JSON.stringify(overload));
+      need(/once it says Synced\.$/.test(STILL_READING) && /It says Synced /.test(STARTING), 'the card and the toast do not name the same Synced');
+      return STARTING;
     });
 
     // ---------------------------------------------------------------- the sign-out question, and what it says

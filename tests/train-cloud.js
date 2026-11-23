@@ -34,6 +34,9 @@
  *     The app closed before a read worked (review finding link#1): on the next start without the sync module they are
  *     held back the same way ("Cloud sync is not available right now. ..."), and on a start whose module Firebase has
  *     not answered yet too ("still reading"); before, such a start took the phone for signed out and let them run.
+ *     Until Firebase has answered, the Cloud sync card of a phone that was signed in (that first link, or a note of an
+ *     account) says "Cloud sync is starting. ..." instead of the sign-in form (review finding card#1); a phone never
+ *     signed in gets the form at once, and the others once Firebase says nobody is signed in.
  *   - Signed out (the sign-out question says what a sign-in afterwards does): what is logged while signed out is
  *     sent at the next sign-in; a Reset done while signed out, also on a start without the sync module, is not:
  *     signing in again brings back what the account holds.
@@ -315,6 +318,30 @@ async function startWithout(A) {
 }
 async function startWith(world, A) { A.device.blockSdk(false); await A.open(); await settle(world); }
 const noteThere = async (A) => !!JSON.parse(await lib.readStorageText(A.page, NOTE));
+// Firebase's first answer (who is signed in) waits until window.__releaseAuth(), on a start where test.holdAuth is set
+// (as the verifier's b2-weak-first-signin.js --wait=auth). For context.addInitScript, after the fake cloud's own.
+function HOLD_AUTH() {
+  try { if (!localStorage.getItem('test.holdAuth')) return; } catch (e) { return; }
+  const orig = window.__fakeFirebase; if (typeof orig !== 'function') return;
+  let release; const gate = new Promise((r) => { release = r; });
+  window.__releaseAuth = release;
+  window.__fakeFirebase = (op, p) => (op === 'auth.current' ? gate.then(() => orig(op, p)) : orig(op, p));
+}
+// The next start of a phone (its context has HOLD_AUTH) with the sync module, Firebase's first answer held back.
+async function openHeld(phone) {
+  await phone.ev(() => localStorage.setItem('test.holdAuth', '1'));
+  await phone.page.close(); phone.device.blockSdk(false);
+  phone.page = await lib.openApp(phone.context, ORIGIN + '/index.html');
+  await phone.page.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+  await phone.ev(() => localStorage.removeItem('test.holdAuth'));
+}
+// The Cloud sync card while Firebase has not said who is signed in, on a phone that was signed in (review finding card#1).
+const STARTING = 'Cloud sync is starting. It says Synced once it has read your account.';
+// The Cloud sync card in Settings: its text, and whether it holds the sign-in form.
+async function cardNow(phone) {
+  await lib.openTab(phone.page, 'settings');
+  return { text: await T.text(phone.page, '#cloud-card .card'), form: (await T.count(phone.page, '#cloud-form')) > 0 };
+}
 
 // Review finding sync#2: signed in, on a start where the sync module has not run yet, Reset, Import and Restore
 // say the account changes too, keep the note, and the next start with the module sends them.
@@ -474,29 +501,23 @@ async function firstLinkPending(browser) {
     return NOT_NOW + ' (overload.backup\'s linking: ' + mark + ')';
   });
   await step('the next start, with the sync module but before Firebase has said who is signed in: the same, and the toast says it is still reading the account (link#1); once Firebase answers and the read still fails, it holds them back as before', async () => {
-    // Firebase's first answer (who is signed in) waits until window.__releaseAuth(), on the start where
-    // test.holdAuth is set (as the verifier's b2-weak-first-signin.js --wait=auth).
-    await C.context.addInitScript(() => {
-      try { if (!localStorage.getItem('test.holdAuth')) return; } catch (e) { return; }
-      const orig = window.__fakeFirebase; if (typeof orig !== 'function') return;
-      let release; const gate = new Promise((r) => { release = r; });
-      window.__releaseAuth = release;
-      window.__fakeFirebase = (op, p) => (op === 'auth.current' ? gate.then(() => orig(op, p)) : orig(op, p));
-    });
-    await C.ev(() => localStorage.setItem('test.holdAuth', '1'));
-    await C.page.close(); C.device.blockSdk(false);
-    C.page = await lib.openApp(C.context, ORIGIN + '/index.html');
-    await C.page.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
-    await C.ev(() => localStorage.removeItem('test.holdAuth'));
+    await C.context.addInitScript(HOLD_AUTH);
+    await openHeld(C);
     need(await C.ev(() => typeof window.__releaseAuth === 'function' && !window.__overloadSync.user), 'Firebase\'s first answer was not held back');
+    // Review finding card#1: the Cloud sync card says cloud sync is starting, not the sign-in form (which said he is
+    // signed out while the toast said it is still reading his account).
+    const card = await cardNow(C);
+    need(card.text === STARTING && !card.form, 'the Cloud sync card while Firebase has not answered: ' + JSON.stringify(card));
     await heldBack(SAYS);
     await failReads(C, true);
     await C.ev(() => window.__releaseAuth());
     await settle(world);
     const st = await C.ev(() => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, error: window.__overloadSync.error }));
     need(st.user && st.linked === false && /Could not reach the cloud/.test(st.error), 'C once Firebase answered: ' + JSON.stringify(st));
+    const after = await cardNow(C);
+    need(/^Signed in/.test(after.text) && after.text.includes(EMAIL) && !after.form, 'the Cloud sync card once Firebase answered: ' + JSON.stringify(after));
     await heldBack(SAYS);
-    return SAYS;
+    return SAYS + ' (the card: ' + card.text + ')';
   });
   await step('the read works (Sync now): C links, the card says Synced, and Import then asks, works and reaches the account', async () => {
     await failReads(C, false);
@@ -549,6 +570,40 @@ async function firstLinkPending(browser) {
     const n = await counts(cloud, A, C);
     need(n.account.join() === '0,0,0' && n.A.join() === '0,0,0' && n.B.join() === '0,0,0', 'the reset made offline: ' + show(n));
     return 'Import, Restore, Reset offline: asked with the account, and in the account once online';
+  });
+  // Review finding card#1, the other side: a phone never signed in gets the sign-in form at once (no new user waits),
+  // and a phone whose sign-in Firebase no longer holds (signed out on 2.8, which leaves the note as it was) gets it
+  // once Firebase says nobody is signed in.
+  await step('the Cloud sync card before Firebase answers: the sign-in form on a phone never signed in; "' + STARTING + '" with a note of an account or a first link still to be made, and the sign-in form once Firebase says nobody is signed in (card#1)', async () => {
+    const E = await makePhone(world, 'E', true);
+    await E.context.addInitScript(HOLD_AUTH);
+    await E.open(); await settle(world);
+    const FORM = /^Sign in to keep your data in the cloud/, seen = [];
+    const heldStart = async (what, plant) => {
+      if (plant) await E.ev(plant);
+      await openHeld(E);
+      need(await E.ev(() => typeof window.__releaseAuth === 'function' && !window.__overloadSync.user), what + ': Firebase\'s first answer was not held back');
+      const before = await cardNow(E);
+      await E.ev(() => window.__releaseAuth()); await settle(world);
+      need(await E.ev(() => !window.__overloadSync.user), what + ': someone is signed in');
+      const after = await cardNow(E);
+      seen.push(what + ': "' + before.text.slice(0, 45) + '…", then "' + after.text.slice(0, 20) + '…"');
+      return { before, after };
+    };
+    let c = await heldStart('never signed in');
+    need(FORM.test(c.before.text) && c.before.form, 'never signed in, before Firebase answers: ' + JSON.stringify(c.before));
+    need(FORM.test(c.after.text) && c.after.form, 'never signed in, once Firebase answered: ' + JSON.stringify(c.after));
+    c = await heldStart('a note of an account', () => localStorage.setItem('overload.sync.v1', JSON.stringify({ uid: 'U9', core: 'h9', days: {} })));
+    need(c.before.text === STARTING && !c.before.form, 'a note of an account, before Firebase answers: ' + JSON.stringify(c.before));
+    need(FORM.test(c.after.text) && c.after.form, 'a note of an account, once Firebase said nobody is signed in: ' + JSON.stringify(c.after));
+    c = await heldStart('a first link still to be made', () => {
+      localStorage.removeItem('overload.sync.v1');
+      const b = JSON.parse(localStorage.getItem('overload.backup') || '{}'); b.linking = 'U9'; localStorage.setItem('overload.backup', JSON.stringify(b));
+    });
+    need(c.before.text === STARTING && !c.before.form, 'a first link still to be made, before Firebase answers: ' + JSON.stringify(c.before));
+    need(FORM.test(c.after.text) && c.after.form, 'a first link still to be made, once Firebase said nobody is signed in: ' + JSON.stringify(c.after));
+    need((await E.ev(() => JSON.parse(localStorage.getItem('overload.backup') || '{}').linking)) === undefined, 'the mark stayed once Firebase said nobody is signed in');
+    return seen.join(' | ');
   });
   const probs = world.phones.reduce((l, p) => l.concat(p.problems()), []);
   run.say(!probs.length, name, 'no page errors, no console errors', probs.join(' | ').slice(0, 400));

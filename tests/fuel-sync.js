@@ -42,6 +42,11 @@
  *     (and when the note cannot be removed at start); Reset and Restore while signed in change the account's
  *     copy; with a second phone signed in, the Reset question says what that phone does, and its advice works.
  *   - Changes made while signed out are sent after signing in again.
+ *   - Run "firstlink" (review findings sync#6, link#1, card#1, gate#1): signed in while the first read fails, and on
+ *     later starts until it has worked (no module; Firebase not answered yet), Reset, Restore and every import ask
+ *     nothing and change nothing; meanwhile the Cloud sync card says "Cloud sync is starting. ..." until Firebase
+ *     answers (a phone never signed in gets the sign-in form at once); in a Safari tab, a tab held at Add to Home
+ *     Screen keeps the first link still to be made, so a later tab without signal holds Reset back too.
  *   - A training app signed in to the same account at the same time (v2.8 in a storage of its own, and this
  *     tree's root app in the same storage as Fuel) is not affected by Fuel and does not affect it.
  *
@@ -252,6 +257,14 @@ async function signOutInSettings(page) {
   await lib.openTab(page, 'settings');
   await page.click('[data-action="cloud-signout"]');   // its question is answered yes
   await page.waitForFunction(() => !window.__overloadSync.user, null, { timeout: 8000 });
+}
+// The Cloud sync card while Firebase has not said who is signed in, on a phone that was signed in (review finding
+// card#1); Overload's words.
+const STARTING = 'Cloud sync is starting. It says Synced once it has read your account.';
+// The Cloud sync card in Settings: its text, and whether it holds the sign-in form.
+async function cardOf(page) {
+  await lib.openTab(page, 'settings');
+  return { text: await F.text(page, '#cloud-card .card'), form: (await F.count(page, '#cloud-form')) > 0 };
 }
 // The changes below are what food.js does to the state for each action, then the app's own save().
 const addEntry = (page, date, id, name, kcal, foodId) => page.evaluate(([d, i, n, k, f]) => {
@@ -1614,18 +1627,25 @@ async function firstLinkRun(browser, docs) {
       await closeFuel(F2);
       F2.device.blockSdk(false);
       const auth = await holdAuth(F2);
+      let card;
       try {
         f2 = await openFuel(F2);
         need((await f2.evaluate(() => window.__overloadSync.user)) === null, 'Firebase\'s first answer was not held back');
+        // Review finding card#1: the Cloud sync card says cloud sync is starting, not the sign-in form (which said he
+        // is signed out while the toast said it is still reading his account).
+        card = await cardOf(f2);
+        need(card.text === STARTING && !card.form, 'the Cloud sync card while Firebase has not answered: ' + JSON.stringify(card));
         await heldBack(SAYS, 'Firebase not answered');
         await failReads(true);
       } finally { await auth.release(f2); }
       await rest(world);
       const st = await f2.evaluate((k) => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, error: window.__overloadSync.error, note: localStorage.getItem(k) }), NOTE);
       need(st.user && st.linked === false && /Could not reach the cloud/.test(st.error) && !st.note, 'F2 once Firebase answered: ' + JSON.stringify(st));
+      const after = await cardOf(f2);
+      need(/^Signed in/.test(after.text) && after.text.includes(EMAIL) && !after.form, 'the Cloud sync card once Firebase answered: ' + JSON.stringify(after));
       await heldBack(SAYS, 'Firebase answered, the read failing');
       need((await linkingOf(f2)) === 'U1', 'fuel.backup\'s linking is ' + await linkingOf(f2));
-      return SAYS;
+      return SAYS + ' (the card: ' + card.text + ')';
     });
   }
   if (ok) {
@@ -1678,6 +1698,99 @@ async function firstLinkRun(browser, docs) {
       return COUNTS.foodDays + ' days in the account and on both phones';
     });
   }
+  // Review finding card#1, the other side: a phone never signed in gets the sign-in form at once (no new user waits),
+  // and a phone whose sign-in Firebase no longer holds gets it once Firebase says nobody is signed in.
+  await step('the Cloud sync card before Firebase answers: the sign-in form on a phone never signed in; "' + STARTING + '" with a note of an account or a first link still to be made, and the sign-in form once Firebase says nobody is signed in (card#1)', async () => {
+    const F3 = await makePhone(world, 'F3', TREE, { seed: (ctx) => lib.seedStorage(ctx, { [F.KEY]: logText }) });
+    let f3 = await openFuel(F3);
+    await rest(world);
+    const FORM = /^Sign in to keep your food log in the cloud/, seen = [];
+    const heldStart = async (what, plant) => {
+      if (plant) await f3.evaluate(plant);
+      await closeFuel(F3);
+      const auth = await holdAuth(F3);
+      let before;
+      try {
+        f3 = await openFuel(F3);
+        need((await f3.evaluate(() => window.__overloadSync.user)) === null, what + ': Firebase\'s first answer was not held back');
+        before = await cardOf(f3);
+      } finally { await auth.release(f3); }
+      await rest(world);
+      need(await f3.evaluate(() => !window.__overloadSync.user), what + ': someone is signed in');
+      const after = await cardOf(f3);
+      seen.push(what + ': "' + before.text.slice(0, 45) + '…", then "' + after.text.slice(0, 20) + '…"');
+      return { before, after };
+    };
+    let c = await heldStart('never signed in');
+    need(FORM.test(c.before.text) && c.before.form, 'never signed in, before Firebase answers: ' + JSON.stringify(c.before));
+    need(FORM.test(c.after.text) && c.after.form, 'never signed in, once Firebase answered: ' + JSON.stringify(c.after));
+    c = await heldStart('a note of an account', () => localStorage.setItem('fuel.sync.v1', JSON.stringify({ uid: 'U9', email: 'other@example.com', core: 'h9', days: {} })));
+    need(c.before.text === STARTING && !c.before.form, 'a note of an account, before Firebase answers: ' + JSON.stringify(c.before));
+    need(FORM.test(c.after.text) && c.after.form, 'a note of an account, once Firebase said nobody is signed in: ' + JSON.stringify(c.after));
+    c = await heldStart('a first link still to be made', () => {
+      localStorage.removeItem('fuel.sync.v1');
+      const b = JSON.parse(localStorage.getItem('fuel.backup') || '{}'); b.linking = 'U9'; localStorage.setItem('fuel.backup', JSON.stringify(b));
+    });
+    need(c.before.text === STARTING && !c.before.form, 'a first link still to be made, before Firebase answers: ' + JSON.stringify(c.before));
+    need(FORM.test(c.after.text) && c.after.form, 'a first link still to be made, once Firebase said nobody is signed in: ' + JSON.stringify(c.after));
+    need((await linkingOf(f3)) === undefined, 'the mark stayed once Firebase said nobody is signed in: ' + await linkingOf(f3));
+    F.assertClean(F3, 'phone F3');
+    return seen.join(' | ');
+  });
+  // Review finding gate#1 (the verifier's p2-fuel-gate.js): Fuel in a Safari tab (navigator.standalone false; "Use it
+  // here anyway" holds for that tab only). A first sign-in on weak signal keeps the first link still to be made
+  // (link#1). A new tab with signal is held at Add to Home Screen, where the module reports the account; it removed the
+  // mark there, so a later tab without signal let Reset through, and the next link brought the food log back.
+  await step('a Safari tab signed in on weak signal; a new tab with signal held at Add to Home Screen and closed there; a new tab without the module: Use it here anyway, then Reset asks nothing, changes nothing, and the toast says cloud sync is not available (gate#1)', async () => {
+    const F4 = await makePhone(world, 'F4', TREE, { seed: async (ctx) => {
+      await lib.seedStorage(ctx, { [F.KEY]: logText });
+      await ctx.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'standalone', { configurable: true, get: () => false }); });
+    } });
+    const tab = async (sdk) => {
+      F4.device.blockSdk(!sdk);
+      const pg = await lib.openApp(F4.context, ORIGIN + F.PAGE);
+      F4.pages.push(pg);
+      if (sdk) await pg.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+      await rest(world);
+      need(await pg.isVisible('[data-action="fuel-use-here"]'), 'the new tab is not held at Add to Home Screen');
+      return pg;
+    };
+    const useHere = async (pg) => { await pg.click('[data-action="fuel-use-here"]'); await pg.waitForFunction(() => !!window.__overloadFood, null, { timeout: 15000 }); await rest(world); };
+    // 1. Use it here anyway; signed in while the reads from the server fail: no note, the mark.
+    let pg = await tab(true);
+    await useHere(pg);
+    await pg.evaluate(() => {
+      const orig = window.__fakeFirebase;
+      window.__fakeFirebase = (op, p) => (op === 'fs.server' && p && p.via === 'get' ? Promise.resolve({ error: 'unavailable', rev: 0 }) : orig(op, p));
+    });
+    await signInInSettings(pg);
+    await rest(world);
+    const st = await pg.evaluate((k) => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, note: localStorage.getItem(k) }), NOTE);
+    need(st.user && st.linked === false && !st.note && (await linkingOf(pg)) === 'U1', 'signed in on weak signal: ' + JSON.stringify(st) + ', mark ' + await linkingOf(pg));
+    await pg.close();
+    // 2. A new tab with signal: held at Add to Home Screen, the module reports the account; closed there.
+    pg = await tab(true);
+    await pg.waitForFunction(() => !!window.__overloadSync.user, null, { timeout: 8000 });
+    await rest(world);
+    const atGate = await linkingOf(pg);
+    await pg.close();
+    // 3. A new tab without the module (no signal): Use it here anyway, then Reset.
+    pg = await tab(false);
+    await useHere(pg);
+    need(!(await pg.evaluate(() => !!window.__overloadSync)), 'the sync module ran');
+    const before = await F.storedText(pg), mark = cloud.mark(), asked = pg.dialogs.length;
+    await lib.openTab(pg, 'settings');
+    await pg.click('[data-action="reset"]');
+    const said = await F.toast(pg, /not available|still reading|Reset/);
+    const unchanged = (await F.storedText(pg)) === before;
+    need(pg.dialogs.length === asked && said === NOT_NOW && unchanged, 'the Reset: questions ' + (pg.dialogs.length - asked) + ', toast "' + said + '", data unchanged ' + unchanged + '; the mark after the tab held at Add to Home Screen: ' + atGate);
+    need(atGate === 'U1' && (await linkingOf(pg)) === 'U1', 'the mark after the tab held at Add to Home Screen: ' + atGate + ', now ' + await linkingOf(pg));
+    need(cloud.writes({ who: 'F4', from: mark }).length === 0, 'F4 wrote to the account: ' + brief(cloud.writes({ who: 'F4', from: mark })));
+    F4.device.blockSdk(false);
+    await pg.close();
+    F.assertClean(F4, 'phone F4');
+    return said + ' (the mark at Add to Home Screen: ' + atGate + ')';
+  });
   tmp.rm();
   for (const p of world.phones) await p.close();
 }

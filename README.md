@@ -412,9 +412,11 @@ A new number changes the `?v=` on every file address in `index.html`, `sw.js`,
 `fuel/index.html` and `fuel/sw.js`, `VERSION` in `overload.js` and `fuel/fuel.js`,
 `release` in `sync.js`, `backup.js` and `connector.js`, the first line `/* release 3.0 … */` of every other
 script and stylesheet the workers store (both apps and `shared/`), and moves
-both offline cache names on by one (`overload-vN`, `fuel-vN`), also when only
-one app changed. Commit the result and push; a phone picks the release up the
-next time the app is opened with a connection.
+both offline cache names on (`overload-vN`, `fuel-vN`), also when only one app
+changed: each to one more than the highest the tree or any published release
+used, so after a roll-back a phone that kept the newer release never gets a new
+worker under that release's cache name. Commit the result and push; a phone
+picks the release up the next time the app is opened with a connection.
 
 Every change to a file the workers store, and to `sw.js` or `fuel/sw.js`
 themselves, needs a new number. A worker answers an address with `?v=` from the
@@ -484,17 +486,19 @@ The check fails, with exit code 1, when:
   start without it when there is no signal;
 - the food list's `?db=` differs between `fuel/food.js` and `fuel/sw.js`;
 - `sw.js` or `fuel/sw.js` differs from the published one (`origin/main`, which
-  GitHub Pages serves) but kept its cache name;
+  GitHub Pages serves) but kept its cache name, or has the cache name of an
+  older published worker (of a release rolled back since) and differs from it;
 - the release was published before and a page, a file with `?v=` in an install
   list, or a worker under the same cache name differs from that published copy:
   phones that have the release would run the new page with their old copies.
-  Run `sh bump.sh` with the next number. Two branches that each ran
-  `sh bump.sh 3.1` merge without a conflict, so this is not only a forgotten
-  bump. "Published before" is the newest commit of `origin/main`'s history that
-  carries the release, not only its newest commit: after a roll-back (an older
-  release published again), phones that had the newer one keep its files, so
-  publish it again only unchanged. A fix needs a number higher than any
-  published before.
+  Two branches that each ran `sh bump.sh 3.1` merge without a conflict, so this
+  is not only a forgotten bump. "Published before" is the newest published
+  commit that carries the release, not only the newest one: after a roll-back
+  (an older release published again), phones that had the newer one keep its
+  files, so publish it again only unchanged. A fix needs a number higher than
+  any published before. The check names it ("Run sh bump.sh 3.2"), and after a
+  roll-back it says why: "release 3.1 was published before (rolled back): a fix
+  needs 3.2".
 
 The last two are not compared without git or `origin/main`, nor for a worker
 that is new since then (or its files). Before them the check fetches
@@ -504,10 +508,22 @@ the fetch fails it says so, with the date of the copy it used: fetch and check
 again before you push. `BUMP_NO_FETCH=1 sh bump.sh --check` compares with the
 copy here without fetching.
 
+"Published" is what the check can see: every commit of `origin/main`'s history
+and every commit this clone saw `origin/main` at (`git log -g origin/main`,
+and what each entry there replaced). In a shallow clone (a cloud session
+clones 50 commits) the check first fetches `main`'s whole history; when it
+cannot, it warns that the clone is shallow. Git forgets a record entry about
+30 days after its commit has left `origin/main`. So roll back with a new commit on top of `main` (`git revert`, or a commit of
+the older release's files), never by moving `main` back with a force-push: a
+clone made after that, a cloud session's for one, has no record of the newer
+release and would pass a changed copy of it.
+
 So a new script or stylesheet goes into the page and into `ASSETS` of the same
 app's worker, written the same way, one address per line, and its first line is
 `/* release <number> (bump.sh sets this line; …) */`. Run the check before every
-push that touches those files.
+push that touches those files, and on a branch again right before its pull
+request is merged, after any other such pull request was merged (merge `main`
+into the branch first): the check sees a pull request only once it is merged.
 
 ## Cloud sync (optional)
 
@@ -532,11 +548,22 @@ retries, so a bad connection cannot overwrite the cloud copy. Until that read
 has worked, Reset, Import and Restore do not start, in Overload and in Fuel
 (Fuel's Paste from Overload and Choose a file too): "Cloud sync is still
 reading your account. Try again once it says Synced." The read would bring the
-account's data back over them. Both apps keep waiting for that read when they
-are closed and opened again: while cloud sync is not running (no signal, or an
-update that arrived only in part) they say "Cloud sync is not available right
-now. It starts when the app opens with signal.", and until cloud sync has said
-who is signed in, the message above.
+account's data back over them. After a first sign-in made on 3.0, both apps
+keep waiting for that read when they are closed and opened again: while cloud
+sync is not running (no signal, or an update that arrived only in part) they
+say "Cloud sync is not available right now. It starts when the app opens with
+signal.", and until cloud sync has said who is signed in, the message above.
+This does not cover a first sign-in made on 2.8 whose read never worked before
+the update: the first start of 3.0 without cloud sync, or before it has said
+who is signed in, takes the phone for signed out, and the read then brings the
+account's data back over a Reset, Import or Restore made there.
+
+Once cloud sync has loaded, and until it has said who is signed in, the Cloud
+sync card of a phone that was signed in says "Cloud sync is starting. It says
+Synced once it has read your account." instead of the sign-in form; a phone
+never signed in gets the form as soon as cloud sync has loaded. Without cloud
+sync (no signal) the card of either says "Cloud sync is not available right
+now." as before.
 
 Reset, Import and Restore say so when you are signed in, because they erase or
 replace the training data in the account too; the food log in the account is
@@ -708,9 +735,9 @@ says when you last exported, and with cloud sync off Today reminds you after
   Export ("The automatic copy could not be stored, so nothing was replaced.
   Export a backup first, then try again."). When Settings says Automatic copies
   are not available (an update that arrived only in part), Import, Reset and
-  Remove the old food log say so before asking anything, and that nothing was
-  replaced (erased, removed): close Overload and open it again with good
-  signal. A second tap while one of them is
+  Remove the old food log say so before asking anything (Import before the
+  file picker opens), and that nothing was replaced (erased, removed): close
+  Overload and open it again with good signal. A second tap while one of them is
   under way does nothing. A copy store that does not answer is given up after a
   few seconds, so these never wait for ever.
   They live in the same browser storage, so they do not replace an export.
