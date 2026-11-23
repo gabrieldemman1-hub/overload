@@ -14,6 +14,14 @@
  *   - Keyboard focus never stops under the top bar, the rest dock or the tab bar, also with the iPhone's safe areas
  *     (look#9); scrolling by touch is unchanged (no scroll padding until a key is used).
  *   - Calendar day numbers have tabular figures (look#10).
+ * Review round 4:
+ *   - Inside a sheet whose Save sticks at the bottom (Edit exercise, New exercise), Tab and Shift+Tab never stop
+ *     where Save covers the control, at 320x568 and 390x844; after a tap the sheet has no scroll padding (look#12).
+ *   - Long unbroken texts at 320 px (exercise, day, template and cardio names of 60 characters, a 60-character email
+ *     in Settings > Cloud sync, also at 390 px and beside every status): each stays inside its card, nothing is cut,
+ *     the page does not scroll sideways (look#13).
+ *   - Numbers that line up in rows have tabular figures: History's workout rows and their PR counts, the recovery
+ *     average, the set lists of a past workout and of Edit sets (look#14).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -178,6 +186,20 @@ async function cloudStatus(browser, server) {
       need(Math.abs(f.right - f.cardRight) < 1, 'the pill ends at ' + Math.round(f.right) + ', the card at ' + Math.round(f.cardRight));
       return Math.round(f.height) + ' px tall, right edge ' + Math.round(f.right);
     });
+    for (const width of [320, 390]) {
+      await run.step(name, width + ' px, ' + theme + ': a 60-character email with no hyphen stays inside the card (look#13), beside a short and a long message', async () => {
+        await page.setViewportSize({ width, height: 844 }); await fakeSync(page, LONG_EMAIL);
+        const bad = [];
+        for (const m of ['Synced 12:59 PM', msgs[msgs.length - 1]]) {
+          await page.evaluate(([s, t]) => window.__overload.setSyncStatus(s, t), [statusOf(m), m]);
+          const f = await longFacts(page);
+          if (!(await page.evaluate((e) => document.querySelector('#cloud-card').textContent.includes(e), LONG_EMAIL))) bad.push('the email is not in the card');
+          bad.push(...f.bad.map((x) => '"' + m.slice(0, 20) + '": ' + x));
+          const p = await pillFacts(page); if (p.right > p.cardRight + 0.5 || p.cut) bad.push('"' + m.slice(0, 20) + '": the pill runs off');
+        }
+        need(!bad.length, bad.join(' | ').slice(0, 600));
+      });
+    }
     errors(name + ', ' + theme, phone); await phone.close();
   }
 }
@@ -401,6 +423,213 @@ async function focusClear(browser, server) {
   }
 }
 
+// Inside an open sheet: where the focused control is, and how much of it a sticky footer (Save) or a strip stuck at the
+// sheet's top covers. Fully visible means inside the panel and the screen, and under neither.
+const sheetStop = (page) => page.evaluate(() => {
+  const a = document.activeElement, p = document.querySelector('#sheet-panel');
+  const what = a ? a.tagName.toLowerCase() + (a.dataset && a.dataset.action ? '[' + a.dataset.action + ']' : '') + ' "' + (a.getAttribute('aria-label') || a.textContent || '').trim().slice(0, 24) + '"' : 'nothing';
+  if (!a || !p.contains(a)) return { out: true, what };
+  const r = a.getBoundingClientRect(), pr = p.getBoundingClientRect();
+  const edges = [...p.querySelectorAll('.sheet-foot, #food-added')].filter((el) => getComputedStyle(el).position === 'sticky' && !el.contains(a));
+  const covered = Math.max(0, ...edges.map((el) => { const e = el.getBoundingClientRect(); return Math.min(r.bottom, e.bottom) - Math.max(r.top, e.top); }));
+  const outside = r.top < Math.max(pr.top, 0) - 0.5 || r.bottom > Math.min(pr.bottom, innerHeight) + 0.5;
+  return { what, top: Math.round(r.top), bottom: Math.round(r.bottom), covered: Math.round(covered), outside, sticky: edges.length };
+});
+// Tab n times, then Shift+Tab n times (both go round inside the sheet); every stop that is not fully visible.
+async function sheetWalk(page, n) {
+  const hidden = [], seen = new Set();
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < n; i++) {
+      await page.keyboard.press(key); await lib.sleep(30);
+      const s = await sheetStop(page);
+      if (s.out) { hidden.push(key + ' left the sheet, to ' + s.what); break; }
+      seen.add(s.what);
+      if (s.covered > 0.5 || s.outside) hidden.push(key + ': ' + s.what + ' at ' + s.top + '..' + s.bottom + (s.covered > 0.5 ? ', ' + s.covered + ' px under a sticky edge' : ', outside the sheet'));
+    }
+  }
+  return { hidden, stops: seen.size };
+}
+
+async function sheetEdgesFocus(browser, server) {
+  const name = 'focus clear of a sheet\'s footer (look#12)';
+  for (const vp of [{ width: 320, height: 568 }, { width: 390, height: 844 }]) {
+    const tag = vp.width + 'x' + vp.height;
+    const { phone, page } = await phoneWith(browser, server, heavy);
+    await page.setViewportSize(vp);
+    await lib.openTab(page, 'exercises');
+    for (const [what, opener] of [['Edit exercise', '#app [data-action="edit-ex"]'], ['New exercise', '#app [data-action="new-ex"]']]) {
+      await run.step(name, tag + ', ' + what + ' (Save sticks at the bottom) by keys: Tab and Shift+Tab, 30 each, every stop fully visible', async () => {
+        await keyOpen(page, opener);
+        need(await page.evaluate(() => getComputedStyle(document.querySelector('#sheet .sheet-foot')).position === 'sticky'), 'the sheet has no sticky footer (the test is not testing it)');
+        need(await page.evaluate(() => document.querySelector('#sheet-panel').scrollHeight > document.querySelector('#sheet-panel').clientHeight + 40) || vp.height > 600, 'the sheet does not scroll at ' + tag);
+        const w = await sheetWalk(page, 30);
+        await page.keyboard.press('Escape'); await lib.sleep(60);
+        need(w.stops >= 12, 'only ' + w.stops + ' stops');
+        need(!w.hidden.length, w.hidden.length + ' stops not fully visible: ' + w.hidden.slice(0, 5).join(' | '));
+        return w.stops + ' stops';
+      });
+    }
+    await run.step(name, tag + ': by touch the sheet has no scroll padding (nothing changes for a tap)', async () => {
+      await page.tap('#app [data-action="edit-ex"]'); await page.waitForSelector('#sheet:not([hidden]) .sheet-foot');
+      const pad = await page.evaluate(() => { const s = getComputedStyle(document.querySelector('#sheet-panel')); return [s.scrollPaddingTop, s.scrollPaddingBottom, document.documentElement.classList.contains('keys')]; });
+      same(pad, ['auto', 'auto', false], 'the sheet\'s scroll padding after a tap');
+      await page.tap('#sheet .sheet-title [data-action="sheet-close"]');
+    });
+    errors(name + ', ' + tag, phone); await phone.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Long unbroken texts (look#13)
+// ---------------------------------------------------------------------------
+// A 60-character word, made from base and numbered (so names stay unique).
+const long60 = (base, i) => (base.replace(/[^A-Za-z0-9.@]/g, '') + 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ').slice(0, 57) + String(i).padStart(3, '0');
+const LONG_EMAIL = 'alexander.maximilian.longname.familyname.second@examplemail.co';   // 60 characters, no hyphen
+// Every text with a word of 24 characters or more: it must stay inside the content box of each card, sheet and screen
+// around it, no box may cut it off, and the page must not scroll sideways. On an open sheet only the sheet counts.
+// Text only assistive tech reads, and the two lines that end in "…" on purpose (the top bar's title, the rest dock's
+// next exercise), are not counted.
+const longFacts = (page) => page.evaluate(() => {
+  const bad = [], W = innerWidth, sheet = !document.querySelector('#sheet').hidden;
+  const over = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - W;
+  if (over > 0) bad.push('the page scrolls sideways by ' + over + ' px');
+  const name = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+  const BOX = '.card, .sheet-panel, .banner, .rest-timer, .toast, .f-added, .screen';
+  let n = 0;
+  const check = (el, rects, text) => {
+    const right = Math.max(...rects.map((q) => q.right)), left = Math.min(...rects.map((q) => q.left));
+    let lr = W, ll = 0, cut = null, ellipsis = false;
+    for (let b0 = el.closest(BOX); b0; b0 = b0.parentElement && b0.parentElement.closest(BOX)) { const b = b0.getBoundingClientRect(), s = getComputedStyle(b0); lr = Math.min(lr, b.right - parseFloat(s.paddingRight)); ll = Math.max(ll, b.left + parseFloat(s.paddingLeft)); }
+    for (let x = el; x && x !== document.body; x = x.parentElement) {
+      const s = getComputedStyle(x); if (s.overflowX === 'visible') continue;
+      const b = x.getBoundingClientRect(); if (right <= b.right + 0.5 && left >= b.left - 0.5) continue;
+      if (s.textOverflow === 'ellipsis' && s.whiteSpace === 'nowrap') ellipsis = true; else cut = x;
+      break;
+    }
+    if (cut) bad.push('cut off by ' + name(cut) + ': ' + name(el) + ' "' + text.slice(0, 26) + '…" at ' + Math.round(left) + '..' + Math.round(right));
+    else if (!ellipsis && (right > lr + 0.5 || left < ll - 0.5)) bad.push(name(el) + ' "' + text.slice(0, 26) + '…" at ' + Math.round(left) + '..' + Math.round(right) + ', its box ' + Math.round(ll) + '..' + Math.round(lr));
+  };
+  const walker = document.createTreeWalker(sheet ? document.querySelector('#sheet-panel') : document.body, NodeFilter.SHOW_TEXT);
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (!/\S{24,}/.test(t.nodeValue)) continue;
+    const el = t.parentElement; if (!el || el.closest('[hidden], script, style, .sr, title, option, [inert]') || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') continue;
+    let shown = true; for (let x = el; x && x !== document.body; x = x.parentElement) { const s = getComputedStyle(x); if ((s.clipPath && s.clipPath !== 'none') || x.getBoundingClientRect().width <= 1) { shown = false; break; } }
+    if (!shown) continue;
+    const r = document.createRange(); r.selectNodeContents(t);
+    const rects = [...r.getClientRects()].filter((q) => q.width > 0.5); if (!rects.length) continue;
+    n++; check(el, rects, t.nodeValue.trim());
+  }
+  [...document.querySelectorAll(sheet ? '#sheet-panel select' : '#app select')].filter((s) => s.getClientRects().length).forEach((s) => { n++; check(s.parentElement, [s.getBoundingClientRect()], '<select> ' + (s.selectedOptions[0] ? s.selectedOptions[0].textContent : '')); });
+  return { bad, n };
+});
+async function longStep(page, where, minTexts) {
+  await run.step('long unbroken texts (look#13)', '320 px: ' + where + ': every long word stays inside its card, nothing cut, no sideways scroll', async () => {
+    await lib.sleep(80);
+    const f = await longFacts(page);
+    need(f.n >= (minTexts || 1), 'only ' + f.n + ' long texts on screen (the test is not testing them)');
+    need(!f.bad.length, f.bad.length + ' run past their card: ' + f.bad.slice(0, 4).join(' | '));
+    return f.n + ' long texts';
+  });
+}
+// Overload's own words, 60 characters without a break: exercise, day and template names, the cardio's name.
+function longNames(st) {
+  st.exercises.forEach((e, i) => { e.name = long60('BulgarianSplitSquatWithDumbbellsPausedAtTheBottom', i); });
+  st.program.days.forEach((d, i) => { d.name = long60('UpperBodyPowerAndHypertrophyDayWithExtraArms', i); });
+  (st.workouts || []).forEach((w, i) => { if (w.dayName) w.dayName = long60('UpperBodyPowerAndHypertrophyDayWithExtraArms', i % 9); if (w.cardio) w.cardio.name = long60('InclineTreadmillWalkAtTwelvePercentThreePointFive', 0); });
+  (st.templates || []).forEach((t, i) => { t.name = long60('MyFavouriteFourDayUpperLowerSplitFromLastWinter', i); });
+  st.settings.cardioName = long60('InclineTreadmillWalkAtTwelvePercentThreePointFive', 0);
+}
+// A tab chosen by the page's own click: a page that scrolls sideways (the fault looked for here) puts the tab bar
+// where a pointer cannot reach it.
+async function tabTo(page, n) {
+  await page.evaluate((x) => { window.scrollTo(0, 0); document.querySelector('.tab[data-screen="' + x + '"]').click(); }, n);
+  await page.waitForSelector('.tab[data-screen="' + n + '"].active');
+}
+async function longTexts(browser, server) {
+  const name = 'long unbroken texts (look#13)';
+  {
+    const { phone, page } = await phoneWith(browser, server, heavy, { mod: longNames, width: 320 });
+    await longStep(page, 'Today, with the last workout\'s name');
+    await page.$eval('[data-action="toggle-others"]', (e) => e.click()).catch(() => {}); await longStep(page, 'Today, the other days');
+    await tabTo(page, 'program'); await longStep(page, 'Program: day names, their exercises, templates', 10);
+    await page.$eval('[data-action="edit-day"]', (e) => e.click()); await page.waitForSelector('#sheet:not([hidden])'); await longStep(page, 'Edit day (sheet)', 3);
+    await page.$eval('#sheet [data-action="pick-ex"]', (e) => e.click()); await page.waitForSelector('[data-field="pick-search"]'); await longStep(page, 'Add exercise (sheet)', 10);
+    await page.$eval('#sheet .sheet-title [data-action="sheet-close"]', (e) => e.click());
+    await tabTo(page, 'exercises'); await longStep(page, 'Exercises', 10);
+    await page.$eval('#app [data-action="edit-ex"]', (e) => e.click()); await page.waitForSelector('#ex-form'); await longStep(page, 'Edit exercise (sheet)'); await page.$eval('#sheet .sheet-title [data-action="sheet-close"]', (e) => e.click());
+    await tabTo(page, 'history'); await longStep(page, 'History: review, workouts', 10);
+    const pick = await page.evaluate(() => { const o = [...document.querySelectorAll('select[data-field="chart-ex"] option')].filter((x) => x.value); return o.length ? o[0].value : null; });
+    await page.selectOption('select[data-field="chart-ex"]', pick); await longStep(page, 'History with an exercise\'s chart', 10);
+    const wid = await page.evaluate(() => window.__overload.state.workouts.filter((w) => w.finishedAt && w.cardio && w.cardio.done).concat(window.__overload.state.workouts.filter((w) => w.finishedAt))[0].id);
+    await page.$eval('#app [data-action="view-workout"][data-w="' + wid + '"]', (e) => e.click()); await page.waitForSelector('#sheet:not([hidden])'); await longStep(page, 'a past workout (sheet), with its cardio', 3);
+    await page.$eval('#sheet [data-action="edit-workout"]', (e) => e.click()); await page.waitForSelector('#edit-workout-form'); await longStep(page, 'Edit sets (sheet)', 2); await page.$eval('#sheet .sheet-title [data-action="sheet-close"]', (e) => e.click());
+    await tabTo(page, 'settings'); await fakeSync(page, LONG_EMAIL);
+    await page.evaluate(() => window.__overload.setSyncStatus('synced', 'Synced 12:59 PM')); await longStep(page, 'Settings > Cloud sync, a 60-character email beside "Synced 12:59 PM"');
+    await page.evaluate(() => window.__overload.toast('New PR: ' + window.__overload.state.exercises[0].name)); await page.waitForSelector('#toast:not([hidden])');
+    await longStep(page, 'the toast, with an exercise\'s name');
+    errors(name, phone); await phone.close();
+  }
+  {
+    const { phone, page } = await phoneWith(browser, server, active, { mod: longNames, width: 320 });
+    await longStep(page, 'a workout in progress, with its cardio card', 5);
+    await page.$eval('[data-action="swap-entry"]', (e) => e.click()); await page.waitForSelector('#sheet:not([hidden])'); await longStep(page, 'Swap exercise (sheet)', 10); await page.$eval('#sheet .sheet-title [data-action="sheet-close"]', (e) => e.click());
+    errors(name + ', workout', phone); await phone.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tabular figures in rows (look#14)
+// ---------------------------------------------------------------------------
+// The pure numbers on screen (a PR count, "56%"), found as the look reviewer's sweep finds them, that are drawn with
+// proportional figures.
+const figureFacts = (page, scope) => page.evaluate((sel) => {
+  const root = document.querySelector(sel), prop = [];
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let t = w.nextNode(); t; t = w.nextNode()) {
+    const txt = t.nodeValue.trim(), el = t.parentElement;
+    if (!/^[+\-−–]?[\d.,:]*\d[\d.,:]*%?$/.test(txt) || el.closest('svg, .sr, [hidden]') || !el.getClientRects().length) continue;
+    if (!/tabular-nums/.test(getComputedStyle(el).fontVariantNumeric)) prop.push('"' + txt + '" in ' + el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ').join('.') : '') + ' < ' + el.parentElement.className);
+  }
+  return { prop };
+}, scope);
+async function rowFigures(browser, server) {
+  const name = 'tabular figures in rows (look#14)';
+  const { phone, page } = await phoneWith(browser, server, heavy);
+  await lib.openTab(page, 'history');
+  await run.step(name, 'History: every number that stands alone (the PR counts, the recovery average) has tabular figures', async () => {
+    const f = await figureFacts(page, '#app');
+    need(!f.prop.length, f.prop.length + ' with proportional figures: ' + [...new Set(f.prop)].slice(0, 6).join(', '));
+    const prs = await page.evaluate(() => [...document.querySelectorAll('#app [data-action="view-workout"] .sub .nowrap')].filter((s) => s.querySelector('.ic') && /^\s*\d+$/.test(s.textContent.replace(/[^\d\s]/g, ''))).length);
+    need(prs >= 5, 'only ' + prs + ' PR counts on screen');
+    return prs + ' rows with a PR count';
+  });
+  await run.step(name, 'History: a past workout\'s facts line (date, counts, time, PRs) has tabular figures, and "Nov 11" is as wide as "Nov 20"', async () => {
+    const f = await page.evaluate(() => {
+      const subs = [...document.querySelectorAll('#app [data-action="view-workout"] .sub')];
+      const firsts = subs.map((s) => s.querySelector('.nowrap')).filter(Boolean);
+      const width = (re) => { const el = firsts.find((x) => re.test(x.textContent)); if (!el) return null; const r = document.createRange(); r.selectNodeContents(el.firstChild); const t = el.firstChild.nodeValue; const m = re.exec(t); r.setStart(el.firstChild, m.index); r.setEnd(el.firstChild, m.index + m[0].length); return r.getBoundingClientRect().width; };
+      return { fonts: [...new Set(subs.map((s) => getComputedStyle(s).fontVariantNumeric))], w11: width(/\b11\b/), w20: width(/\b20\b/), rows: subs.length };
+    });
+    same(f.fonts, ['tabular-nums'], 'font-variant-numeric of the facts lines');
+    need(f.w11 != null && f.w20 != null, 'no "11" and "20" among the dates');
+    need(Math.abs(f.w11 - f.w20) < 0.5, '"11" is ' + f.w11.toFixed(1) + ' px, "20" is ' + f.w20.toFixed(1) + ' px');
+    return f.rows + ' rows; "11" ' + f.w11.toFixed(1) + ' px, "20" ' + f.w20.toFixed(1) + ' px';
+  });
+  await run.step(name, 'a past workout (sheet) and Edit sets: the set list (Set 1, Set 2 …, the weights) has tabular figures', async () => {
+    const wid = await page.evaluate(() => { const ws = window.__overload.state.workouts.filter((w) => w.finishedAt); return ws.sort((a, b) => b.entries.filter((e) => e.prs && e.prs.length).length - a.entries.filter((e) => e.prs && e.prs.length).length)[0].id; });
+    await page.click('#app [data-action="view-workout"][data-w="' + wid + '"]'); await page.waitForSelector('#sheet:not([hidden]) .hist-set');
+    const a = await page.evaluate(() => [...new Set([...document.querySelectorAll('#sheet .hist-set > span')].map((s) => getComputedStyle(s).fontVariantNumeric))]);
+    const f = await figureFacts(page, '#sheet-panel');
+    await page.click('#sheet [data-action="edit-workout"]'); await page.waitForSelector('#edit-workout-form .set-lbl');
+    const b = await page.evaluate(() => [...new Set([...document.querySelectorAll('#sheet .set-lbl')].map((s) => getComputedStyle(s).fontVariantNumeric))]);
+    await T.closeSheet(page);
+    same(a, ['tabular-nums'], 'font-variant-numeric of the set rows (label and numbers)');
+    same(b, ['tabular-nums'], 'font-variant-numeric of Edit sets\' "Set 1", "Set 2" …');
+    need(!f.prop.length, f.prop.length + ' numbers with proportional figures in the sheet: ' + f.prop.slice(0, 4).join(', '));
+  });
+  errors(name, phone); await phone.close();
+}
+
 async function calendar(browser, server) {
   const name = 'calendar figures (look#10)';
   const { phone, page } = await phoneWith(browser, server, heavy);
@@ -427,6 +656,9 @@ async function calendar(browser, server) {
     await names(browser, server);
     await liveAndTabs(browser, server);
     await focusClear(browser, server);
+    await sheetEdgesFocus(browser, server);
+    await longTexts(browser, server);
+    await rowFigures(browser, server);
     await calendar(browser, server);
   } catch (e) {
     run.say(false, 'train-look', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' '));

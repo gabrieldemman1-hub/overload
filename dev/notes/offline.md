@@ -745,7 +745,8 @@ missing, and its answer is then stored as before. The copies the install stored 
 files for the whole release: the server, which ignores `?v=`, cannot replace them with the next release's once
 that is published (O1). Pages, files without `?v=`, the food list under `?db=` (Fuel) and the Firebase SDK stay
 network-first, with the stored copy after `NET_WAIT` (3 s) or on an error, as in section 1.5. Consequence: a
-change pushed without a new release number never reaches a phone that has the release.
+change pushed without a new release number never reaches a phone that has the release (corrected in section 12:
+the changed page does, and runs with the old copies of the other files).
 
 **Install.** Still all or nothing (1.3). Beside `pageFits` for the two page entries, it reads the release marker
 of the main script and refuses the install unless the marker is there exactly once and names this release:
@@ -861,3 +862,51 @@ phones 1, 3, 5 and 6, `train-sync.js`, `fuel-sync.js` and the other cloud tests.
 
 Not covered, as before: WebKit on an iPhone (whether it stops a worker mid-install, its caches), and how long
 GitHub Pages' edges hand out old files.
+
+## 12. Review round 4 (release: rel#1 to rel#6)
+
+Run by `tests/train-bump.js`, `tests/train-release.js` (sections v28, preload, line), `tests/fuel-release.js`
+(preload, line) and `tests/train-mixed.js` (sync28).
+
+**A change under the published release** (rel#1). Section 10 said such a change never reaches a phone. The page
+does: it is network first and stored whenever it names the release (`pageFits`), while every `?v=` file stays the
+stored copy. So the phone ran the new page with the old scripts and stylesheets, also offline, for the whole
+release; two branches that each ran `sh bump.sh 3.1` merge cleanly and lead there too. `bump.sh` (check 5) now
+reads the published release (`VERSION` in `origin/main`'s `overload.js`); when it is the tree's, every page and
+every `?v=` file in the install list of a worker that was published must equal its published copy, or the check
+fails naming the file and the next number. Skipped where the worker comparison is skipped. Files without `?v=`
+(icons, manifest, food list, barcode reader) are left out: they are network first, so a change reaches phones.
+
+**Not in git, not published** (rel#3). In a git repository (run from its root) the check fails for a file of an
+install list, a page or a worker that git does not track, and names files with changes not committed yet in a
+warning (not a failure).
+
+**2.8's worker in charge** (rel#2, rel#6). During the first starts of 3.0 on a phone that had 2.8, 2.8's worker
+(network first, checks nothing) hands out whatever the server has. For the names both releases use, the 3.0 page
+could run 2.8's `backup.js`, `connector.js` and `sync.js`; `programs.js` differs only in its first line, the
+stylesheets and `shared/icons.js` are new names, and `fuel/` has no 2.8 files. `backup.js` and `connector.js` now
+carry `release: '3.0'` (set and checked by `bump.sh`, like `sync.js`'s), and `overload.js` uses a helper module
+only when it names `VERSION` (`part`): otherwise no automatic copies (Remove, Reset, Import and Restore refuse, as
+without `backup.js`), no WHOOP or Reminders card, and the cloud card says sync is not available. A sync module of
+another release is given nothing: the host's `unreadable` is true beside one, so 2.8's `link()` and `push()`
+return at once (it had brought an old food log removed on 3.0 back onto the phone: `sync.md` 3.3). The page's
+load handler asks `window.__overload.otherParts()` and shows the line "Part of Overload did not load, so some of
+it may not work." for any of them. 2.8's `connector.js`, once it has run, still reacts to saves and returns to the
+app (WHOOP nights, its reminder times with the food reminder) until 3.0 has taken over.
+
+**The line at the top** (rel#5) hides nothing, below the status bar. With `shared/ui.css` the top bar is fixed at
+the top, so the line is fixed there too and takes the place of the status bar's strip: its padding starts with
+`env(safe-area-inset-top)`, and the page sets `--safe-top` to its height, which moves the bar, the screen, the
+save warning, the toasts and the sheets down by it (on resize too). Without the stylesheet the line is the first
+thing on the page and pushes the rest down. Checked at 390 and 320 px, dark and light, with a 47 px inset
+emulated (`Emulation.setSafeAreaInsetsOverride`), with a script missing, without the app's stylesheet and without
+any: the line overlaps nothing of the top bar, the screen or the tab bar.
+
+**The sealed browser runs without `ServiceWorkerAutoPreload`** (rel#4). That Chromium feature answers the first
+navigation after a stopped worker starts again from the HTTP cache, where a failed install's `cache: 'reload'`
+fetch has just put the next release's page; WebKit asks the worker. A test that stops workers over CDP now sees
+the stored page, as a phone does. `lib.coldPage` skips the HTTP cache, which also hid the difference, so the
+preload checks start an ordinary page.
+
+Not covered: WebKit and a real notch; a phone with no worker at all (a Safari tab) meeting a stale `fuel/`
+file of another 3.x release, since only Overload's helper modules name a release the page reads.

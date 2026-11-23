@@ -22,6 +22,14 @@
  *   - --check fails when sw.js or fuel/sw.js differs from the published one (origin/main) but keeps its cache
  *     name, and passes once sh bump.sh moved it on; a worker new since then, and a tree without git, are not
  *     compared (final review, upgrade#3). Those checks run in throw-away git repositories made here.
+ *   - round 4, rel#1: under the published release (origin/main's VERSION is the tree's), --check fails naming each
+ *     page and each file with ?v= that differs from its published copy (both apps; also after two branches that
+ *     each ran sh bump.sh 3.1 merge cleanly), and passes once sh bump.sh moved the release on;
+ *   - round 4, rel#3: in a git repository, --check and sh bump.sh fail naming a file of an install list, a page
+ *     or a worker that git does not track, and pass once it is added; files with changes not committed yet are
+ *     named in a warning, which does not fail;
+ *   - round 4, rel#2: sh bump.sh sets  release: '…'  in backup.js and connector.js too, and --check fails when it
+ *     names another release or is there more than once (overload.js uses neither module of another release).
  *   --tree=DIR   the tree to copy. Default: the repo this file is in.
  * No server, no browser: --port is accepted and ignored, like the other tests' runner passes it.
  * Prints one PASS or FAIL line per check; exit code 1 when a check failed.
@@ -94,11 +102,12 @@ function releaseOf(dir) {
     version: (/const VERSION = '([^']*)'/.exec(read(dir, MAIN)) || [])[1],
     fuel: (/const VERSION = '([^']*)'/.exec(read(dir, 'fuel/fuel.js')) || [])[1],
     sync: (/^\s*release: '([^']*)'/m.exec(read(dir, 'sync.js')) || [])[1],
+    helpers: ['backup.js', 'connector.js'].map((f) => f + ':' + ((/^\s*release: '([^']*)'/m.exec(read(dir, f)) || [])[1] || '')),
     caches: [(/const CACHE = '([^']+)'/.exec(read(dir, 'sw.js')) || [])[1], (/const CACHE = '([^']+)'/.exec(read(dir, 'fuel/sw.js')) || [])[1]],
     marks: MARKED.map((f) => f + ':' + ((/^\/\* release (\S+) /m.exec(read(dir, f)) || [])[1] || '') + 'x' + (read(dir, f).split('/* release ').length - 1))
   };
 }
-const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', 'fuel/sw.js'].map((f) => f + ':' + v), version: v, fuel: v, sync: v, caches, marks: MARKED.map((f) => f + ':' + v + 'x1') });
+const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', 'fuel/sw.js'].map((f) => f + ':' + v), version: v, fuel: v, sync: v, helpers: ['backup.js:' + v, 'connector.js:' + v], caches, marks: MARKED.map((f) => f + ':' + v + 'x1') });
 
 (async () => {
   console.log('# tree: ' + TREE + (TREE === lib.REPO ? ' (the working tree)' : ' (a copy)') + '; main script ' + MAIN + '; shells: ' + SHELLS.map((s) => s.join(' ')).join(', '));
@@ -192,7 +201,7 @@ const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', '
 
     await step('--check fails when the words the workers read the release by are not there exactly once', async () => {
       const out = [];
-      for (const [f, extra] of [[MAIN, "\n// const VERSION = '3.0' (an example in a comment)\n"], ['sync.js', "\n// release: '3.0'\n"], ['fuel/fuel.js', "\n// const VERSION = '3.0'\n"]]) {
+      for (const [f, extra] of [[MAIN, "\n// const VERSION = '3.0' (an example in a comment)\n"], ['sync.js', "\n// release: '3.0'\n"], ['fuel/fuel.js', "\n// const VERSION = '3.0'\n"], ['backup.js', "\n// release: '3.0'\n"], ['connector.js', "\n// release: '3.0'\n"]]) {
         const dir = copy();
         fs.appendFileSync(path.join(dir, f), extra);
         const r = bump(shell, dir, ['--check']);
@@ -247,9 +256,10 @@ const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', '
     await step('--check does not compare a worker that is new since the published release, nor a tree without git', async () => {
       if (!HAVE_GIT) return 'skipped: no git here';
       let saved = null;
-      const { dir } = gitCopy((d) => { saved = read(d, 'fuel/sw.js'); fs.rmSync(path.join(d, 'fuel/sw.js')); });
+      const { dir, git } = gitCopy((d) => { saved = read(d, 'fuel/sw.js'); fs.rmSync(path.join(d, 'fuel/sw.js')); });
       fs.writeFileSync(path.join(dir, 'fuel/sw.js'), saved.split('foods.json?db=5').join('foods.json?db=6'));
       fs.writeFileSync(path.join(dir, 'fuel/food.js'), read(dir, 'fuel/food.js').split('foods.json?db=5').join('foods.json?db=6'));
+      git('add', '-A'); git('commit', '-q', '-m', 'the diet app\'s worker, not published yet');   // in git (rel#3), new since origin/main
       let r = bump(shell, dir, ['--check']);
       need(r.code === 0, 'fuel/sw.js new since the published release: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-2).join(' / '));
       const plain = copy();
@@ -264,6 +274,99 @@ const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', '
       const r = bump(shell, dir, ['--check']);
       need(r.code === 1 && /sync\.js says release '2\.8'/.test(r.out), 'exit ' + r.code + ': ' + r.out.trim().split('\n').pop());
       return r.out.trim().split('\n')[0].slice(0, 100);
+    });
+
+    // Round 4, rel#2: overload.js uses no backup.js or connector.js of another release, so each names its own.
+    await step('--check fails when backup.js or connector.js says another release than VERSION, or none (rel#2)', async () => {
+      const out = [];
+      for (const [f, change, why] of [
+        ['backup.js', (t) => t.replace(/^(\s*release: ')[^']*'/m, "$12.8'"), /backup\.js says release '2\.8'/],
+        ['connector.js', (t) => t.replace(/^\s*release: '[^']*',[^\n]*\n/m, ''), /connector\.js says release ''/]
+      ]) {
+        const dir = copy();
+        fs.writeFileSync(path.join(dir, f), change(read(dir, f)));
+        const r = bump(shell, dir, ['--check']);
+        need(r.code === 1 && why.test(r.out), f + ': exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-2).join(' / '));
+        out.push(f);
+      }
+      return out.join(', ') + ' each refused';
+    });
+
+    // Round 4, rel#1: a change published under the release phones already have.
+    await step('--check fails naming each page and ?v= file changed under the published release (Overload, then Fuel), and passes after sh bump.sh 3.1 (rel#1)', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const { dir, git } = gitCopy();
+      fs.writeFileSync(path.join(dir, 'index.html'), read(dir, 'index.html').replace('<main id="app" class="screen"></main>', '<main id="app" class="screen"></main><p hidden>new</p>'));
+      fs.appendFileSync(path.join(dir, MAIN), '\nwindow.__changed = true;\n');
+      fs.appendFileSync(path.join(dir, 'train.css'), '\n:root { --changed: 1; }\n');
+      const named = (out, files) => files.filter((f) => !new RegExp(f.replace(/[./]/g, '\\$&') + ' changed but the release is still 3\\.0: phones (keep the old copy|run it with their old copies of the other files)\\. Run sh bump\\.sh 3\\.1').test(out));
+      let r = bump(shell, dir, ['--check']);
+      need(r.code === 1 && !named(r.out, ['index.html', MAIN, 'train.css']).length, 'not committed: exit ' + r.code + '; not named: ' + named(r.out, ['index.html', MAIN, 'train.css']).join(', ') + ' / ' + r.out.trim().split('\n').slice(-3).join(' / '));
+      git('commit', '-q', '-am', 'a change without a new release');
+      r = bump(shell, dir, ['--check']);
+      need(r.code === 1 && !named(r.out, ['index.html', MAIN, 'train.css']).length, 'committed: exit ' + r.code);
+      need(!/programs\.js changed|sync\.js changed|backup\.js changed/.test(r.out), 'a file that did not change was named: ' + r.out.trim());
+      r = bump(shell, dir, ['3.1']);
+      need(r.code === 0, 'sh bump.sh 3.1: exit ' + r.code + ' ' + r.out.trim().split('\n').pop());
+      const fuel = gitCopy();
+      fs.writeFileSync(path.join(fuel.dir, 'fuel/index.html'), read(fuel.dir, 'fuel/index.html').replace('<main id="app" class="screen"></main>', '<main id="app" class="screen"></main><p hidden>new</p>'));
+      fs.appendFileSync(path.join(fuel.dir, 'fuel/fuel.js'), '\nwindow.__changed = true;\n');
+      fs.appendFileSync(path.join(fuel.dir, 'shared/ui.css'), '\n:root { --changed: 1; }\n');
+      r = bump(shell, fuel.dir, ['--check']);
+      need(r.code === 1 && !named(r.out, ['fuel/index.html', 'fuel/fuel.js', 'shared/ui.css']).length, 'Fuel: exit ' + r.code + '; not named: ' + named(r.out, ['fuel/index.html', 'fuel/fuel.js', 'shared/ui.css']).join(', '));
+      return 'index.html, ' + MAIN + ', train.css named; then fuel/index.html, fuel/fuel.js, shared/ui.css; sh bump.sh 3.1 passes';
+    });
+
+    await step('--check fails after two branches that each ran sh bump.sh 3.1 merge cleanly, naming the file the second one changed (rel#1)', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const { dir, git } = gitCopy();
+      const main = git('symbolic-ref', '--short', 'HEAD').trim();
+      git('branch', '-q', 'feat-b');
+      need(bump(shell, dir, ['3.1']).code === 0, 'branch A: sh bump.sh 3.1 was refused');
+      fs.appendFileSync(path.join(dir, 'programs.js'), '\n/* A */\n');
+      git('commit', '-q', '-am', 'A'); git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      git('checkout', '-q', 'feat-b');
+      const atB = bump(shell, dir, ['3.1']);   // 3.1 is published already: even here it says to take the next one
+      need(atB.code === 1 && /programs\.js changed but the release is still 3\.1/.test(atB.out), 'sh bump.sh 3.1 on branch B, after A published 3.1: exit ' + atB.code);
+      fs.appendFileSync(path.join(dir, 'train.css'), '\n/* B */\n');
+      git('commit', '-q', '-am', 'B');
+      git('checkout', '-q', main); git('merge', '-q', '--no-edit', 'feat-b');
+      need(spawnSync('sh', ['-c', 'git show origin/main:sw.js | cmp -s - sw.js'], { cwd: dir }).status === 0, 'sw.js after the merge is not the published one: the test lost its point');
+      const r = bump(shell, dir, ['--check']);
+      need(r.code === 1 && /train\.css changed but the release is still 3\.1: phones keep the old copy\. Run sh bump\.sh 3\.2/.test(r.out) && !/programs\.js changed/.test(r.out), 'after the merge: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-3).join(' / '));
+      return 'train.css named; sw.js byte-identical to the published one';
+    });
+
+    // Round 4, rel#3: what git does not have, GitHub Pages does not publish.
+    await step('--check and sh bump.sh fail naming a new script, a page or a worker that is not in git; a file not committed yet is only a warning (rel#3)', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const { dir, git } = gitCopy();
+      fs.writeFileSync(path.join(dir, 'stats.js'), '/* release 3.0 (bump.sh sets this line; …) */\nwindow.__stats = 1;\n');
+      fs.writeFileSync(path.join(dir, 'sw.js'), read(dir, 'sw.js').replace("  './connector.js?v=3.0',\n", "  './connector.js?v=3.0',\n  './stats.js?v=3.0',\n"));
+      fs.writeFileSync(path.join(dir, 'index.html'), read(dir, 'index.html').replace('  <script src="./connector.js?v=3.0"></script>\n', '  <script src="./connector.js?v=3.0"></script>\n  <script src="./stats.js?v=3.0"></script>\n'));
+      need(/stats\.js\?v=3\.0/.test(read(dir, 'sw.js')) && /stats\.js\?v=3\.0/.test(read(dir, 'index.html')), 'set-up: stats.js is not in the install list and the page');
+      const NOT = /stats\.js is not in git: the published site would not have it\. git add it/;
+      let r = bump(shell, dir, ['3.1']);
+      need(r.code === 1 && NOT.test(r.out), 'sh bump.sh 3.1: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-3).join(' / '));
+      git('commit', '-q', '-am', '3.1');   // 'git commit -a' leaves the new file out
+      r = bump(shell, dir, ['--check']);
+      need(r.code === 1 && NOT.test(r.out), '--check after git commit -am: exit ' + r.code);
+      git('add', 'stats.js'); git('commit', '-q', '-m', 'stats.js');
+      r = bump(shell, dir, ['--check']);
+      need(r.code === 0 && !/warning/.test(r.out), '--check after git add: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-2).join(' / '));
+      // A page and a worker that git does not track (removed from the index, still on disk).
+      const other = gitCopy();
+      other.git('rm', '-q', '--cached', 'fuel/index.html', 'fuel/sw.js'); other.git('commit', '-q', '-m', 'untracked');
+      r = bump(shell, other.dir, ['--check']);
+      need(r.code === 1 && /fuel\/index\.html is not in git/.test(r.out) && /fuel\/sw\.js is not in git/.test(r.out), 'page and worker not tracked: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-3).join(' / '));
+      // Changes not committed yet, on a release that is not the published one: named, and only a warning.
+      const third = gitCopy();
+      need(bump(shell, third.dir, ['3.1']).code === 0, 'sh bump.sh 3.1 was refused');
+      third.git('commit', '-q', '-am', '3.1');
+      fs.appendFileSync(path.join(third.dir, 'train.css'), '\n/* not committed */\n');
+      r = bump(shell, third.dir, ['--check']);
+      need(r.code === 0 && /warning: not committed yet: train\.css\. Commit them before you push\./.test(r.out), 'uncommitted train.css: exit ' + r.code + ' ' + r.out.trim());
+      return 'stats.js refused by sh bump.sh 3.1 and --check until git add; fuel/index.html and fuel/sw.js refused; train.css not committed: a warning';
     });
   }
   run.done();

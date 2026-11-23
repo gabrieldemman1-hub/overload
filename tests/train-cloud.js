@@ -27,6 +27,10 @@
  *     signed in (review finding sync#2): Reset, Import and Restore say the account changes too ("your account":
  *     the note holds no email), keep the note, and the next start with the module sends them to the account and
  *     the other phone. Before, the note was removed and the next start brought the account's data back.
+ *   - Signed in, but the first link has not read the account yet (its read from the server fails; review finding
+ *     sync#6): Reset, Import and Restore ask nothing, change nothing, and a toast says to try again once it says
+ *     Synced. Once the read works, they ask as before and reach the account. A phone that linked before is not held
+ *     up, also on a start without signal: Import, Restore and Reset made then go up once it is online.
  *   - Signed out (the sign-out question says what a sign-in afterwards does): what is logged while signed out is
  *     sent at the next sign-in; a Reset done while signed out, also on a start without the sync module, is not:
  *     signing in again brings back what the account holds.
@@ -370,8 +374,125 @@ async function beforeSyncLoads(browser) {
   T.removeDir(tmp);
 }
 
+// Review finding sync#6: signed in, but the first link has not read the account yet (its read from the server fails:
+// "Could not reach the cloud. Nothing was uploaded; retrying."). Reset, Import and Restore do not start: no question,
+// a toast says why, nothing changes (before, they went ahead and the link then merged the account's data back over
+// them, the account unchanged). Once the read works and the card says Synced, they work and reach the account. A
+// phone that linked before (it has a note) is not held up, also when it starts without signal.
+async function firstLinkPending(browser) {
+  const name = 'first link not done', step = (title, fn) => run.step(name, title, fn);
+  const world = { browser, cloud: createCloud(), phones: [] }, cloud = world.cloud;
+  const tmp = T.tempDir('overload-cloud-');
+  const A = await makePhone(world, 'A', true), C = await makePhone(world, 'C', false);
+  await A.open(); await A.ev(([e, p]) => window.__overloadSync.createAccount(e, p), [EMAIL, PASSWORD]); await settle(world);
+  const nW = cloud.paths(WORKOUTS).length;
+  // C's reads from the server itself (getDocFromServer, getDocsFromServer) answer 'unavailable' while `on`; sign-in
+  // and the listeners are not touched (as the verifier's a1-first-link-pending.js).
+  const failReads = (phone, on) => phone.ev((x) => {
+    if (!window.__origFake) {
+      const orig = window.__origFake = window.__fakeFirebase;
+      window.__fakeFirebase = (op, p) => (window.__failGet && op === 'fs.server' && p && p.via === 'get' ? Promise.resolve({ error: 'unavailable', rev: 0 }) : orig(op, p));
+    }
+    window.__failGet = x;
+  }, on);
+  const SAYS = 'Cloud sync is still reading your account. Try again once it says Synced.';
+  const quiet = (phone) => phone.ev(() => { const t = document.querySelector('#toast'); t.hidden = true; t.textContent = ''; });
+  const file = JSON.parse(fx.text); file.settings.restSec = 333; file.program.days[0].name = 'From the backup'; file.workouts = file.workouts.slice(0, 1);
+  const filePath = T.writeFile(tmp, 'overload-backup-2026-11-01.json', JSON.stringify(file));
+  const program = (s) => s.program.days[0].name;
+  await step('signed in while the first read from the server fails: Import, Reset and Restore ask nothing, change nothing, and a toast says why', async () => {
+    await C.open(); await failReads(C, true);
+    await C.ev(([e, p]) => window.__overloadSync.signIn(e, p), [EMAIL, PASSWORD]); await settle(world);
+    const st = await C.ev(() => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, error: window.__overloadSync.error, note: localStorage.getItem('overload.sync.v1') }));
+    need(st.user && /Could not reach the cloud/.test(st.error) && !st.note, 'C after signing in: ' + JSON.stringify(st));
+    await C.ev((t) => window.__overloadBackup.take('import', t), JSON.stringify(file));   // a copy in C's Automatic copies
+    const before = JSON.stringify(await C.live());
+    await lib.openTab(C.page, 'settings');
+    await C.page.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+    C.page.dialogs.length = 0;
+    let chooser = 0; const onChooser = () => { chooser++; };
+    C.page.on('filechooser', onChooser);
+    const said = [];
+    for (const [what, act] of [
+      ['Import JSON', () => C.page.click('[data-action="import"]')],
+      ['a backup file given to Import', () => C.page.setInputFiles('#import-file', filePath)],
+      ['Reset all data', () => C.page.click('[data-action="reset"]')],
+      ['Restore', () => C.page.click('[data-action="restore-copy"][data-id="before-import"]')]
+    ]) {
+      await quiet(C); await act();
+      said.push(what + ': ' + await T.toast(C.page, /still reading/).catch(() => 'no such toast'));
+    }
+    await settle(world);
+    C.page.off('filechooser', onChooser);
+    need(!C.page.dialogs.length, 'questions were asked: ' + C.page.dialogs.join(' / ').replace(/\n/g, ' | ').slice(0, 200));
+    need(JSON.stringify(await C.live()) === before, 'C\'s data changed');
+    need(said.every((t) => t.endsWith(': ' + SAYS)), 'the toasts: ' + said.join(' | '));
+    need(!chooser, 'Import opened the file picker');
+    need(cloud.writes({ who: 'C' }).length === 0, 'C wrote to the account: ' + brief(cloud.writes({ who: 'C' })));
+    need(await C.ev(() => window.__overloadSync.linked === false), 'sync.js does not say it has not read the account yet (linked)');
+    return SAYS;
+  });
+  await step('the read works (Sync now): C links, the card says Synced, and Import then asks, works and reaches the account', async () => {
+    await failReads(C, false);
+    await lib.openTab(C.page, 'settings');
+    await C.page.click('[data-action="cloud-push"]'); await settle(world);
+    const st = await C.ev(() => ({ linked: window.__overloadSync.linked, status: (document.querySelector('#cloud-status') || {}).textContent }));
+    need(st.linked !== false && /^Synced/.test(st.status), 'C: ' + JSON.stringify(st));
+    need((await C.live()).workouts.length === nW, 'C does not hold the account\'s ' + nW + ' workouts');
+    C.page.dialogs.length = 0;
+    await C.page.setInputFiles('#import-file', filePath);
+    await C.page.waitForFunction(() => window.__overload.state.settings.restSec === 333, null, { timeout: 8000 });
+    need(C.page.dialogs.length === 1 && C.page.dialogs[0].endsWith(T.cloudTail('replaced', 'the backup', EMAIL)), 'the question reads: ' + C.page.dialogs.join(' / ').replace(/\n/g, ' | '));
+    await settle(world);
+    const c = core(cloud), a = await A.live(), b = await C.live();
+    need([c, a, b].every((s) => s.settings.restSec === 333 && program(s) === 'From the backup'), 'the backup\'s rest time and program (account, A, C): ' + [c, a, b].map((s) => s.settings.restSec + ' "' + program(s) + '"').join(', '));
+    need(cloud.paths(WORKOUTS).length === 1 && a.workouts.length === 1 && b.workouts.length === 1, 'the backup\'s one workout (account, A, C): ' + [cloud.paths(WORKOUTS).length, a.workouts.length, b.workouts.length].join(', '));
+    return 'restSec 333, "From the backup", 1 workout everywhere';
+  });
+  await step('a phone that linked before, started without signal, is not held up: Import, Restore and Reset ask as before and go up once it is online', async () => {
+    const offline = async () => {
+      await A.page.close(); await A.device.setOffline(true); await A.open();
+      await A.page.waitForFunction(() => !!window.__overloadSync.user, null, { timeout: 5000 });
+      need(await A.ev(() => window.__overloadSync.linked !== false), 'A counts as not linked on a start without signal');
+    };
+    const online = async () => { await A.device.setOffline(false); await settle(world); };
+    await offline();
+    const f2 = JSON.parse(fx.text); f2.settings.restSec = 444; f2.program.days[0].name = 'Offline import';
+    A.page.dialogs.length = 0;
+    await lib.openTab(A.page, 'settings');
+    await A.page.setInputFiles('#import-file', T.writeFile(tmp, 'overload-backup-2026-11-02.json', JSON.stringify(f2)));
+    await A.page.waitForFunction(() => window.__overload.state.settings.restSec === 444, null, { timeout: 8000 });
+    need(A.page.dialogs.length === 1 && A.page.dialogs[0].endsWith(T.cloudTail('replaced', 'the backup', EMAIL)), 'Import, the question reads: ' + A.page.dialogs.join(' / ').replace(/\n/g, ' | '));
+    await online();
+    need([core(cloud), await C.live()].every((s) => s.settings.restSec === 444 && program(s) === 'Offline import'), 'the import made offline did not reach the account and C');
+    await offline();
+    const f3 = JSON.parse(fx.text); f3.settings.restSec = 555; f3.program.days[0].name = 'Offline restore';
+    await A.ev((t) => window.__overloadBackup.take('import', t), JSON.stringify(f3));
+    A.page.dialogs.length = 0;
+    await lib.openTab(A.page, 'today'); await lib.openTab(A.page, 'settings');
+    await A.page.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+    await A.page.click('[data-action="restore-copy"][data-id="before-import"]');
+    await A.page.waitForFunction(() => window.__overload.state.settings.restSec === 555, null, { timeout: 8000 });
+    need(A.page.dialogs.length === 1 && A.page.dialogs[0].endsWith(T.cloudTail('replaced', 'the copy', EMAIL)), 'Restore, the question reads: ' + A.page.dialogs.join(' / ').replace(/\n/g, ' | '));
+    await online();
+    need([core(cloud), await C.live()].every((s) => s.settings.restSec === 555 && program(s) === 'Offline restore'), 'the restore made offline did not reach the account and C');
+    await offline();
+    const q = await reset(A);
+    need(q[0].endsWith(T.cloudTail('erased', null, EMAIL)), 'Reset, the question reads: ' + q[0].replace(/\n/g, ' | '));
+    await online();
+    const n = await counts(cloud, A, C);
+    need(n.account.join() === '0,0,0' && n.A.join() === '0,0,0' && n.B.join() === '0,0,0', 'the reset made offline: ' + show(n));
+    return 'Import, Restore, Reset offline: asked with the account, and in the account once online';
+  });
+  const probs = world.phones.reduce((l, p) => l.concat(p.problems()), []);
+  run.say(!probs.length, name, 'no page errors, no console errors', probs.join(' | ').slice(0, 400));
+  for (const p of world.phones) await p.close();
+  T.removeDir(tmp);
+}
+
 // Review finding look#1: the sign-out question says what a sign-in afterwards does, and it is true. Also on a start
-// without the sync module after signing out: the phone knows it signed out (overload.backup's signedOut).
+// without the sync module after signing out: the phone knows it signed out (the note's signed-out form, since review
+// round 4; a sign-in made on v2.8 ends that form, tests/train-sync.js run 'signin').
 async function signedOut(browser) {
   const name = 'signed out', step = (title, fn) => run.step(name, title, fn);
   const world = { browser, cloud: createCloud(), phones: [] }, cloud = world.cloud;
@@ -456,6 +577,7 @@ async function unreadableFresh(browser) {
     await resetTwoPhones(browser);
     await restoreTwoPhones(browser);
     await beforeSyncLoads(browser);
+    await firstLinkPending(browser);
     await signedOut(browser);
     await unreadableFresh(browser);
   } finally { await browser.close(); }

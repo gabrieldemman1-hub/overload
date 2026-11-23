@@ -3,7 +3,7 @@
  * upgrade#1 to #5 of the final review (dev/notes/review-findings.md has the earlier rounds) and the sync module
  * item of the code review's list.
  *
- *   node tests/train-release.js [--tree=<folder>] [--port=8960] [--only=stale|v28|page|cache|half|sync]
+ *   node tests/train-release.js [--tree=<folder>] [--port=8960] [--only=stale|v28|page|cache|half|sync|preload|line] [--shots=<folder>]
  *
  * Real service workers in a sealed Chromium (tests/lib.js: no Playwright routing, which makes Chromium install the
  * same worker again at every update check; the browser itself stops every host but 127.0.0.1). The server is
@@ -19,6 +19,9 @@
  *   v28    (upgrade#1) v2.8 installed; 3.0 published while an edge has v2.8's backup.js and connector.js (names both
  *          releases use): the 3.0 install is refused, v2.8 starts with no signal; once the edge is right 3.0 installs
  *          with its own copies, and two removals of the old food log keep two safety copies (U3 stays fixed).
+ *          Round 4, rel#2: a start meanwhile, under v2.8's worker (which checks nothing), runs the 3.0 page with those
+ *          stale files: overload.js uses neither (no automatic copies, no connector cards), Remove keeps the food log,
+ *          the line at the top says part did not load; the split copy, taken once 3.0 runs whole, is v2.8's text.
  *   page   (upgrade#2) 3.1 installed whole; a start that gets 3.0's page from a stale edge runs the stored 3.1 page;
  *          a 3.2 page that arrives before its worker is shown and not stored.
  *   cache  (upgrade#3) sw.js changed without a new cache name; its install fails on one file: overload-v24 stays,
@@ -30,6 +33,13 @@
  *          install of another release deletes it, even when that install fails.
  *   sync   (code review, not checked) the 3.1 page whose overload.js fails but whose sync.js ran: the rescue starts
  *          3.0 without running a second sync module; when sync.js failed too, 3.0's sync.js is run.
+ *   preload (round 4, rel#4) 3.0 installed, a 3.1 install that failed (its fetches leave the 3.1 page in the HTTP
+ *          cache), every worker stopped over CDP, a start with no signal: the stored 3.0 page runs whole. The sealed
+ *          browser runs without Chromium's ServiceWorkerAutoPreload, which would answer that start from the HTTP cache.
+ *   line   (round 4, rel#5) the line at the top ("Part of Overload did not load"), at 390 and 320 px, dark and light,
+ *          with an iPhone's status bar emulated (47 px), with a script missing, without train.css, and without any
+ *          stylesheet: its text starts below the status bar, it lies over nothing, and the top bar starts below it.
+ *          Screenshots go to --shots (default: a new temporary folder, named in the output).
  * On every phone with a worker no worker file is installed twice (upgrade#5).
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree).
  * Prints one PASS or FAIL line per check; exit code 1 when a check failed. No server or browser is left running.
@@ -49,6 +59,7 @@ const { need, same } = run;
 const sleep = lib.sleep;
 const fx = lib.loadFixture('v28-state-small');
 const PLAIN = 'Part of Overload did not load, so it looks plain. Everything you logged is still on this phone. Close the app and open it again where there is signal or Wi-Fi.';
+const PLAIN_JS = 'Part of Overload did not load, so some of it may not work. Everything you logged is still on this phone. Close the app and open it again where there is signal or Wi-Fi.';
 
 // ---------------------------------------------------------------------------
 // Trees (throw-away copies made with tests/lib.js)
@@ -262,6 +273,38 @@ const brief = (f) => (f ? JSON.stringify({ started: f.started, versions: f.versi
           need(off && off.started && off.versions.join() === '2.8' && off.foodTab, 'with no signal: ' + brief(off));
           return 'the 3.0 worker ended as ' + out + '; v2.8 from ' + C28 + ' with no signal';
         });
+        // Round 4, rel#2: v2.8's worker checks nothing, so a start meanwhile runs the 3.0 page with the stale files.
+        ok = ok && await run.step(L, 'meanwhile a start under v2.8\'s worker gets the 3.0 page with v2.8\'s backup.js and connector.js: overload.js uses neither (no copies, no connector cards), Remove keeps the food log, and the line at the top says part did not load (rel#2)', async () => {
+          const r = await start(phone);
+          const page = r.page;
+          try {
+            const f = r.facts;
+            need(f && f.started && f.versions.join() === '3.0', 'the page that ran: ' + brief(f));
+            const mods = await page.evaluate(() => ({
+              backup: !window.__overloadBackup ? 'missing' : window.__overloadBackup.release || (window.__overloadBackup.KEEP_REMOVALS ? '3.0 without a release' : "v2.8's"),
+              conn: !window.__overloadConn ? 'missing' : window.__overloadConn.release || "v2.8's",
+              worker: navigator.serviceWorker.controller ? new URL(navigator.serviceWorker.controller.scriptURL).pathname : null
+            }));
+            need(mods.backup === "v2.8's" && mods.conn === "v2.8's", 'the stale files did not run (the check lost its point): ' + JSON.stringify(mods));
+            need(f.plain === PLAIN_JS, 'the line at the top says: ' + f.plain);
+            await lib.openTab(page, 'settings');
+            await page.waitForFunction(() => !/Looking for copies/.test((document.getElementById('safety-copies') || {}).textContent || ''), null, { timeout: 6000 }).catch(() => {});
+            const settings = await page.evaluate(() => ({ copies: ((document.getElementById('safety-copies') || {}).textContent || '').trim(), conn: !!document.getElementById('conn-cards') }));
+            need(settings.copies === 'Automatic copies are not available.' && !settings.conn, 'Settings shows: ' + JSON.stringify(settings));
+            await page.click('#handover [data-action="handover-copy"]');
+            await page.waitForFunction(() => { try { return !!JSON.parse(localStorage.getItem('overload.backup')).split.copied; } catch (e) { return false; } }, null, { timeout: 8000 });
+            await sleep(300);
+            await page.click('#handover [data-action="handover-remove"]');
+            await page.waitForFunction(() => /nothing was removed/.test((document.getElementById('toast') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+            await sleep(500);
+            const after = await page.evaluate(() => ({ days: Object.keys(window.__overload.state.diary).length, toast: ((document.getElementById('toast') || {}).textContent || '').trim() }));
+            const stored = await page.evaluate(() => window.__overloadBackup.list().then((l) => l.map((m) => m.id), () => ['(the list could not be read)']));
+            need(after.days === Object.keys(fx.state.diary).length, 'food days on the phone after Remove: ' + after.days + '; toast: ' + after.toast);
+            need(after.toast === 'The safety copy could not be stored, so nothing was removed. Try again.', 'the toast says: ' + after.toast);
+            need(!stored.filter((id) => !/^day-/.test(id)).length, 'copies v2.8\'s backup.js stored in this 3.0 page: ' + stored.join(', '));   // the day copy is v2.8's own, from its start
+            return 'v2.8\'s backup.js and connector.js ran and were not used; "' + after.toast + '"; ' + after.days + ' food days kept';
+          } finally { await page.close().catch(() => {}); }
+        });
         site.rules.length = 0;
         let page = null;
         ok = ok && await run.step(L, 'the edge right again: 3.0 installs (' + C30 + ') with its own backup.js and connector.js', async () => {
@@ -300,9 +343,11 @@ const brief = (f) => (f ? JSON.stringify({ started: f.started, versions: f.versi
             page = (await start(phone)).page;
             await remove();
             const copies = await page.evaluate(() => window.__overloadBackup.list().then((l) => l.filter((m) => m.kind === 'foodremove').map((m) => m.foodDays)));
+            const split = await page.evaluate(() => window.__overloadBackup.get('before-split').then((c) => (c ? c.text : null)));
             await page.close();
             need(copies.length === 2 && copies.includes(days) && copies.includes(1), 'removal copies, food days in each: ' + JSON.stringify(copies));
-            return '2 removal copies, with ' + days + ' and 1 food days';
+            need(split === fx.text, 'the copy "Before the split into two apps" is not v2.8\'s text byte for byte (' + (split == null ? 'missing' : split.length + ' of ' + fx.text.length + ' characters') + ')');
+            return '2 removal copies, with ' + days + ' and 1 food days; the split copy is v2.8\'s text';
           });
         }
       }
@@ -524,6 +569,85 @@ const brief = (f) => (f ? JSON.stringify({ started: f.started, versions: f.versi
           } finally { site.rules.length = 0; await phone.close(); }
         });
       }
+    }
+
+    // =====================================================================
+    // preload (round 4, rel#4): a worker stopped over CDP, then a start with no signal, as on an iPhone
+    // =====================================================================
+    if (!ONLY || ONLY === 'preload') {
+      const L = 'a stopped worker, no signal';
+      const phone = await makePhone();
+      const ok = await run.step(L, 'set-up: 3.0 installed (' + C30 + '); a 3.1 install that fails on one file (it leaves the 3.1 page in the HTTP cache)', async () => {
+        await install(phone, base, C30, assetsOf(base).length);
+        site.root = s31;
+        site.rules.push({ test: (rel) => rel === 'icon-512.png', status: 404 });
+        const { out, page } = await update(phone);
+        await page.close();
+        site.rules.length = 0;
+        need(out === 'redundant', 'the 3.1 worker ended as: ' + out);
+        return 'the 3.1 worker ended as ' + out;
+      });
+      if (ok) {
+        await run.step(L, 'every worker stopped (as iOS does with an app in the background), then a start with no signal: the stored 3.0 page runs whole, not the 3.1 page from the HTTP cache (the sealed browser runs without ServiceWorkerAutoPreload: rel#4)', async () => {
+          site.rules.push({ test: (rel) => rel === 'sw.js', drop: true });
+          await phone.workers.cdp.send('ServiceWorker.stopAllWorkers');
+          await sleep(3000);
+          site.cut();
+          // An ordinary page, not lib.coldPage: that one skips the HTTP cache, where Chromium's preload finds the 3.1 page.
+          const page = await phone.context.newPage();
+          let f = null;
+          try {
+            await page.goto(site.at('index.html'), { waitUntil: 'load', timeout: 30000 });
+            await page.waitForFunction(() => !!window.__overload || (document.getElementById('boot-note') && /did not finish/.test(document.getElementById('boot-note').textContent)), null, { timeout: 25000 });
+            await sleep(600);
+            f = await facts(page);
+          } finally { site.down = false; site.rules.length = 0; await page.close().catch(() => {}); }
+          need(whole(f, '3.0') && f.blobs === 0, 'the page that ran: ' + brief(f) + '; ' + (f ? f.blobs : '?') + ' scripts run by the rescue');
+          return '3.0 whole from ' + C30 + ', no rescue';
+        });
+      }
+      site.rules.length = 0; site.down = false;
+      await onceEach(phone, L);
+      await phone.close();
+    }
+
+    // =====================================================================
+    // line (round 4, rel#5): the line at the top lies over nothing, below the status bar
+    // =====================================================================
+    if (!ONLY || ONLY === 'line') {
+      const L = 'the line at the top';
+      const shots = path.resolve(String(args.shots || fs.mkdtempSync(path.join(require('os').tmpdir(), 'overload-line-'))));
+      fs.mkdirSync(shots, { recursive: true });
+      const INSET = 47;   // an iPhone's status bar, emulated (Emulation.setSafeAreaInsetsOverride)
+      const cases = [['a script missing (shared/icons.js)', ['shared/icons.js'], PLAIN_JS], ['its own stylesheet missing (train.css)', ['train.css'], PLAIN], ['no stylesheet (shared/ui.css and train.css)', ['shared/ui.css', 'train.css'], PLAIN]];
+      const phone = await makePhone({ serviceWorkers: 'block' });
+      site.root = base;
+      for (const scheme of ['dark', 'light']) for (const width of [390, 320]) for (const [what, lost, words] of cases) {
+        await run.step(L, width + ' px, ' + scheme + ', ' + what + ': below the status bar, over nothing; the top bar and the screen start below it', async () => {
+          site.rules.length = 0;
+          lost.forEach((f) => site.rules.push({ test: (rel) => rel === f, status: 404 }));
+          const page = await lib.coldPage(phone.context);
+          try {
+            await page.setViewportSize({ width, height: 844 });
+            await page.emulateMedia({ colorScheme: scheme });
+            const cdp = await phone.context.newCDPSession(page);
+            await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: INSET, bottom: 34, left: 0, right: 0 } });
+            await page.goto(site.at('index.html'), { waitUntil: 'load', timeout: 30000 });
+            await page.waitForFunction(() => !!window.__overload && !!document.getElementById('boot-plain'), null, { timeout: 15000 });
+            await sleep(300);
+            const t = await lib.topLine(page);
+            const file = path.join(shots, 'overload-' + lost.map((f) => path.basename(f).replace(/\.\w+$/, '')).join('+') + '-' + width + '-' + scheme + '.png');
+            await page.screenshot({ path: file });
+            need(t.text === words, 'the line says: ' + t.text);
+            need(t.textTop >= INSET, 'its text starts at ' + t.textTop + ' px, under the status bar (' + INSET + ' px)');
+            need(!t.covers.length && !t.hidden, 'it lies over ' + (t.covers.join(', ') || 'nothing') + (t.hidden ? '; something lies over it' : ''));
+            need(t.barTop == null || t.barTop >= t.bottom - 0.5, 'the top bar starts at ' + t.barTop + ' px, the line ends at ' + t.bottom);
+            return 'line ' + Math.round(t.top) + '-' + Math.round(t.bottom) + ' px, text from ' + Math.round(t.textTop) + ', top bar from ' + Math.round(t.barTop) + (t.fixedBar ? ' (fixed)' : ' (in the flow)') + '; ' + path.basename(file);
+          } finally { site.rules.length = 0; await page.close().catch(() => {}); }
+        });
+      }
+      console.log('# screenshots of the line: ' + shots);
+      await phone.close();
     }
   } catch (e) {
     run.say(false, 'train-release', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));

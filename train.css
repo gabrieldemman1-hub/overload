@@ -3,8 +3,11 @@
  * Guide: dev/design/SYSTEM.md. Install as the app's own stylesheet (for example ./train.css next to index.html).
  */
 
-/* Tabular figures on the training read-outs (see the note in shared/ui.css, section 1). */
-.day-chip .d, .ex-target, .ex-last, .set-table, .rir-btn, .warmup-row b, .rest-time, .rest-of, .hist-set > span:last-child {
+/* Tabular figures on the training read-outs (see the note in shared/ui.css, section 1), and on numbers that line up
+   from row to row: a set list (Set 1, Set 2 … and its weights), and a past workout's facts in History (date, counts,
+   time, PRs). */
+.day-chip .d, .ex-target, .ex-last, .set-table, .rir-btn, .warmup-row b, .rest-time, .rest-of, .hist-set, .set-lbl,
+.list-item[data-action="view-workout"] .sub {
   font-variant-numeric: tabular-nums;
 }
 
@@ -307,6 +310,9 @@
 .hist-set b { color: var(--ink); }
 .hist-set .pill { min-height: 20px; padding: 0 6px; font-size: 11px; vertical-align: 1px; }
 .card.flat > .hist-set:first-of-type { margin-top: 6px; }
+/* Names he typed, when one is a single long word, break inside their card: the workout and its exercises in Edit sets,
+   the last workout at the foot of Today, a program day's exercises on Program. */
+.card.flat > b, #edit-workout-form > p, .screen > p.center, .card-head + .small { overflow-wrap: anywhere; }
 .hist-set > span:only-child { text-align: left; }   /* one sentence, not a label and its numbers (the cardio line of a past workout) */
 .set-lbl { width: 52px; flex: none; white-space: nowrap; color: var(--ink-3); font-size: var(--t-small); }
 /* Edit sets: the label, then the weight and the reps box sharing what is left of the row.
@@ -317,7 +323,7 @@
 /* A record: trophy and text in the accent ink. '<div class="pr-line">' + icon('trophy', 's') + text */
 .pr-line { display: flex; gap: 6px; margin-top: 8px; font-size: var(--t-small); font-weight: 600; color: var(--accent-ink); line-height: 1.4; }
 .pr-line .ic { margin-top: 1px; }
-.review-list { margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.45; color: var(--ink-2); }
+.review-list { margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.45; color: var(--ink-2); overflow-wrap: anywhere; }   /* exercise names: a long word breaks */
 .review-list > li, .review-list > div { padding: 9px 0; border-bottom: 1px solid var(--rule); }
 .review-list > :last-child { border-bottom: 0; }
 .review-list b { color: var(--ink); }

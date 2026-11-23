@@ -12,11 +12,15 @@
  *   - Settings > Cloud sync while the sync module has not loaded says so in plain words, without a file name;
  *   - the sign-out question says what a later sign-in does, and it is so on the fake cloud: an entry logged
  *     while signed out is sent at the next sign-in; after a Reset done while signed out, signing in brings
- *     back what the account holds.
+ *     back what the account holds;
+ *   - signed in while cloud sync has not read the account yet, the toast that says why Reset, Restore and the
+ *     imports do not start is Overload's, word for word (review finding sync#6).
  * The fake Firebase of tests/fake-firebase; no other host is contacted. Prints one PASS/FAIL line per check and
  * exits 1 if anything failed.
  */
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const lib = require('./lib');
 const F = require('./fuel-common');
 const { createCloud } = require('./fake-firebase/route');
@@ -34,6 +38,7 @@ const BACKUP_LINE = 'Import adds only what is missing here, with the favorite st
 const SIGN_OUT = 'confirm: Sign out? Your food log stays on this phone and in the cloud. What you log while signed out is sent when you sign back in. '
   + 'A Reset or Restore done while signed out is not: signing in again brings back what the account holds.';
 const NO_MODULE = 'Cloud sync is not available right now. It starts when the app opens with signal. Your food log stays on this phone.';
+const STILL_READING = 'Cloud sync is still reading your account. Try again once it says Synced.';
 
 async function newPhone(browser, cloud, name) {
   const phone = await lib.newPhone(browser, { now: NOW, timezoneId: fx.meta.tz });
@@ -126,6 +131,16 @@ async function settle(cloud, pages) {
       });
       await P.close();
     }
+
+    // ---------------------------------------------------------------- the same words as Overload
+    // Signed in while cloud sync has not read the account yet, Reset, Restore and the imports do not start, in both
+    // apps, and the toast says why (review finding sync#6; tests/fuel-host.js and tests/fuel-sync.js run what it does).
+    await run.step('cloud sync', 'while it has not read the account yet, the toast is Overload\'s, word for word', async () => {
+      const said = (file) => { const m = /toast\('(Cloud sync is still reading[^']*)'\)/.exec(fs.readFileSync(path.join(lib.REPO, file), 'utf8')); return m ? m[1] : null; };
+      const fuel = said('fuel/fuel.js'), overload = said('overload.js');
+      need(fuel === STILL_READING && overload === STILL_READING, 'Fuel says ' + JSON.stringify(fuel) + ', Overload ' + JSON.stringify(overload));
+      return fuel;
+    });
 
     // ---------------------------------------------------------------- the sign-out question, and what it says
     {

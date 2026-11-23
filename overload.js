@@ -361,11 +361,21 @@
     // The banner is fixed under the top bar; the screen starts below it (see .has-save-warning in shared/ui.css).
     document.documentElement.style.setProperty('--save-warning-h', ui.saveFailed ? el.offsetHeight + 'px' : '0px');
   }
+  // backup.js and connector.js as this file uses them: only this release's. A server that has not caught up can hand
+  // out another release's file under this release's address, and 2.8's worker (in charge during the first starts of
+  // 3.0) runs it without looking. Each module names its release (bump.sh sets it). One that names another release,
+  // or none, counts as not loaded: no automatic copies (so Remove, Reset, Import and Restore refuse), no connector,
+  // and the line at the top of the page says part of the app did not load (index.html asks otherParts).
+  // The same goes for sync.js (round-4 finding rel#6): 2.8's would sync this release's data by its own rules, and
+  // bring back an old food log removed here. Such a module is never given the data (the host's `unreadable` is true
+  // for it: it then neither reads the account nor sends anything) and the cloud card says sync is not available.
+  const PARTS = { __overloadBackup: 'backup.js', __overloadConn: 'connector.js', __overloadSync: 'sync.js' };
+  const part = (name) => { const m = window[name]; return m && m.release === VERSION ? m : null; };
   // ---- Automatic copies, storage use, last export (backup.js keeps the copies in IndexedDB) ----
   // Before an import, reset or restore the text is taken now (the data is replaced right after);
   // the daily copy builds it only if today has none yet.
   function safetyCopy(kind, force, text) {
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     try { return B ? B.take(kind, text || (kind === 'day' ? () => JSON.stringify(state) : JSON.stringify(state)), force) : Promise.resolve(false); } catch (e) { return Promise.resolve(false); }
   }
   function backupInfo() { try { return JSON.parse(localStorage.getItem(BACKUP_KEY)) || {}; } catch (e) { return {}; } }
@@ -394,7 +404,7 @@
   // A copy that is already there is never written over. The phone's copy store sometimes does not answer at the
   // first try (backup.js gives up after 2 s): try once more a little later, with the same text.
   function keepSplitCopy(raw, at, tries) {
-    const B = window.__overloadBackup; if (!B) return;
+    const B = part('__overloadBackup'); if (!B) return;
     B.list().then((list) => list.some((m) => m.id === 'before-split') || B.take('split', raw), () => false)
       .then((kept) => { if (kept) setSplit({ at }); else if (tries > 1) setTimeout(() => keepSplitCopy(raw, at, tries - 1), 5000); });
   }
@@ -448,7 +458,7 @@
   }
   function fillCopies(restorableOnly) {
     const el = $('#safety-copies'); if (!el) return;
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     const none = (t) => { const box = $('#safety-copies'); if (box) box.innerHTML = '<p class="small muted">' + t + '</p>'; };
     if (!B) { none('Automatic copies are not available.'); return; }
     B.list().then((list) => {
@@ -471,7 +481,7 @@
   }
   // What Settings > Automatic copies keeps (backup.js): every kind it keeps, and how many of each.
   function keptText() {
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     return 'Kept on this phone: one a day for the last ' + ((B && B.KEEP_DAYS) || 7) + ' days; one each from before the last import, reset, restore and cloud sign-in; '
       + 'the copy from the split into two apps; and the copies from before the last ' + ((B && B.KEEP_REMOVALS) || 3) + ' removals of the old food log.';
   }
@@ -481,7 +491,7 @@
   const busy = () => !!(ui.replacing || ui.removing);
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
   async function restoreCopy(id) {
-    const B = window.__overloadBackup; if (!B || busy()) return;
+    const B = part('__overloadBackup'); if (!B || busy() || cloudStillReading()) return;
     ui.replacing = true;
     try {
       let rec = null, parsed = null;
@@ -553,6 +563,7 @@
     const next = normalize(parsed);
     forgetCloudIfSignedOut();
     state = next;
+    noteReplaced();
     stopTimer();   // it was counting rest for a set of the data just replaced
     if (!activeWorkout()) state.active = null;
     ui.lastActive = state.active;
@@ -648,7 +659,8 @@
   // Accessors
   const exById = (id) => state.exercises.find((e) => e.id === id);
   const dayById = (id) => state.program.days.find((d) => d.id === id);
-  const activeWorkout = () => (state.active ? state.workouts.find((w) => w.id === state.active) : null);
+  // The workout in progress: never one that is finished (cloud sync could name one for a moment: review finding sync#9).
+  const activeWorkout = () => (state.active ? state.workouts.find((w) => w.id === state.active && !w.finishedAt) : null);
   function prescFor(exId) {
     if (!state.presc[exId]) { const ex = exById(exId); state.presc[exId] = { weight: 0, targetReps: repRange(ex).min, sets: (ex && ex.fixedSets) || state.settings.defaultSets, reasons: [], updatedAt: null }; }
     return state.presc[exId];
@@ -1611,7 +1623,7 @@
       + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Sleep, last 14 nights">' + grid + bars + labels + '</svg>'
       + '<div class="legend"><span><span class="sl-key sl-deep"></span>Deep</span><span><span class="sl-key sl-rem"></span>REM</span><span><span class="sl-key sl-other"></span>Light / other</span></div>'
       + (a ? '<div class="stat-row mt8"><div class="stat"><div class="v">' + fmtHM(a.total) + '</div><div class="k">7-night avg' + (diff != null ? ' (' + (diff >= 0 ? '+' : '−') + Math.abs(diff) + ' min)' : '') + '</div></div><div class="stat"><div class="v">' + fmtHM(a.rem) + '</div><div class="k">REM avg</div></div><div class="stat"><div class="v">' + fmtHM(a.deep) + '</div><div class="k">Deep avg</div></div></div>' : '')
-      + (a && a.recovery != null ? '<div class="small mt8">Recovery avg <b>' + Math.round(a.recovery) + '%</b>' + (a.rhr != null ? ' · resting HR ' + Math.round(a.rhr) : '') + (a.hrv != null ? ' · HRV ' + Math.round(a.hrv) + ' ms' : '') + ' <span class="muted">(7 nights)</span></div>' : '')
+      + (a && a.recovery != null ? '<div class="small mt8">Recovery avg <b class="num">' + Math.round(a.recovery) + '%</b>' + (a.rhr != null ? ' · resting HR ' + Math.round(a.rhr) : '') + (a.hrv != null ? ' · HRV ' + Math.round(a.hrv) + ' ms' : '') + ' <span class="muted">(7 nights)</span></div>' : '')
       + '</div>';
   }
   function sheetSleep() {
@@ -1714,7 +1726,7 @@
       + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" value="' + esc(s.cardioName) + '" data-field="cardio-name" aria-label="What cardio"></div>'
         + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin" aria-label="Cardio minutes"></div>' : '')
       + '</div>'
-      + (window.__overloadConn ? window.__overloadConn.settingsCard() : '')
+      + (part('__overloadConn') ? part('__overloadConn').settingsCard() : '')
       + '<div id="handover" data-where="settings">' + handoverHtml('settings') + '</div>'
       + renderBackupCard()
       + renderCloudCard()
@@ -1723,7 +1735,7 @@
   }
 
   function renderCloudCard() {
-    const sync = window.__overloadSync;
+    const sync = part('__overloadSync');   // one of another release does not sync here (see part)
     let body;
     if (!sync) {
       body = '<p class="small muted">Cloud sync is not available right now. It starts when the app opens with signal. Your data stays on this phone.</p>';
@@ -1815,6 +1827,21 @@
     if (!el || !el.getClientRects().length || el.closest('[inert]') || (!sheetNav.keys && typingBox(el))) return;
     quietFocus(el);
   }
+  // Tab inside a sheet never stops under its sticky footer (.sheet-foot, Save) or a strip that sticks at its top: their
+  // heights go to --sheet-foot-h and --sheet-head-h on the panel, which shared/ui.css makes the panel's scroll padding
+  // while keys are used. Measured when the sheet is drawn, and again when one of them changes size. Fuel's is the same.
+  let sheetEdgeWatch = null;
+  function sheetEdges(panel) {
+    if (sheetEdgeWatch) { sheetEdgeWatch.disconnect(); sheetEdgeWatch = null; }
+    const stuck = [...panel.querySelectorAll(':scope > *, :scope > form > *')].filter((el) => getComputedStyle(el).position === 'sticky');
+    const foot = stuck.find((el) => getComputedStyle(el).bottom !== 'auto'), head = stuck.find((el) => getComputedStyle(el).top !== 'auto');
+    const measure = () => {
+      panel.style.setProperty('--sheet-foot-h', (foot && foot.isConnected ? foot.offsetHeight : 0) + 'px');
+      panel.style.setProperty('--sheet-head-h', (head && head.isConnected ? head.offsetHeight : 0) + 'px');
+    };
+    measure();
+    if ((foot || head) && typeof ResizeObserver === 'function') { sheetEdgeWatch = new ResizeObserver(measure); [foot, head].forEach((el) => { if (el) sheetEdgeWatch.observe(el); }); }
+  }
   function openSheet(html, key) {
     // key names what the sheet shows (for example 'day:' + id); without one the title does.
     const panel = $('#sheet-panel'), fresh = $('#sheet').hidden, was = panel.dataset.sheet;
@@ -1826,6 +1853,7 @@
     ui.sheet = true; panel.innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden';
     const h = panel.querySelector('.sheet-title h2'), now = key != null ? 'k:' + key : 't:' + (h ? h.textContent : '');
     panel.dataset.sheet = now;
+    sheetEdges(panel);
     // A new sheet starts at its top, also when it replaces another one (Edit sets from a workout,
     // Duplicate day); redrawing the open one (a renamed meal, a moved exercise) keeps its place.
     if (fresh || was !== now) panel.scrollTop = 0;
@@ -1841,6 +1869,7 @@
   }
   function closeSheet() {
     ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = '';
+    sheetEdges($('#sheet-panel'));   // nothing sticks now: 0 px, and nothing is watched
     document.querySelectorAll(BEHIND).forEach((el) => { el.inert = false; });
     const opener = sheetNav.opener; sheetNav.opener = null;
     if (opener) setTimeout(() => focusBack(opener), 0);   // after the redraw that usually follows (save, then render)
@@ -2345,7 +2374,7 @@
     const sync = window.__overloadSync;
     if (sync && sync.user && sync.pushNow) Promise.resolve(sync.pushNow()).catch(() => {});
     // The hidden copy takes room from the app: drop it once the automatic copy of the same text is confirmed.
-    const B = window.__overloadBackup;
+    const B = part('__overloadBackup');
     if (raw && B) B.get('before-unreadable').then((c) => { if (c && c.text === raw) { try { localStorage.removeItem(STORAGE_KEY + '.bak'); } catch (e) { /* ignore */ } } }, () => {});
   }
   async function unreadableAction(a, d) {
@@ -2353,7 +2382,7 @@
     if (a === 'unreadable-retry') { location.reload(); return; }
     if (a === 'unreadable-export') { if (raw) shareFile(raw, 'overload-unreadable-' + todayKey() + '.json', 'Overload data that could not be read'); return; }
     if (a === 'export-copy') {
-      const B = window.__overloadBackup; let c = null;
+      const B = part('__overloadBackup'); let c = null;
       try { c = B && await B.get(d.id); } catch (e) { c = null; }
       if (c) shareFile(c.text, 'overload-unreadable-' + todayKey(new Date(c.at)) + '.json', 'Overload data that could not be read'); else toast('Could not read that copy');
       return;
@@ -2361,7 +2390,7 @@
     if (a === 'unreadable-fresh') {
       if (!ui.unreadable) return;
       let kept = false;
-      try { const c = raw && window.__overloadBackup && await window.__overloadBackup.get('before-unreadable'); kept = !!(c && c.text === raw); } catch (e) { kept = false; }
+      try { const B = part('__overloadBackup'), c = raw && B && await B.get('before-unreadable'); kept = !!(c && c.text === raw); } catch (e) { kept = false; }
       const msg = !raw ? 'Start fresh? The app could not read its storage, so it cannot tell what is there. Starting fresh replaces it.'
         : 'Start fresh with an empty app?\n\n' + (kept ? 'The data that could not be read stays in Settings > Automatic copies, where you can export it.' : 'Export the unreadable copy first if you might need it: it is not kept anywhere else.');
       if (!confirm(msg)) return;
@@ -2379,7 +2408,8 @@
   // Once the sync module has said who is signed in (syncChanged, at each sign-in and sign-out and once at every
   // start), its word counts. Before that (its files have not arrived: a start without signal before they were
   // stored; or Firebase has not answered yet), cloud sync's note counts: a note that names an account means signed
-  // in, unless the module's last word on this phone was that nobody is signed in to that account (noteSignIn).
+  // in, unless it is in its signed-out form (noteSignIn): the module's last word on this phone was that nobody is
+  // signed in to that account, and no signed-in sync module has saved the note since.
   // So a Reset, Import or Restore on such a start says that the account changes too, keeps the note, and the next
   // link sends it, as when the module is there (review finding sync#2: the next start undid it). The note of this
   // release's sync.js has no email; a note marked signedOut (as Fuel's sync.js marks its own) counts as signed out.
@@ -2392,22 +2422,44 @@
   }
   function syncNote() {
     try {
-      const n = JSON.parse(localStorage.getItem(SYNC_KEY));
-      return isObj(n) && typeof n.uid === 'string' && n.uid && !n.signedOut && backupInfo().signedOut !== n.uid ? n : null;
+      const raw = localStorage.getItem(SYNC_KEY), n = JSON.parse(raw);
+      return isObj(n) && typeof n.uid === 'string' && n.uid && !n.signedOut && !/\n$/.test(raw) ? n : null;
     } catch (e) { return null; }
   }
-  // The module's word, kept for a start without it: overload.backup's signedOut names the account of the note
-  // while nobody is signed in to it, and goes once someone is signed in. sync.js keeps the note when he signs out
-  // (signing back in sends what was logged meanwhile), so the note alone cannot tell.
+  // The module's word, kept for a start without it (review findings sync#10, sync#10b). sync.js keeps its note when
+  // he signs out (signing back in sends what was logged meanwhile), so what the note says cannot tell. Its form can:
+  // while nobody is signed in to the note's account, its text ends with a line break. Every save of the note by a
+  // signed-in sync module, this release's or 2.8's, writes it without one (2.8 saves it a second after every
+  // sign-in, also when nothing changed), so a sign-in made on 2.8 after a sign-out here counts, and a sign-in here
+  // ends the form at once. A mark kept beside the note would outlive a sign-in on 2.8, which keeps fields it does not
+  // know. A sign-out made on 2.8 leaves nothing this app can read (only Firebase's own storage): the phone counts as
+  // signed in until the sync module runs here again, so Reset, Import and Restore say the account changes too, keep
+  // the note, and the next sign-in to that account sends them, as 2.8's sign-out question promised.
   function noteSignIn() {
     const sync = window.__overloadSync; if (!sync) return;
     ui.authSeen = true;
-    const out = backupInfo().signedOut;
-    if (sync.user) { if (out) setBackupInfo({ signedOut: undefined }); return; }
-    let n = null; try { n = JSON.parse(localStorage.getItem(SYNC_KEY)); } catch (e) { n = null; }
-    const uid = isObj(n) && typeof n.uid === 'string' ? n.uid : '';
-    if (uid && out !== uid) setBackupInfo({ signedOut: uid });
+    let raw = null, n = null;
+    try { raw = localStorage.getItem(SYNC_KEY); n = JSON.parse(raw); } catch (e) { n = null; }
+    if (!isObj(n) || typeof n.uid !== 'string' || !n.uid) return;
+    const out = !(sync.user && sync.user.uid === n.uid);
+    const text = raw.replace(/\s+$/, '') + (out ? '\n' : '');
+    if (text !== raw) { try { localStorage.setItem(SYNC_KEY, text); } catch (e) { /* ignore */ } }
   }
+  // Signed in, but cloud sync has not read the account yet (sync.js `linked`: the first read from the server is under
+  // way, or failed and is tried again). A Reset, Import or Restore now would be undone without a word: once the read
+  // works, the first link merges the account's data back over it, and the account is not changed (review finding
+  // sync#6). So none of them starts, and the toast says when they can. A phone that linked before (it has a note) is
+  // linked at once, offline too. A sync module of another release has no `linked` and holds nothing up.
+  function cloudStillReading() {
+    const sync = window.__overloadSync;
+    if (ui.unreadable || !sync || !sync.user || sync.linked !== false) return false;
+    toast('Cloud sync is still reading your account. Try again once it says Synced.');
+    return true;
+  }
+  // When the training data on this phone was last replaced (Reset, Import, Restore), for sync.js (markLifted): a
+  // deletion record missing after that may be gone with the replaced data, not because the entry was logged again.
+  // Kept in overload.backup, so a start without the sync module counts too.
+  function noteReplaced() { setBackupInfo({ replaced: Date.now() }); }
   // Signed out, a reset or import must not keep the note of what the cloud holds: the next sign-in would treat
   // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
   function forgetCloudIfSignedOut() {
@@ -2438,7 +2490,7 @@
   // food log is not part of it: it leaves this phone only through "Remove the old food log" in Settings > Food,
   // and the questions say so. The copy "Before reset" is stored first: if it cannot be, nothing is erased.
   async function resetAll() {
-    if (busy()) return;
+    if (busy() || cloudStillReading()) return;
     const days = foodFacts().days;
     const food = days ? '\n\nThe old food log (' + plural(days, 'day') + ') is not erased. It stays on this phone until you remove it in Settings > Food.' : '';
     const link = state.settings.connUrl || state.settings.connKey ? ', the WHOOP link included' : '';
@@ -2451,13 +2503,14 @@
       forgetCloudIfSignedOut();
       const fresh = seedState(); keepFoodCopy(fresh);
       state = fresh;
+      noteReplaced();
       stopTimer();   // a rest or cardio timer of the data just erased
       applyTheme(); save(); render(); toast('Reset to defaults');
     } finally { ui.replacing = false; }
   }
   const readText = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(r.error); r.readAsText(file); });
   async function importJson(file) {
-    if (busy()) return;
+    if (busy() || cloudStillReading()) return;
     ui.replacing = true;
     try {
       const parsed = JSON.parse(await readText(file), noProto);
@@ -2685,10 +2738,10 @@
   // when it next sends): an older version started on this data then leaves the account's food log alone.
   function forgetSyncedDays() {
     try {
-      const known = JSON.parse(localStorage.getItem(SYNC_KEY));
+      const raw = localStorage.getItem(SYNC_KEY), known = JSON.parse(raw);
       if (!isObj(known) || !isObj(known.days)) return;
       Object.keys(known.days).forEach((d) => { if (!state.diary[d]) delete known.days[d]; });
-      localStorage.setItem(SYNC_KEY, JSON.stringify(known));
+      localStorage.setItem(SYNC_KEY, JSON.stringify(known) + (/\n$/.test(raw) ? '\n' : ''));   // its signed-out form stays (noteSignIn)
     } catch (e) { /* no note, or the storage cannot be used */ }
   }
   // Remove the old food log. Only once it was copied or saved as a file on this phone and that copy still holds
@@ -2709,7 +2762,7 @@
     // Every removal keeps a safety copy of its own, and the newest few are kept (backup.js): when that lets an
     // older one go, the question says so. When the list cannot be read (backup.js gives up after a few seconds),
     // nothing is removed: the question could not say which copy is let go.
-    const B = window.__overloadBackup, keep = (B && B.KEEP_REMOVALS) || 3;
+    const B = part('__overloadBackup'), keep = (B && B.KEEP_REMOVALS) || 3;
     ui.removing = true;
     let earlier = [];
     try { earlier = B ? (await B.list()).filter((m) => m.kind === 'foodremove').sort((a, b) => a.at - b.at) : []; } catch (e) { earlier = null; }
@@ -2747,7 +2800,7 @@
     const btn = e.target.closest('[data-action]');
     if (!btn || btn.disabled) return;
     const a = btn.dataset.action, d = btn.dataset;
-    if (a.startsWith('conn-')) { if (window.__overloadConn) window.__overloadConn.click(a, d, btn); return; }
+    if (a.startsWith('conn-')) { if (part('__overloadConn')) part('__overloadConn').click(a, d, btn); return; }
     const w = activeWorkout();
 
     switch (a) {
@@ -2909,7 +2962,7 @@
       // Settings
       case 'set-theme': state.settings.theme = d.v; applyTheme(); save(); render(); break;
       case 'export': exportJson(); break;
-      case 'import': $('#import-file').click(); break;
+      case 'import': if (!cloudStillReading()) $('#import-file').click(); break;   // review finding sync#6
       case 'restore-copy': restoreCopy(d.id); break;
       case 'export-copy': case 'unreadable-export': case 'unreadable-retry': case 'unreadable-fresh': unreadableAction(a, d); break;
       case 'export-nag-off': setBackupInfo({ nagOff: Date.now() }); refreshNotices(); break;
@@ -2996,7 +3049,7 @@
 
   document.addEventListener('change', (e) => {
     const el = e.target; const f = el.dataset.field; if (!f) return;
-    if (f.startsWith('conn-')) { if (window.__overloadConn) window.__overloadConn.change(el, f); return; }
+    if (f.startsWith('conn-')) { if (part('__overloadConn')) part('__overloadConn').change(el, f); return; }
     const w = activeWorkout();
     switch (f) {
       case 'weight': case 'reps': {
@@ -3102,12 +3155,17 @@
     get state() { return state; },
     get screen() { return ui.screen; },
     get saveFailed() { return !!ui.saveFailed; },
-    get unreadable() { return !!ui.unreadable; },   // sync waits while the stored data could not be read
+    // Sync waits while the stored data could not be read, and a sync module of another release never starts (see part):
+    // 2.8's links and sends only while this is false.
+    get unreadable() { return !!ui.unreadable || !!(window.__overloadSync && !part('__overloadSync')); },
+    get replacedAt() { return +backupInfo().replaced || 0; },   // the last Reset, Import or Restore here (noteReplaced)
     safetyCopy,
     setState, computeNext, save, render, toast, checkinDone,
     // Helpers other scripts take from here (connector.js; Fuel's own shell offers food.js the same names)
     lib: { $, esc, uid, num, todayKey, addDays, fmtDate, openSheet, closeSheet, sheetHeader, toast, markDeleted },
     noteUpdateReady() { ui.updateReady = true; renderTopbar(); },
+    // For the page's line at the top (index.html): the helper files that ran but are of another release (see part).
+    otherParts: () => Object.keys(PARTS).filter((n) => window[n] && window[n].release !== VERSION).map((n) => PARTS[n]),
     // For tests and the console: the hand-over payload, the clipboard text (a promise) and what the old food copy holds
     _handover: { payload: foodPayload, text: () => prepareFoodText().ready, facts: foodFacts },
     // Sync status: only the top-bar pill and the status text in Settings change. Redrawing the screen here

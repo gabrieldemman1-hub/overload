@@ -26,6 +26,9 @@
  * a sealed browser stops every other host itself: host names other than 127.0.0.1 do not resolve, and every
  * request that is not to 127.0.0.1 goes to a proxy in this process that refuses it (browser.outside lists the
  * hosts asked for). A sealed browser can also hold ordinary routed phones (those that need tests/fake-firebase).
+ * It also runs without Chromium's ServiceWorkerAutoPreload, which answers the first navigation after a stopped
+ * worker starts again from the HTTP cache (where a failed install has just put the next release's page); WebKit
+ * asks the worker, and so does a sealed browser (round-4 finding rel#4).
  *
  * One context is one "installed app": on an iPhone every Home Screen app has its own storage, so a test of
  * two apps that must not see each other's localStorage uses two contexts (two newPhone calls).
@@ -201,6 +204,24 @@ async function until(fn, ms, every) {
 const cachesOf = (page) => page.evaluate(async () => { const out = {}; for (const k of await self.caches.keys()) out[k] = (await (await self.caches.open(k)).keys()).map((r) => r.url); return out; });
 /** The text of one entry of one cache, or null. */
 const cacheText = (page, cache, url) => page.evaluate(async ([c, u]) => { if (!(await caches.has(c))) return null; const r = await (await caches.open(c)).match(u); return r ? r.text() : null; }, [cache, url]);
+/**
+ * The line a page shows at the top when part of it did not load (#boot-plain), against what is on screen (round-4
+ * finding rel#5): null without the line, else { text, top, bottom, textTop (where its text starts), covers (the
+ * visible parts of the top bar, the screen and the tab bar whose box overlaps the line's), hidden (something lies
+ * over the line itself), fixedBar (the top bar is fixed: its stylesheet arrived), barTop (where the bar's content starts) }.
+ */
+const topLine = (page) => page.evaluate(() => {
+  const n = document.getElementById('boot-plain'); if (!n) return null;
+  const r = n.getBoundingClientRect(), cs = getComputedStyle(n), bar = document.querySelector('.topbar');
+  const name = (el) => (el.id ? '#' + el.id : typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/).join('.') : el.tagName.toLowerCase());
+  const shown = [...document.querySelectorAll('.topbar-inner, .topbar-inner > *, #app > *, #app > * > *, .tabbar > *')].filter((el) => {
+    const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.bottom > 0 && b.top < innerHeight && getComputedStyle(el).visibility !== 'hidden';
+  });
+  const covers = shown.filter((el) => { const b = el.getBoundingClientRect(); return b.top < r.bottom - 0.5 && b.bottom > r.top + 0.5 && b.left < r.right - 0.5 && b.right > r.left + 0.5; }).map(name);
+  const mid = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  const inner = bar && bar.querySelector('.topbar-inner');
+  return { text: n.textContent, top: r.top, bottom: r.bottom, textTop: r.top + parseFloat(cs.paddingTop), covers: [...new Set(covers)], hidden: !(mid && n.contains(mid)), fixedBar: !!bar && getComputedStyle(bar).position === 'fixed', barTop: inner ? inner.getBoundingClientRect().top : null };
+});
 
 // ---------------------------------------------------------------------------
 // Browser and phone-like context
@@ -209,6 +230,9 @@ const cacheText = (page, cache, url) => page.evaluate(async ([c, u]) => { if (!(
  * Chromium. launch() relies on each phone's routing to keep requests on 127.0.0.1. launch({ sealed: true }) stops
  * every other host in the browser itself (see the top of this file), so phones may go without routing.
  */
+// Every host name but 127.0.0.1 fails to resolve; the first navigation after a stopped worker starts again goes to the
+// worker, as on an iPhone, not to the HTTP cache (ServiceWorkerAutoPreload, see the top of this file).
+const SEALED_ARGS = ['--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1', '--disable-features=ServiceWorkerAutoPreload'];
 async function launch(opts) {
   if (!(opts && opts.sealed)) return chromium.launch();
   // The proxy every request that is not to 127.0.0.1 is sent to: it notes the host and closes the connection.
@@ -223,7 +247,7 @@ async function launch(opts) {
   proxy.unref();
   let browser;
   try {
-    browser = await chromium.launch({ args: ['--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1', '--proxy-server=http://127.0.0.1:' + proxy.address().port] });
+    browser = await chromium.launch({ args: SEALED_ARGS.concat(['--proxy-server=http://127.0.0.1:' + proxy.address().port]) });
   } catch (e) { proxy.close(); throw e; }
   browser.sealed = true;
   browser.outside = outside;
@@ -480,7 +504,7 @@ function dayKey(ms, tz) {
 }
 
 module.exports = {
-  REPO, FIXTURES, LOCAL, STATE_KEY, SEED_MARK, DEFAULT_TZ, PHONE, TYPES,
-  sleep, startServer, startSite, until, cachesOf, cacheText, copyTree, versionedFiles, markKey, markRelease, nextRelease, workerOf, launch, newPhone, watchWorkers, coldPage, seedStorage, seedV28, readStorage, readStorageText,
+  REPO, FIXTURES, LOCAL, STATE_KEY, SEED_MARK, DEFAULT_TZ, PHONE, TYPES, SEALED_ARGS,
+  sleep, startServer, startSite, until, cachesOf, cacheText, topLine, copyTree, versionedFiles, markKey, markRelease, nextRelease, workerOf, launch, newPhone, watchWorkers, coldPage, seedStorage, seedV28, readStorage, readStorageText,
   openApp, openTab, tabNames, shot, loadFixture, dayKey, chromium
 };

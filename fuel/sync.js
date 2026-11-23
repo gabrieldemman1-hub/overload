@@ -141,7 +141,8 @@ const isHashes = (v) => typeof v === 'string' && /^([0-9a-z]+( [0-9a-z]+)*)?$/.t
 // copy, in order: { b: the base it was sent with, h: its hash, p: hashes of its items that its base lacked,
 // g: hashes of its base's items it no longer held, t: when, c: 1 once the server confirmed it }. They tell
 // what a copy written beside them, by a phone that did not have them, misses (ownSince). Confirmed ones are
-// forgotten after OWN_KEEP; unconfirmed ones only when the server's copy shows them.
+// forgotten after OWN_KEEP; unconfirmed ones only once a copy without pending writes shows them (the server's, or
+// the offline cache's at the next start: see the days listener).
 const okParts = (p) => isObj(p) && (p.h === null || isHash(p.h)) && isHashes(p.n);
 const okWrite = (w) => isObj(w) && (w.b === null || isHash(w.b)) && isHash(w.h) && isHashes(w.p) && isHashes(w.g) && typeof w.t === 'number';
 // The stored note, or null. Whatever in it is not what this file writes is left out: a day it does not list
@@ -585,6 +586,25 @@ function readServer() {
     readTimer = setTimeout(schedulePush, Math.min(300, 15 * 2 ** readTries++) * 1000);
   }).finally(() => { if (gen === linkGen) reading = false; });
 }
+// This phone's uploads whose answer never came (the app was closed a moment after they went): at every link of a
+// phone with a note, and when the signal is back, the server is asked once for just those documents, and a write it
+// holds as it was sent is confirmed (review finding sync#8). The listeners cannot always tell: the SDK keeps such a
+// write and sends it again at the next start, and the server's answer to that changes only the document's metadata,
+// which they are not told of. (A copy from the offline cache without pending writes confirms too: see the days
+// listener.) No answer: asked again at the next link or when the signal is back.
+function confirmLeft() {
+  if (!user || !known) return;
+  // Only while the latest of them is the copy the note names, and not confirmed (one confirmed after it holds it).
+  const left = (key) => { const l = ownList(key); return !!l && !l[l.length - 1].c; };
+  const core = left('core'), days = Object.keys(known.own.days).filter((d) => isDay(d) && left(d));
+  if (!core && !days.length) return;
+  const gen = linkGen, asks = [];
+  const take = (key, t) => { if (gen === linkGen && known && typeof t === 'string') confirmOwn(key, hash(t)); };
+  if (core) asks.push(getDocFromServer(metaRef()).then((s) => take('core', s.exists() ? s.data().core : undefined)));
+  if (days.length > CONFIRM_ONE_BY_ONE) asks.push(getDocsFromServer(daysCol()).then((qs) => qs.forEach((d) => { if (days.includes(d.id)) take(d.id, d.data().data); })));
+  else days.forEach((date) => asks.push(getDocFromServer(dayRef(date)).then((s) => take(date, s.exists() ? s.data().data : undefined))));
+  Promise.all(asks).then(() => { if (gen === linkGen && known) saveKnown(); }, () => { /* asked again later */ });
+}
 
 // ---------------------------------------------------------------------------
 // Pull: live listeners apply remote changes into the app
@@ -597,7 +617,8 @@ function takeCore(snap) {
   let core; try { core = parse(remote); } catch (e) { return; }
   if (!isObj(core)) return;
   const rh = hash(remote), items = () => coreItems(coreOf(core));
-  if (!snap.metadata.fromCache && confirmOwn('core', rh)) saveKnown();
+  // Without pending writes, also from the offline cache: the server took it (see the days listener).
+  if (confirmOwn('core', rh)) saveKnown();
   // The core the note names (after a start it comes from the offline cache first): nothing to take. A note
   // without its parts gets them now.
   if (rh === known.core) { if (!validParts('core')) { setParts('core', rh, setText(hashesOf(items(), itemText))); saveKnown(); } return; }
@@ -608,19 +629,33 @@ function takeCore(snap) {
   host().setState(next); saveKnown();   // after the app's own save, so a failed save is known
   schedulePush();   // the merge may hold something the cloud lacks; push() only sends what differs
 }
-// A day the cloud no longer holds (its document was deleted, or the server's first answer lacks it). Its entries
-// that this phone added or changed since the noted copy stay, and go up again; the rest go, as they went there
-// (a Reset or Restore on another phone, or its last entry removed, with their records). The whole day stays when
-// this phone's own write of it is not confirmed (the server may never have had it), or when there is no telling
-// what changed here. Returns 0 (not noted), 1 (gone here too) or 2 (something stays: send it).
+// This phone's uploads of a document that the server has not confirmed, after the last one it did confirm (that one
+// held everything before it): the items they put there (p), and whether one of them made the document (its base is
+// null: the server held none when it went).
+function unconfirmed(key) {
+  const l = ownList(key) || [], put = new Set();
+  let i = l.length, made = false;
+  while (i > 0 && !l[i - 1].c) i--;
+  l.slice(i).forEach((w) => { toSet(w.p).forEach((x) => put.add(x)); if (w.b === null) made = true; });
+  return { put, made };
+}
+// A day the cloud no longer holds (its document was deleted, or the server's first answer lacks it). What this phone
+// logged or changed on it since it last synced stays, and goes up again: the entries it added or changed since the
+// noted copy, and those its uploads put there that the server has not confirmed (they may never have arrived). The
+// rest go, as they went there (a Reset or Restore on another phone, or its last entry removed, with their records);
+// a write of this phone that was never confirmed does not keep them (review finding sync#8). The whole day stays
+// only when this phone's unconfirmed upload made the day (the server may never have had any of it: the first
+// sign-in's upload, say, whose answer was lost with the SDK's offline store), or when there is no telling what
+// changed here (a note without the day's parts; this release writes none). Returns 0 (not noted), 1 (gone here
+// too) or 2 (something stays: send it).
 function removeDay(date, diary, gone) {
   if (known.days[date] === undefined) return 0;
   const mine = Array.isArray(diary[date]) ? diary[date] : [];
-  const p = validParts(date), l = ownList(date), lh = hash(JSON.stringify(mine));
+  const p = validParts(date), u = unconfirmed(date), lh = hash(JSON.stringify(mine));
   let keep = mine;
-  if (!(l && l.some((w) => !w.c)) && (p || lh === known.days[date])) {
+  if (!u.made && (p || lh === known.days[date])) {
     const noted = p ? toSet(p.n) : new Set(hashesOf(entryItems(mine), entryText));
-    keep = mine.filter((e) => !hasId(e) || !noted.has(ihash(entryText(e.id, e))));
+    keep = mine.filter((e) => { if (!hasId(e)) return true; const x = ihash(entryText(e.id, e)); return !noted.has(x) || u.put.has(x); });
   }
   keep = keep.filter((e) => !(isObj(e) && has(gone, e.id)));
   delete known.days[date]; dropParts(date); dropOwn(date);
@@ -672,9 +707,12 @@ function listen() {
       changed = true;
       if (JSON.stringify(merged) !== j) pushBack = true;
     });
+    // This phone's writes that a snapshot shows as they were sent: confirmed. Also from the offline cache: the SDK
+    // keeps a document there without pending writes only once the server has taken it. So a write whose answer
+    // never came (the app was closed a moment after it went) is confirmed at the next start, although nothing
+    // changed on the server and no snapshot from it follows (review finding sync#8).
+    qs.docs.forEach((x) => { if (!x.metadata.hasPendingWrites && isDay(x.id) && known.own.days[x.id] && typeof x.data().data === 'string' && confirmOwn(x.id, hash(x.data().data))) noted = true; });
     if (fromServer) {
-      // This phone's writes the server now holds as they were sent: confirmed.
-      qs.docs.forEach((x) => { if (!x.metadata.hasPendingWrites && isDay(x.id) && typeof x.data().data === 'string' && confirmOwn(x.id, hash(x.data().data))) noted = true; });
       // The first snapshot from the server in this session lists every day the server holds. A start with the
       // offline cache cleared gets no 'removed' for a day deleted meanwhile, so it is compared with the note here.
       if (!swept) {
@@ -853,6 +891,7 @@ async function link() {
     saveKnown();
     listen();
     schedulePush();
+    confirmLeft();
     report();
     return;
   }
@@ -949,6 +988,10 @@ function markSignedOut() {
 // ---------------------------------------------------------------------------
 window.__overloadSync = {
   get user() { return user ? { email: user.email, uid: user.uid } : null; },
+  // Signed in and the account has been read: a note of this account was there (at once, offline too), or the first
+  // link's read from the server worked. fuel.js holds Reset, Restore and the imports back while signed in and not
+  // linked (review finding sync#6): the first link would merge the account's data back over them.
+  get linked() { return !!(user && known); },
   get lastSync() { return lastSync; },
   get error() { return lastError; },
   async signIn(email, password) {
@@ -994,6 +1037,6 @@ onAuthStateChanged(auth, (u) => {
 });
 
 document.addEventListener('overload:save', schedulePush);
-window.addEventListener('online', () => { report(); readTries = 0; if (user && !known && !linking) { linkTries = 0; link(); } else schedulePush(); });
+window.addEventListener('online', () => { report(); readTries = 0; if (user && !known && !linking) { linkTries = 0; link(); } else { schedulePush(); confirmLeft(); } });
 // Without signal a change waits here (see push), and the server's copy is taken in again before it goes.
 window.addEventListener('offline', () => { forgetServer(); report(); });

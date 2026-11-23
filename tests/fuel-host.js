@@ -16,6 +16,11 @@
  *   - leaving the unreadable-data screen asks the module to sync again; Reset says the account is erased too;
  *   - before the module has loaded, a note of cloud sync that names an account counts as signed in: Reset and
  *     Restore say the account changes too and keep the note (review finding sync#2); one marked signed out does not.
+ *     The same while the module has loaded and Firebase has not said who is signed in (data#5), the export reminder
+ *     included; once the module has said nobody is, the note counts no more;
+ *   - signed in while the module has not read the account yet (`linked` false): Reset, Restore, Import JSON, Paste from
+ *     Overload, Choose a file and the paste box ask nothing, open nothing, change nothing, and a toast says why
+ *     (sync#6); once linked they ask as before; on the unreadable-data screen nothing is held up.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -296,6 +301,139 @@ const marked = (page) => page.evaluate(() => !!document.querySelector('#app').fi
       return qs[0].split('\n').pop().slice(0, 90) + '…';
     });
     await p5.close();
+
+    // ---------------------------------------------------------------- the module has loaded, Firebase has not answered
+    // (Auth's own storage is slow, or IndexedDB does not answer.) sync.js has put window.__overloadSync in the page, its
+    // user is still null, and it has not called syncChanged yet: the note counts until it has (review finding data#5).
+    const p6 = await newPhone(browser);
+    await run.step('Firebase has not answered yet', 'the module has loaded, Firebase has not said who is signed in: the note counts as signed in for Reset, Restore and the export reminder; once the module says nobody is, it does not', async () => {
+      const pg = await F.open(p6, server);
+      await pg.click('[data-action="fuel-fresh"]');
+      await pg.waitForSelector('.f-meal');
+      await F.quickAdd(pg, 0, 'Porridge', 300, 10, 50, 6);
+      const note = { uid: 'u1', email: 'alex@example.com', core: 'h1', days: {} };
+      const setNote = (n) => pg.evaluate((t) => localStorage.setItem('fuel.sync.v1', t), JSON.stringify(n));
+      const quiet = () => pg.evaluate(() => { document.querySelector('#toast').hidden = true; });
+      // No export for three weeks: the reminder shows only while cloud sync counts as off.
+      await pg.evaluate(() => localStorage.setItem('fuel.backup', JSON.stringify({ since: Date.now() - 21 * 864e5 })));
+      await setNote(note);
+      await pg.evaluate(() => { window.__overloadSync = { user: null, linked: false, lastSync: null, error: '', async signIn() {}, async createAccount() {}, async resetPassword() {}, async signOut() {}, pushNow() {} }; });
+      const reminder = async () => { await lib.openTab(pg, 'settings'); await lib.openTab(pg, 'food'); return /cloud sync is off/.test((await F.text(pg, '#today-notices')) || ''); };
+      const offBefore = await reminder();
+      await lib.openTab(pg, 'settings');
+      let asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      let qs = pg.dialogs.slice(asked);
+      need(qs.length === 2 && /You are signed in to cloud sync, so the food log in your account \(alex@example\.com\) is erased too\. Another phone signed in to this account does the same/.test(qs[0]) && /Export a backup first/.test(qs[1]), 'Reset, the questions: ' + qs.join(' / '));
+      need((await lib.readStorageText(pg, 'fuel.sync.v1')) === JSON.stringify(note), 'Reset removed or changed the note: once Firebase answers, the first link would take the account\'s copy back');
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('#safety-copies [data-action="restore-copy"][data-id="before-reset"]', { timeout: 8000 });
+      await F.toast(pg, /Copy restored/);
+      qs = pg.dialogs.slice(asked);
+      need(qs.length === 1 && /the food log in your account \(alex@example\.com\) is replaced too\./.test(qs[0]), 'Restore, the question: ' + qs.join(' / '));
+      need((await lib.readStorageText(pg, 'fuel.sync.v1')) === JSON.stringify(note), 'Restore removed or changed the note');
+      need(!offBefore, 'the export reminder said cloud sync is off');
+      // A note sync.js marked signed out counts as signed out, also in this window.
+      await setNote(Object.assign({ signedOut: true }, note));
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      need(!/account/.test(pg.dialogs.slice(asked).join(' / ')) && (await lib.readStorage(pg, 'fuel.sync.v1')) === null, 'a note marked signed out: the question talks about the account, or the note was kept');
+      // Firebase answers: nobody is signed in. From now on the module's word counts, whatever the note says.
+      await lib.openTab(pg, 'food');
+      await F.quickAdd(pg, 0, 'Toast', 200, 5, 30, 4);
+      await setNote(note);
+      await pg.evaluate(() => window.__overload.syncChanged());
+      need(await reminder(), 'signed out (the module said so), the export reminder does not show');
+      await lib.openTab(pg, 'settings');
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      need(!/account/.test(pg.dialogs.slice(asked).join(' / ')) && (await lib.readStorage(pg, 'fuel.sync.v1')) === null, 'the module said nobody is signed in: the question talks about the account, or the note was kept');
+      F.assertClean(p6, 'Firebase not answered');
+      return 'Reset, Restore and the reminder follow the note until the module has said who is signed in';
+    });
+    await p6.close();
+
+    // ---------------------------------------------------------------- signed in, the account not read yet
+    // The first link's read from the server is under way, or failed and is tried again (sync.js `linked` is false). A
+    // Reset, Restore or import now would be undone once the read works (review finding sync#6): none starts.
+    const p7 = await newPhone(browser);
+    const tmp = F.tempDir();
+    await run.step('signed in, the account not read yet', 'Reset, Restore, Import JSON, Paste from Overload, Choose a file and the paste box ask nothing, open nothing and change nothing, and the toast says why; once linked they ask as before', async () => {
+      const SAYS = 'Cloud sync is still reading your account. Try again once it says Synced.';
+      const pg = await F.open(p7, server);
+      await pg.click('[data-action="fuel-fresh"]');
+      await pg.waitForSelector('.f-meal');
+      await F.quickAdd(pg, 0, 'Porridge', 300, 10, 50, 6);
+      await pg.evaluate(() => window.__overloadBackup.take('import', JSON.stringify(window.__overload.state)));   // a copy to restore
+      await standIn(pg, { email: 'alex@example.com', uid: 'u1' });
+      await pg.evaluate(() => {
+        window.__overloadSync.linked = false;
+        window.__clipboardReads = 0;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: () => { window.__clipboardReads++; return Promise.resolve(''); }, writeText: () => Promise.resolve() } });
+      });
+      const quiet = () => pg.evaluate(() => { const t = document.querySelector('#toast'); t.hidden = true; t.textContent = ''; });
+      const file = tmp.file('fuel-backup-2026-11-20.json', JSON.stringify(F.fuelStateFrom(fx.state)));
+      const text = F.foodText(F.payloadFrom(fx.state, fx.meta.now - 60000), true);
+      let choosers = 0; const onChooser = () => { choosers++; };
+      pg.on('filechooser', onChooser);
+      await lib.openTab(pg, 'settings');
+      await pg.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+      const before = await F.storedText(pg), asked = pg.dialogs.length, said = [];
+      const tries = [
+        ['Reset all data', () => pg.click('[data-action="reset"]')],
+        ['Restore', () => pg.click('[data-action="restore-copy"][data-id="before-import"]')],
+        ['Import JSON', () => pg.click('[data-action="import"]')],
+        ['a file given to Import', () => pg.setInputFiles('#import-file', file)],
+        ['Paste from Overload', async () => { await pg.click('[data-action="fuel-import"]'); await pg.click('#sheet [data-action="fuel-paste"]'); }],
+        ['Choose a file', () => pg.click('#sheet [data-action="fuel-file"]')],
+        ['the paste box', async () => { await pg.click('#sheet [data-action="fuel-paste-box"]'); await pg.fill('#fuel-paste', text); await pg.click('#fuel-paste-form button[type="submit"]'); }]
+      ];
+      for (const [what, act] of tries) {
+        await quiet(); await act();
+        said.push(what + ': ' + await F.toast(pg, /still reading/).catch(() => 'no such toast'));
+        need(pg.dialogs.length === asked, what + ': questions were asked: ' + pg.dialogs.slice(asked).join(' / ').replace(/\n/g, ' | ').slice(0, 300));
+      }
+      await lib.sleep(300);
+      pg.off('filechooser', onChooser);
+      need(said.every((t) => t.endsWith(': ' + SAYS)), 'the toasts: ' + said.join(' | '));
+      need(!choosers && (await pg.evaluate(() => window.__clipboardReads)) === 0, 'the file picker opened ' + choosers + ' times, the clipboard was read ' + await pg.evaluate(() => window.__clipboardReads) + ' times');
+      need((await F.storedText(pg)) === before && (await F.live(pg)).diary[TODAY].length === 1, 'the data changed');
+      need((await F.count(pg, '#fuel-import-msg')) === 0, 'the import sheet shows a message: ' + await F.text(pg, '#fuel-import-msg'));
+      // The read has worked: they ask as before.
+      await F.closeSheet(pg);
+      await pg.evaluate(() => { window.__overloadSync.linked = true; });
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      const qs = pg.dialogs.slice(asked);
+      need(qs.length === 2 && /the food log in your account \(alex@example\.com\) is erased too/.test(qs[0]), 'linked, the Reset questions: ' + qs.join(' / '));
+      need(!Object.keys((await F.stored(pg)).diary).length, 'linked, the reset did not erase the diary');
+      F.assertClean(p7, 'not read yet');
+      return SAYS;
+    });
+    tmp.rm();
+    await p7.close();
+
+    // On the unreadable-data screen nothing syncs (the module is told to wait): a Restore there is not held up.
+    const p8 = await newPhone(browser);
+    await lib.seedStorage(p8.context, { 'fuel.state.v1': '{"v":1,"app":"fuel","diary":{"2026-11-2' });
+    await run.step('signed in, the account not read yet', 'on the unreadable-data screen a Restore is not held up', async () => {
+      let pg = await F.open(p8, server);
+      await pg.evaluate((t) => window.__overloadBackup.take('import', t), JSON.stringify(F.fuelStateFrom(fx.state)));
+      await pg.close();
+      pg = await F.open(p8, server);
+      await standIn(pg, { email: 'alex@example.com', uid: 'u1' });
+      await pg.evaluate(() => { window.__overloadSync.linked = false; });
+      need((await pg.evaluate(() => window.__overload.screen)) === 'unreadable', 'the screen is ' + await pg.evaluate(() => window.__overload.screen));
+      const asked = pg.dialogs.length;
+      await pg.click('#safety-copies [data-action="restore-copy"][data-id="before-import"]', { timeout: 8000 });
+      await F.toast(pg, /Copy restored/);
+      need(pg.dialogs.length === asked + 1 && Object.keys((await F.stored(pg)).diary).length === Object.keys(fx.state.diary).length, 'the restore did not ask, or did not restore');
+      return 'restored from the unreadable-data screen';
+    });
+    await p8.close();
 
     // ---------------------------------------------------------------- unreadable data and cloud sync
     const p4 = await newPhone(browser);

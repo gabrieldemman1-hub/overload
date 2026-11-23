@@ -20,6 +20,14 @@
  *   - Every form field on Settings and the sheets has a name that holds its visible label (look#7).
  *   - The toast is a polite status; the shown tab is aria-current="page", Welcome marks none (look#8).
  *   - Keyboard focus never stops under the top bar or the tab bar, also with the safe areas (look#9).
+ * Review round 4:
+ *   - Inside the Add sheet ("Added" sticks at its top), the amount sheet when adding (its Add button sticks at the
+ *     bottom) and a logged food's Edit, Tab and Shift+Tab stop only where the control is fully visible, at 320x568
+ *     and 390x844; after a tap the sheet has no scroll padding (look#12).
+ *   - Long unbroken texts at 320 px: food names, brands and saved meals of 60 characters on Today, in the Add sheet,
+ *     the amount sheet and a saved meal; a 60-character search; a 60-digit barcode (Scan, Edit food); a 60-character
+ *     email in Settings (also at 390 px and beside every status) and on Welcome. Each stays inside its card, nothing
+ *     is cut, the page does not scroll sideways (look#13).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -199,6 +207,20 @@ async function frameCloud(browser, server) {
       need(Math.abs(f.right - f.cardRight) < 1, 'the pill ends at ' + Math.round(f.right) + ', the card at ' + Math.round(f.cardRight));
       return Math.round(f.height) + ' px tall';
     });
+    for (const width of [320, 390]) {
+      await run.step(name, 'Settings, ' + width + ' px, ' + theme + ': a 60-character email with no hyphen stays inside the card (look#13), beside a short and a long message', async () => {
+        await page.setViewportSize({ width, height: 844 }); await fakeSync(page, LONG_EMAIL);
+        const bad = [];
+        for (const m of ['Synced 12:59 PM', msgs[msgs.length - 1]]) {
+          await page.evaluate(([s, t]) => window.__overload.setSyncStatus(s, t), [statusOf(m), m]);
+          const f = await longFacts(page);
+          if (!(await page.evaluate((e) => document.querySelector('#cloud-card').textContent.includes(e), LONG_EMAIL))) bad.push('the email is not in the card');
+          bad.push(...f.bad.map((x) => '"' + m.slice(0, 20) + '": ' + x));
+          const p = await pillFacts(page); if (p.right > p.cardRight + 0.5 || p.cut) bad.push('"' + m.slice(0, 20) + '": the pill runs off');
+        }
+        need(!bad.length, bad.join(' | ').slice(0, 600));
+      });
+    }
     await clean(name + ', ' + theme, phone); await phone.close();
   }
   const { phone, page } = await fuelPhone(browser, server, { welcome: true });
@@ -374,6 +396,192 @@ async function frameFocus(browser, server) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Inside a sheet: a sticky footer (the amount sheet's Add) and the strip stuck at the Add sheet's top (look#12)
+// ---------------------------------------------------------------------------
+// Where the focused control is, and how much of it a sticky footer or the stuck "Added" strip covers. Fully visible
+// means inside the panel and the screen, and under neither.
+const sheetStop = (page) => page.evaluate(() => {
+  const a = document.activeElement, p = document.querySelector('#sheet-panel');
+  const what = a ? a.tagName.toLowerCase() + (a.dataset && a.dataset.action ? '[' + a.dataset.action + ']' : '') + ' "' + (a.getAttribute('aria-label') || a.textContent || '').trim().slice(0, 24) + '"' : 'nothing';
+  if (!a || !p.contains(a)) return { out: true, what };
+  const r = a.getBoundingClientRect(), pr = p.getBoundingClientRect();
+  const edges = [...p.querySelectorAll('.sheet-foot, #food-added')].filter((el) => getComputedStyle(el).position === 'sticky' && !el.contains(a));
+  const covered = Math.max(0, ...edges.map((el) => { const e = el.getBoundingClientRect(); return Math.min(r.bottom, e.bottom) - Math.max(r.top, e.top); }));
+  const outside = r.top < Math.max(pr.top, 0) - 0.5 || r.bottom > Math.min(pr.bottom, innerHeight) + 0.5;
+  return { what, top: Math.round(r.top), bottom: Math.round(r.bottom), covered: Math.round(covered), outside };
+});
+// Tab n times, then Shift+Tab n times (both go round inside the sheet); every stop that is not fully visible.
+async function sheetWalk(page, n) {
+  const hidden = [], seen = new Set();
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < n; i++) {
+      await page.keyboard.press(key); await lib.sleep(30);
+      const s = await sheetStop(page);
+      if (s.out) { hidden.push(key + ' left the sheet, to ' + s.what); break; }
+      seen.add(s.what);
+      if (s.covered > 0.5 || s.outside) hidden.push(key + ': ' + s.what + ' at ' + s.top + '..' + s.bottom + (s.covered > 0.5 ? ', ' + s.covered + ' px under a sticky edge' : ', outside the sheet'));
+    }
+  }
+  return { hidden, stops: seen.size };
+}
+async function frameSheetEdges(browser, server) {
+  const name = 'focus clear of a sheet\'s footer and its top strip (look#12)';
+  for (const vp of [{ width: 320, height: 568 }, { width: 390, height: 844 }]) {
+    const tag = vp.width + 'x' + vp.height;
+    const { phone, page } = await fuelPhone(browser, server);
+    await page.setViewportSize(vp);
+    const opener = '[data-action="food-add"][data-meal="0"]';
+    await run.step(name, tag + ', the Add sheet by keys ("Added" sticks at its top): Tab and Shift+Tab, 60 each, every stop fully visible', async () => {
+      await keyOpen(page, opener); await page.waitForSelector('#food-results .f-row');
+      need(await page.evaluate(() => getComputedStyle(document.querySelector('#food-added')).position === 'sticky'), 'the "Added" strip does not stick (the test is not testing it)');
+      const w = await sheetWalk(page, 60);
+      need(w.stops >= 30, 'only ' + w.stops + ' stops');
+      need(!w.hidden.length, w.hidden.length + ' stops not fully visible: ' + w.hidden.slice(0, 5).join(' | '));
+      return w.stops + ' stops';
+    });
+    await run.step(name, tag + ', a food\'s amount, to add (its Add button sticks at the bottom), by keys: Tab and Shift+Tab, 20 each, every stop fully visible', async () => {
+      const pick = await page.evaluate(() => { const foods = window.__overload.state.food.foods; const b = [...document.querySelectorAll('#food-results [data-action="food-pick"]')].find((x) => { const f = foods[x.dataset.id]; return f && f.src === 'usda' && !f.barcode; }); if (!b) return null; b.setAttribute('data-test-pick', '1'); return true; });
+      need(pick, 'no listed food without a barcode in the Add sheet');
+      await page.focus('[data-test-pick="1"]'); await page.keyboard.press('Enter'); await page.waitForSelector('[data-field="food-qty"]');
+      need(await page.evaluate(() => getComputedStyle(document.querySelector('#sheet .sheet-foot')).position === 'sticky'), 'the footer does not stick (the test is not testing it)');
+      const w = await sheetWalk(page, 20);
+      await page.keyboard.press('Escape'); await lib.sleep(60);
+      need(!w.hidden.length, w.hidden.length + ' stops not fully visible: ' + w.hidden.slice(0, 5).join(' | '));
+      return w.stops + ' stops';
+    });
+    await run.step(name, tag + ', a logged food\'s Edit by keys (Save, Remove: the footer scrolls with the sheet): Tab and Shift+Tab, 20 each, every stop fully visible', async () => {
+      await F.afterAdd();
+      await page.focus('.f-meal .f-row[data-id]'); await page.keyboard.press('Enter'); await page.waitForSelector('#sheet:not([hidden]) .sheet-foot');
+      const w = await sheetWalk(page, 20);
+      await page.keyboard.press('Escape'); await lib.sleep(60);
+      need(!w.hidden.length, w.hidden.length + ' stops not fully visible: ' + w.hidden.slice(0, 5).join(' | '));
+      return w.stops + ' stops';
+    });
+    await run.step(name, tag + ': by touch the sheet has no scroll padding (nothing changes for a tap)', async () => {
+      await F.afterAdd();
+      await page.tap(opener); await page.waitForSelector('#sheet:not([hidden]) #food-results');
+      const pad = await page.evaluate(() => { const s = getComputedStyle(document.querySelector('#sheet-panel')); return [s.scrollPaddingTop, s.scrollPaddingBottom, document.documentElement.classList.contains('keys')]; });
+      same(pad, ['auto', 'auto', false], 'the sheet\'s scroll padding after a tap');
+      await page.tap('#sheet .sheet-title [data-action="sheet-close"]');
+    });
+    await clean(name + ', ' + tag, phone); await phone.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Long unbroken texts (look#13): food names, brands, saved meals, barcodes, search text, the account email
+// ---------------------------------------------------------------------------
+const long60 = (base, i) => (base.replace(/[^A-Za-z0-9.@]/g, '') + 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ').slice(0, 57) + String(i).padStart(3, '0');
+const LONG_EMAIL = 'alexander.maximilian.longname.familyname.second@examplemail.co';   // 60 characters, no hyphen
+const LONG_CODE = '9876543210'.repeat(6);
+// The same measure as tests/train-look.js: every text with a word of 24 characters or more stays inside the content box
+// of each card, sheet and screen around it, nothing cuts it off, the page does not scroll sideways.
+const longFacts = (page) => page.evaluate(() => {
+  const bad = [], W = innerWidth, sheet = !document.querySelector('#sheet').hidden;
+  const over = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - W;
+  if (over > 0) bad.push('the page scrolls sideways by ' + over + ' px');
+  const name = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/).join('.') : '');
+  const BOX = '.card, .sheet-panel, .banner, .rest-timer, .toast, .f-added, .screen';
+  let n = 0;
+  const check = (el, rects, text) => {
+    const right = Math.max(...rects.map((q) => q.right)), left = Math.min(...rects.map((q) => q.left));
+    let lr = W, ll = 0, cut = null, ellipsis = false;
+    for (let b0 = el.closest(BOX); b0; b0 = b0.parentElement && b0.parentElement.closest(BOX)) { const b = b0.getBoundingClientRect(), s = getComputedStyle(b0); lr = Math.min(lr, b.right - parseFloat(s.paddingRight)); ll = Math.max(ll, b.left + parseFloat(s.paddingLeft)); }
+    for (let x = el; x && x !== document.body; x = x.parentElement) {
+      const s = getComputedStyle(x); if (s.overflowX === 'visible') continue;
+      const b = x.getBoundingClientRect(); if (right <= b.right + 0.5 && left >= b.left - 0.5) continue;
+      if (s.textOverflow === 'ellipsis' && s.whiteSpace === 'nowrap') ellipsis = true; else cut = x;
+      break;
+    }
+    if (cut) bad.push('cut off by ' + name(cut) + ': ' + name(el) + ' "' + text.slice(0, 26) + '…" at ' + Math.round(left) + '..' + Math.round(right));
+    else if (!ellipsis && (right > lr + 0.5 || left < ll - 0.5)) bad.push(name(el) + ' "' + text.slice(0, 26) + '…" at ' + Math.round(left) + '..' + Math.round(right) + ', its box ' + Math.round(ll) + '..' + Math.round(lr));
+  };
+  const walker = document.createTreeWalker(sheet ? document.querySelector('#sheet-panel') : document.body, NodeFilter.SHOW_TEXT);
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (!/\S{24,}/.test(t.nodeValue)) continue;
+    const el = t.parentElement; if (!el || el.closest('[hidden], script, style, .sr, title, option, [inert]') || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') continue;
+    let shown = true; for (let x = el; x && x !== document.body; x = x.parentElement) { const s = getComputedStyle(x); if ((s.clipPath && s.clipPath !== 'none') || x.getBoundingClientRect().width <= 1) { shown = false; break; } }
+    if (!shown) continue;
+    const r = document.createRange(); r.selectNodeContents(t);
+    const rects = [...r.getClientRects()].filter((q) => q.width > 0.5); if (!rects.length) continue;
+    n++; check(el, rects, t.nodeValue.trim());
+  }
+  return { bad, n };
+});
+async function longStep(page, where, minTexts) {
+  await run.step('long unbroken texts (look#13)', '320 px: ' + where + ': every long word stays inside its card, nothing cut, no sideways scroll', async () => {
+    await lib.sleep(80);
+    const f = await longFacts(page);
+    need(f.n >= (minTexts || 1), 'only ' + f.n + ' long texts on screen (the test is not testing them)');
+    need(!f.bad.length, f.bad.length + ' run past their card: ' + f.bad.slice(0, 4).join(' | '));
+    return f.n + ' long texts';
+  });
+}
+// Fuel's food log with every food, brand and saved meal named by one 60-character word; some foods carry a 60-digit
+// barcode; one of them is his own food (Edit food).
+function longFuel() {
+  const st = F.fuelStateFrom(JSON.parse(fx.text), { settings: { units: 'lb', theme: 'dark' } });
+  let i = 0, own = null;
+  Object.values(st.food.foods).forEach((f) => {
+    f.name = long60('ChocolatePeanutButterProteinBarWithCrispyRice', i++);
+    if (f.brand || i % 3 === 0) f.brand = long60('KirklandSignatureOrganicFarmersMarketSelection', i);
+    if (i % 4 === 0) { f.barcode = LONG_CODE.slice(0, 58) + String(i).padStart(2, '0'); if (!own) { own = f; f.src = 'custom'; f.brand = long60('KirklandSignatureOrganicFarmersMarketSelection', i); } }
+  });
+  Object.values(st.food.meals).forEach((m, j) => { m.name = long60('MyUsualSundayBrunchWithEggsBaconAndPancakes', j); m.items.forEach((x, k) => { x.name = long60('ChocolatePeanutButterProteinBarWithCrispyRice', 500 + k); }); });
+  Object.keys(st.diary).forEach((d) => st.diary[d].forEach((e, k) => { e.name = long60('ChocolatePeanutButterProteinBarWithCrispyRice', 700 + k); if (e.brand) e.brand = long60('KirklandSignatureOrganicFarmersMarketSelection', k); }));
+  return { st, own: own && own.id };
+}
+async function frameLong(browser, server) {
+  const name = 'long unbroken texts (look#13)';
+  {
+    const { st, own } = longFuel();
+    const phone = await lib.newPhone(browser, { now: fx.meta.now, timezoneId: fx.meta.tz });
+    await lib.seedStorage(phone.context, { 'fuel.state.v1': st, 'fuel.theme': 'dark', 'fuel.backup': { since: fx.meta.now - 3 * 864e5, lastExport: fx.meta.now - 864e5 } });
+    const page = await F.open(phone, server); await page.setViewportSize({ width: 320, height: 844 });
+    await page.evaluate(() => { const t = document.querySelector('#toast'); if (t) t.hidden = true; });
+    await longStep(page, 'Today: food names and brands', 10);
+    await page.click('[data-action="food-add"][data-meal="0"]'); await page.waitForSelector('#sheet:not([hidden]) #food-results .f-row');
+    await longStep(page, 'the Add sheet: saved meals, favorites, recent', 10);
+    await page.click('#food-results [data-action="food-sm-open"]'); await page.waitForSelector('#sheet [data-action="food-back"]'); await longStep(page, 'a saved meal (sheet)', 2);
+    await page.click('[data-action="food-back"]'); await page.waitForSelector('#food-results .f-row');
+    await page.click('#food-results [data-action="food-pick"]'); await page.waitForSelector('[data-field="food-qty"]'); await longStep(page, 'a food\'s amount (sheet): its name is the title');
+    await page.click('[data-action="food-back"]'); await page.waitForSelector('#food-results .f-row'); await F.afterAdd();
+    await page.click('#food-results [data-action="food-plus"]'); await page.waitForSelector('#food-added .f-added:not(.none)'); await longStep(page, 'the Add sheet after +: "Added: …"', 10);
+    await page.fill('[data-field="food-search"]', long60('ChocolatePeanutButterProteinBarWithCrispyRice', 1).slice(0, 50)); await page.waitForSelector('[data-action="food-online"]');
+    await longStep(page, 'the Add sheet, searching a 50-character word: the results and "Search brands for …"', 2);
+    await page.fill('[data-field="food-search"]', 'zz' + 'q'.repeat(58)); await page.waitForFunction(() => /qqqq”/.test((document.querySelector('[data-action="food-online"]') || {}).textContent || ''));
+    await longStep(page, 'the Add sheet, a 60-character search with no match');
+    await page.fill('[data-field="food-search"]', ''); await page.waitForSelector('#food-results .f-row');
+    await page.click('[data-action="food-scan"]'); await page.waitForSelector('#scan-status');
+    await page.waitForFunction(() => !/Starting/.test(document.querySelector('#scan-status').textContent));   // the camera has answered (here: it did not start)
+    // What the scan sheet says while it looks a number up ("Looking up …"), with the 60 digits he typed.
+    await page.evaluate((c) => { document.querySelector('#scan-status').textContent = 'Looking up ' + c + '…'; }, LONG_CODE);
+    await longStep(page, 'Scan barcode, looking up a 60-digit number');
+    need(own, 'no food of his own with a barcode');
+    await page.evaluate((id) => window.__overloadFood._.foundCode(window.__overload.state.food.foods[id].barcode), own); await page.waitForSelector('[data-field="food-qty"]');
+    await longStep(page, 'his own food found by its barcode (amount sheet, a long brand)', 2);
+    await page.click('[data-action="food-fix"]'); await page.waitForSelector('#food-form');
+    await run.step(name, '320 px: Edit food with a 60-digit barcode: its box holds the whole number, inside the sheet', async () => {
+      const f = await page.evaluate(() => { const b = document.querySelector('#food-form [name="barcode"]'), r = b.getBoundingClientRect(), p = document.querySelector('#sheet-panel').getBoundingClientRect(); return { v: b.value.length, inside: r.left >= p.left && r.right <= p.right + 0.5, over: document.documentElement.scrollWidth - innerWidth }; });
+      need(f.v === 60 && f.inside && f.over <= 0, JSON.stringify(f));
+    });
+    await F.closeSheet(page); await F.afterAdd();
+    await lib.openTab(page, 'settings'); await fakeSync(page, LONG_EMAIL);
+    await page.evaluate(() => window.__overload.setSyncStatus('synced', 'Synced 12:59 PM')); await longStep(page, 'Settings > Cloud sync, a 60-character email beside "Synced 12:59 PM"');
+    await page.evaluate(() => window.__overload.lib.toast('Saved "' + Object.values(window.__overload.state.food.meals)[0].name + '"')); await page.waitForSelector('#toast:not([hidden])');
+    await longStep(page, 'the toast, with a saved meal\'s name');
+    await clean(name, phone); await phone.close();
+  }
+  {
+    const { phone, page } = await fuelPhone(browser, server, { welcome: true });
+    await page.setViewportSize({ width: 320, height: 844 });
+    await fakeSync(page, LONG_EMAIL); await page.waitForFunction((e) => document.querySelector('#app').textContent.includes(e), LONG_EMAIL);
+    await longStep(page, 'Welcome, signed in: "Signed in as …"');
+    await clean(name + ', Welcome', phone); await phone.close();
+  }
+}
+
 (async () => {
   const server = await lib.startServer(lib.REPO, PORT);
   const browser = await lib.launch();
@@ -409,6 +617,8 @@ async function frameFocus(browser, server) {
     await frameNames(browser, server);
     await frameLiveAndTabs(browser, server);
     await frameFocus(browser, server);
+    await frameSheetEdges(browser, server);
+    await frameLong(browser, server);
   } catch (e) {
     run.say(false, 'fuel-look', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' '));
   } finally {

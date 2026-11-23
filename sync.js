@@ -153,9 +153,10 @@ function partsOf(core, coreHash) {
   const dates = {}; DATED.forEach((k) => { dates[k] = datesOf(core[k]); });
   return { core: coreHash, keys, food: hash(textOf(foodPart(core))), del, dates };
 }
-function notedParts() {
-  const p = known && known.parts;
-  if (!p || typeof p !== 'object' || !isHash(known.core) || p.core !== known.core) return null;
+function notedParts(note) {
+  if (note === undefined) note = known;
+  const p = note && note.parts;
+  if (!p || typeof p !== 'object' || !isHash(note.core) || p.core !== note.core) return null;
   if (!p.keys || typeof p.keys !== 'object' || !isHash(p.food) || !p.del || typeof p.del !== 'object') return null;
   const okDates = (m) => !!m && typeof m === 'object' && Object.keys(m).every((date) => isHash(m[date]));
   if (!p.dates || typeof p.dates !== 'object' || !DATED.every((k) => okDates(p.dates[k]))) return null;
@@ -199,13 +200,18 @@ function forgetDaysNow() {
   if (!h || h.unreadable || h.saveFailed) return;   // not saved: the stored data still has its days, and the stored note belongs to it
   const note = known || loadKnown();
   if (!note || !forgetDays(note, h.state.diary || {})) return;
-  try { localStorage.setItem(SYNC_KEY, JSON.stringify(note)); } catch (e) { /* ignore */ }
+  // Not in use (signed out): the note keeps the form overload.js gives it then, a line break at the end of its text
+  // (noteSignIn), which says nobody is signed in to its account. Any other save of the note leaves it out.
+  let tail = '';
+  if (!known) { try { tail = /\n$/.test(localStorage.getItem(SYNC_KEY) || '') ? '\n' : ''; } catch (e) { tail = ''; } }
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(note) + tail); } catch (e) { /* ignore */ }
 }
 // ---------------------------------------------------------------------------
 // Merging. Two phones can change the same data, and Firestore replays a phone's
 // offline writes as-is when it reconnects. So lists are merged, never replaced:
 // weigh-ins and nights date by date, minus anything in the deletion records
-// (state.deleted, merged too). Changes this phone has not uploaded yet win over
+// (state.deleted, merged too) that was not logged again after its deletion
+// (settleDated). Changes this phone has not uploaded yet win over
 // the cloud's copy; for the rest the cloud's copy stands, its absence of a date
 // included. Food is not merged at all: this phone's old food copy and the
 // cloud's food part each stay as they are.
@@ -230,7 +236,19 @@ function unionByDate(first, second, gone) {
   const by = new Map();
   (second || []).forEach((x) => by.set(x.date, x));
   (first || []).forEach((x) => by.set(x.date, x));
-  return [...by.values()].filter((x) => !(gone && gone[x.date])).sort((a, b) => (a.date < b.date ? -1 : 1));
+  return settleDated([...by.values()], gone).sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+// Weigh-ins and nights against the deletion records of their dates (gone: { date: time }). An entry of a date with a
+// record goes, unless it was logged again after that deletion: then it carries the time it was logged again (`at`,
+// see markLifted), later than the record's, and the entry stays while the record goes (taken out of `gone`, which is
+// the merge's own copy). Review finding sync#7: the record came back from the other phone and took the entry with it.
+function settleDated(list, gone) {
+  return list.filter((x) => {
+    const t = gone && gone[x.date];
+    if (!t) return true;
+    if (typeof x.at === 'number' && x.at > t) { delete gone[x.date]; return true; }
+    return false;
+  });
 }
 // Weigh-ins or nights, date by date against the noted core (noted: { date: hash }, from the note's parts). A date is
 // this phone's when its entry is new here or differs from the noted one: that entry stays, also over the cloud's own
@@ -242,7 +260,6 @@ function mergeDated(local, remote, noted, gone) {
   const by = (list) => { const m = new Map(); (list || []).forEach((x) => m.set(x.date, x)); return m; };
   const L = by(local), R = by(remote), out = [];
   new Set([...L.keys(), ...R.keys()]).forEach((date) => {
-    if (gone && gone[date]) return;
     const l = L.get(date), r = R.get(date), n = noted[date];
     let x;
     if (l !== undefined && (n === undefined || hash(JSON.stringify(l)) !== n)) x = l;   // added or changed here
@@ -250,7 +267,34 @@ function mergeDated(local, remote, noted, gone) {
     else x = r;   // as noted here (or on neither): the cloud's entry, or its absence
     if (x !== undefined) out.push(x);
   });
-  return out.sort((a, b) => (a.date < b.date ? -1 : 1));
+  return settleDated(out, gone).sort((a, b) => (a.date < b.date ? -1 : 1));   // then the deletion records
+}
+// A weigh-in or night logged again on a date whose deletion record the account holds (the noted core has the record,
+// this phone no longer does, and it holds an entry of that date): the app took the record away when it was logged
+// again (overload.js saveCheckin, as in every version). The record still sits on every other phone that took it, and
+// their merges would bring it back and the entry would go (review finding sync#7). So the entry gets the time it
+// was logged again (`at`), which settleDated lets win over an older record. Not when a Reset, Import or Restore was
+// done on this phone after that deletion (host().replacedAt, overload.backup's `replaced`): the record can then be
+// missing because the data was replaced, and the other phones delete such an entry again, as the questions say.
+// Only beside an app that says when it replaced its data (not v2.8's app.js), and only with the note's parts (which
+// hold the noted records; signed out, the stored note's). Run at every save of the app (so the time is when it was
+// logged again), and before a merge and a push (a start without this module logged it). Saves the app's data when it
+// gives an entry its time.
+function markLifted() {
+  const h = host();
+  if (!h || h.unreadable || typeof h.replacedAt !== 'number') return;
+  const p = notedParts(known || (user ? null : loadKnown())); if (!p) return;
+  const s = h.state, now = Date.now(), cutoff = now - RECORD_DAYS * 864e5;
+  let stamped = false;
+  DATED.forEach((k) => {
+    const kind = GONE_OF[k], noted = p.del[kind] || {}, mine = (s.deleted && s.deleted[kind]) || {};
+    (Array.isArray(s[k]) ? s[k] : []).forEach((x) => {
+      const t = x && noted[x.date];
+      if (!(t > cutoff) || mine[x.date] || h.replacedAt > t || (typeof x.at === 'number' && x.at > t)) return;
+      x.at = Math.max(now, t + 1); stamped = true;   // logged after that deletion, whatever this phone's clock says
+    });
+  });
+  if (stamped && !h.saveFailed) h.save();
 }
 // The workout in progress on this phone: not finished here, and no deletion record for it (discarded somewhere).
 function inProgress(st, deleted) {
@@ -319,6 +363,9 @@ function mergeCore(local, remote) {
     const kept = keepExercisesOf(w, out, local);
     if (kept !== w) out.workouts = (local.workouts || []).map((x) => (x.id === w.id ? kept : x));
   }
+  // Never a workout that is finished on this phone (review finding sync#9): the other phone can send its core, still
+  // naming the workout in progress, before it has taken in the finished copy from here.
+  if (out.active && (local.workouts || []).some((x) => x.id === out.active && x.finishedAt)) out.active = null;
   return out;
 }
 // Drop the workouts the deletion records say are gone (after new records arrive from another phone).
@@ -370,6 +417,7 @@ function schedulePush() {
 
 async function push() {
   if (!user || !known || host().unreadable) return;
+  markLifted();   // before the core is worked out: it carries the times (sync#7)
   const s = host().state;
   const now = Date.now();
   const ops = [];
@@ -462,6 +510,7 @@ function takeCore(snap, onlyNoted) {
     return true;
   }
   if (onlyNoted) return false;
+  markLifted();   // an entry logged again here gets its time before the merge, which could take it away (sync#7)
   const local = host().state;
   const next = applyDeleted(Object.assign({}, local, mergeCore(local, core)));   // before cloudFood moves on: mergeCore compares with the core known so far
   known.core = rh; baseCore = core; cloudFood = foodPart(core); known.parts = partsOf(core, rh);
@@ -537,8 +586,13 @@ function listen() {
         if (i >= 0) list[i] = w; else list.push(w);
         known.workouts[id] = jh; dropUnsent(id); changed = true;
         // The workout in progress here, finished on another phone: it is over here too. What the cloud's core names
-        // as in progress, if another workout, takes its place.
-        if (id === active && w.finishedAt) active = baseCore && typeof baseCore.active === 'string' && baseCore.active !== id ? baseCore.active : null;
+        // as in progress, if another workout not finished here, takes its place. The core goes up again: this phone
+        // may have sent one naming it in progress before the finished copy arrived (review finding sync#9).
+        if (id === active && w.finishedAt) {
+          const next = baseCore && typeof baseCore.active === 'string' && baseCore.active !== id ? baseCore.active : null;
+          active = next && !list.some((x) => x.id === next && x.finishedAt) ? next : null;
+          send = true;
+        }
       }
     });
     if (fromServer) {
@@ -653,7 +707,7 @@ async function link() {
       if (i >= 0) next.workouts[i] = w; else next.workouts.push(w);
     });
     next.workouts.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-    if (next.active && !next.workouts.some((w) => w.id === next.active)) next.active = null;
+    if (next.active && !next.workouts.some((w) => w.id === next.active && !w.finishedAt)) next.active = null;   // not here, or finished (sync#9)
     applyDeleted(next);
     // The food part every core sent from here on carries: the account's, as the server just gave it
     // (parsed again, so nothing in the app shares these objects). null: no core yet, the first upload creates it.
@@ -689,6 +743,11 @@ async function link() {
 window.__overloadSync = {
   release: '3.0',   // the release this file belongs to (bump.sh sets it): overload.js removes the old food log only beside its own release's sync module
   get user() { return user ? { email: user.email, uid: user.uid } : null; },
+  // Has this phone read the account it is signed in to? False from a sign-in until the first link's read from the
+  // server has worked (no note of this account yet: it is pending, or failed and is retried). overload.js lets no
+  // Reset, Import or Restore start meanwhile: the link would merge the account's data back over it (review finding
+  // sync#6). A phone that linked before (it has a note) is linked at once, also offline.
+  get linked() { return !!(user && known); },
   get lastSync() { return lastSync; },
   get error() { return lastError; },
   // Does the account hold this phone's whole old food log? True only when the note proves it: the phone has
@@ -743,6 +802,6 @@ onAuthStateChanged(auth, (u) => {
   if (h) { if (h.syncChanged) h.syncChanged(); else h.render(); }   // only the sync parts, not the whole screen
 });
 
-document.addEventListener('overload:save', () => { forgetDaysNow(); schedulePush(); });
+document.addEventListener('overload:save', () => { markLifted(); forgetDaysNow(); schedulePush(); });
 window.addEventListener('online', () => { report(); readTries = 0; if (user && !known && !linking) { linkTries = 0; link(); } else schedulePush(); });
 window.addEventListener('offline', report);

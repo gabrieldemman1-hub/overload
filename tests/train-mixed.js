@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* A release on weak signal: the page that runs is one release, never a mix (review findings U1, U2, O1).
  *
- *   node tests/train-mixed.js [--tree=<folder>] [--port=8413] [--only=v28|mix|v30]
+ *   node tests/train-mixed.js [--tree=<folder>] [--port=8413] [--only=v28|mix|sync28|v30]
  *
  * GitHub Pages ignores ?v=: once a release is published, every address of the previous one is answered with
  * the new release's file of the same name. A worker that asks the network first and stores what it gets
@@ -21,7 +21,11 @@
  * mix   the mix of finding U1 built as a folder (v2.8's page and sync.js with 3.0's main script), which the
  *       worker can no longer produce: signed in, Remove refuses ("Finish the update first ...") and the
  *       account keeps every food day.
- * v30   this tree installed under its own worker, then a 3.1 made with bump.sh in a temporary copy (every
+ * sync28 (round 4, rel#6) this tree's page with v2.8's sync.js, as 2.8's worker hands it out from a stale edge:
+ *       signed in after a Remove made on 3.0, the module is given nothing and sends nothing (2.8's would bring the
+ *       old food log back onto the phone), the cloud card says sync is not available, the line at the top says part
+ *       did not load; the next start of 3.0 whole sends what was logged meanwhile.
+ * v30  this tree installed under its own worker, then a 3.1 made with bump.sh in a temporary copy (every
  *       script and stylesheet of it made different from 3.0's): with the page slow the stored 3.0 page runs
  *       only 3.0's files, also with no signal, and the stored 3.0 copies are not overwritten; with the page
  *       fast 3.1 runs whole; when 3.1's main script does not arrive the start-up rescue runs the stored 3.0
@@ -427,6 +431,88 @@ const updateOutcome = (page) => page.evaluate(async () => {
       }
       site.root = null;
       await phone.close(); await phoneB.close();
+    }
+
+    // =====================================================================
+    // sync28: this tree's page with v2.8's sync.js (round 4, rel#6). During the first starts of 3.0 on a phone that
+    // had 2.8, 2.8's worker hands out whatever the server has under sync.js?v=3.0, and an edge can still have 2.8's.
+    // =====================================================================
+    if (!ONLY || ONLY === 'sync28') {
+      const step = (title, fn) => run.step('3.0 page, v2.8\'s sync.js', title, fn);
+      const base = copyTree(TREE), stale = copyTree(TREE);
+      fs.copyFileSync(path.join(v28, 'sync.js'), path.join(stale, 'sync.js'));
+      const phone = await makePhone('S', { serviceWorkers: 'block' });
+      const EM = EMAIL.replace('me@', 'stale@');
+      const PLAIN_JS = 'Part of Overload did not load, so some of it may not work. Everything you logged is still on this phone. Close the app and open it again where there is signal or Wi-Fi.';
+      const NOT_NOW = 'Cloud sync is not available right now. It starts when the app opens with signal. Your data stays on this phone.';
+      const signedIn = () => !!window.__overloadSync && !!window.__overloadSync.user;
+      const stored = async (page) => JSON.parse(await lib.readStorageText(page, lib.STATE_KEY));
+      let page = null, uid = null, day = null;
+      const ok = await step('set-up: v2.8 signed in (the account holds the food log); then 3.0 whole, where Save as a file and Remove take the old food log off the phone', async () => {
+        site.root = v28;
+        page = await open(phone);
+        await page.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+        await page.evaluate(([e, p]) => window.__overloadSync.createAccount(e, p), [EM, PASSWORD]);
+        await settle();
+        uid = phone.device.user().uid;
+        await page.close();
+        site.root = base;
+        page = await open(phone);
+        await page.waitForFunction(signedIn, null, { timeout: 15000 });
+        await settle();
+        await lib.openTab(page, 'settings');
+        const file = page.waitForEvent('download', { timeout: 8000 });
+        await page.click('[data-action="handover-file"]'); await file;
+        await page.click('[data-action="handover-remove"]');
+        await page.waitForFunction(() => Object.keys(window.__overload.state.diary).length === 0, null, { timeout: 8000 });
+        await settle();
+        await page.close();
+        need(daysIn(uid) === N, 'the account holds ' + daysIn(uid) + ' of ' + N + ' food days');
+        return N + ' food days in the account, none left on the phone';
+      });
+      if (ok) {
+        await step('a start that gets v2.8\'s sync.js: the module is given nothing and sends nothing (the old food log stays off the phone, the account is unchanged, a weigh-in logged now is not sent yet), the cloud card says sync is not available, and the line at the top says part did not load', async () => {
+          site.root = stale;
+          const before = JSON.stringify(cloud.snapshot('users/' + uid + '/')), mark = cloud.mark();
+          page = await open(phone);
+          await page.waitForFunction(signedIn, null, { timeout: 15000 });
+          need(await page.evaluate(() => !('release' in window.__overloadSync)), 'the sync module that ran is not v2.8\'s (the check lost its point)');
+          day = await page.evaluate(() => {
+            const s = window.__overload.state, d = window.__overload.lib.todayKey();
+            s.bodyweight = (s.bodyweight || []).filter((x) => x.date !== d).concat([{ date: d, weight: 77.7 }]).sort((a, b) => (a.date < b.date ? -1 : 1));
+            window.__overload.save();
+            return d;
+          });
+          await settle();
+          const plain = await page.evaluate(() => (document.getElementById('boot-plain') || {}).textContent || null);
+          await lib.openTab(page, 'settings');
+          const card = (await T.text(page, '#cloud-card')).replace(/^Cloud sync\s*/, '');
+          const days = Object.keys((await stored(page)).diary || {}).length;
+          const ws = cloud.writes({ who: 'S', from: mark });
+          await page.close();
+          need(days === 0, 'the old food log came back onto the phone: ' + days + ' food days');
+          need(!ws.length, 'this phone wrote: ' + ws.map((w) => w.type + ' ' + w.path.split('/').slice(2).join('/')).join(', '));
+          need(JSON.stringify(cloud.snapshot('users/' + uid + '/')) === before, 'the account changed');
+          need(card === NOT_NOW, 'the cloud card reads: ' + card);
+          need(plain === PLAIN_JS, 'the line at the top says: ' + plain);
+          return 'no write; ' + daysIn(uid) + ' food days in the account, none on the phone; "' + card.slice(0, 40) + '…"';
+        });
+        await step('the next start of 3.0 whole sends what was logged meanwhile, and the old food log stays off the phone', async () => {
+          site.root = base;
+          page = await open(phone);
+          await page.waitForFunction(signedIn, null, { timeout: 15000 });
+          await settle();
+          const days = Object.keys((await stored(page)).diary || {}).length;
+          await page.close();
+          const core = JSON.parse(cloud.get('users/' + uid + '/meta/state').core);
+          const w = (core.bodyweight || []).find((x) => x.date === day);
+          need(w && w.weight === 77.7, 'the weigh-in of ' + day + ' in the account: ' + JSON.stringify(w));
+          need(days === 0 && daysIn(uid) === N, days + ' food days on the phone, ' + daysIn(uid) + ' in the account');
+          return 'the weigh-in of ' + day + ' is in the account; ' + N + ' food days there, none on the phone';
+        });
+      }
+      site.root = null;
+      await phone.close();
     }
 
     // =====================================================================

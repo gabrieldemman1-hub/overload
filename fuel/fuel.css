@@ -93,7 +93,7 @@
   background: none; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; color: var(--ink); text-align: left;
 }
 button.f-row:active, .f-qpick:active { background: var(--key); }
-.f-row .title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 500; font-size: var(--t-body); line-height: 1.3; }
+.f-row .title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 500; font-size: var(--t-body); line-height: 1.3; overflow-wrap: anywhere; }   /* a name that is one long word breaks too, then ends in … on the second line */
 /* The second line wraps as whole units; it is never cut. Keep a unit together with <span class="nowrap">. */
 .f-row .sub { display: block; color: var(--ink-3); font-size: var(--t-small); line-height: 1.4; margin-top: 2px; overflow-wrap: anywhere; }
 .f-rk { flex: none; min-width: 40px; text-align: right; font-size: var(--t-title); font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
@@ -128,6 +128,7 @@ body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none
 .f-searchrow .input, .f-searchrow .search { flex: 1; min-width: 0; }
 .f-scanbtn { width: var(--ctl); height: var(--ctl); background: var(--key); border-color: var(--edge); color: var(--ink); }
 .f-addbtns .btn { padding-left: 4px; padding-right: 4px; }
+[data-action="food-online"] { overflow-wrap: anywhere; }   /* Search brands for "…": what he typed breaks inside the button */
 /* Favorites and Recent: name, what one tap logs, the calories as a number column, then the + key.
    <div class="f-row f-qrow"><button class="f-qpick">…</button><div class="f-rk">190</div><button class="icon-btn f-plus">+</button></div> */
 .f-qrow { padding: 0; gap: 4px; }
@@ -141,6 +142,7 @@ body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none
 
 /* ============================================================ 5. Amount sheet */
 .f-food-name { font-size: var(--t-head); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+.f-food-name, .f-food-name + .small { overflow-wrap: anywhere; }   /* a name or brand that is one long word breaks inside the sheet */
 .f-amount { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 8px; margin-top: 12px; }
 .f-amount .input { min-height: 64px; font-size: var(--n-big); font-weight: 700; letter-spacing: -0.02em; text-align: center; padding: 0 6px; }
 .f-amount .select { min-height: 64px; font-weight: 600; }
@@ -169,7 +171,7 @@ body.f-dragging, body.f-dragging * { cursor: grabbing; -webkit-user-select: none
 .f-scanview { position: relative; border-radius: var(--r-4); overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
 .f-scanview video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .f-scanview .guide { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 2px solid #fff; border-radius: var(--r-3); box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.4); }
-#scan-status { min-height: 36px; }
+#scan-status { min-height: 36px; overflow-wrap: anywhere; }   /* "Looking up 0123…": a number he typed may be any length */
 
 /* ============================================================ 7. Targets, cloud */
 .f-target-note p { color: var(--ink-3); font-size: var(--t-small); }

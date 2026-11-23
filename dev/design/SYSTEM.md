@@ -403,6 +403,22 @@ Optional sticky footer for a sheet's main button: wrap it, as the last child of 
 `<div class="sheet-foot">…</div>`. Used in the reference for Edit exercise (Save) and the amount sheet (Add to
 Dinner). Without the wrapper the button sits at the end of the content as today.
 
+**A sheet is a dialog** (3.0). `#sheet-panel` has `role="dialog"`, `aria-modal="true"` and
+`aria-labelledby="sheet-heading"`; `openSheet` gives the title's `h2` that id and `tabindex="-1"`. While a sheet is
+open the page behind it (top bar, save warning, `#app`, rest dock, tab bar) is `inert`. A new sheet moves focus to
+its title (to a box marked `autofocus` when keys are in use); Tab and Shift+Tab go round inside it; Escape closes it
+through `closeSheet`, from a text box too; closing gives focus back to what opened it, found again by its tag and
+`data-…` attributes when a save has drawn it again. After a touch none of it shows: no ring (`data-quiet-focus`), no
+scrolling, and no text box is focused (that would bring up the keyboard). A new sheet goes through `openSheet` and
+`closeSheet` and keeps its title as `.sheet-title h2`.
+
+**Keys** (3.0). Tab, or a key pressed outside a text box, puts the class `keys` on `<html>`; the next touch takes it
+off. While it is there the page has scroll padding the height of the top bar (and the save warning) above and of
+the tab bar and the rest dock below, with the safe areas; and an open sheet's panel has scroll padding the height of
+its sticky footer below and of a strip that sticks at its top (Fuel's "Added" line) above, which `openSheet`
+measures into `--sheet-foot-h` and `--sheet-head-h` (again when they change size). So a control reached by Tab is
+never under a bar or under Save. Without the class nothing moves: touch, and the app's own scrolling, are as before.
+
 `#toast` is unchanged in markup (inverse colours, `pointer-events: none`). **It always shows at the top of the
 screen, over the top bar** (6 px under the status bar): one line sits inside the bar, a long message runs a little
 below it. It never covers a row, the rest dock, the tab bar or a sheet's controls; over a sheet a two-line toast
@@ -506,6 +522,12 @@ ready. In the top bar a `button.pill` is a 44 px target; the accent one is outli
 
 Focus: accent border and ring. Disabled: no fill, `--ink-3` text (still readable on iOS). `input[type=time]` is
 at most 150 px wide.
+
+Every field is named (3.0): `aria-label` carries the text of its visible label, word for word
+(`<div class="field"><label>Name</label><input class="input" name="name" aria-label="Name"></div>`; in a
+`.toggle-row`, the row's label). Not `<label for>`: a tap on the label would focus the box and bring up the
+keyboard, and some rows are on screen twice (Fuel's targets, in Settings and in their sheet). The look tests check
+that each field's name holds its label.
 
 **Stepper** (new, not used by a v2.8 screen; ready for the amount sheet):
 `<div class="stepper"><button aria-label="Less">icon('minus')</button><input class="val" type="number"><button aria-label="More">icon('plus')</button></div>`, `.stepper.big` is 64 px tall with 34 px digits.
@@ -1190,6 +1212,10 @@ const cls = ['cal-cell', ws.length ? 'hit' : '', ws.length && ws.every((w) => w.
   (the id is styled); the status pill `'<span class="pill" id="cloud-status" style="color:' + colour + '">'` becomes
   `'<span class="pill ' + st.status + '" id="cloud-status">'`, and `setSyncStatus` (2435) sets
   `el.className = 'pill ' + status` instead of `el.style.color`. `cloudColour` goes.
+  The status is not always short (3.0): sync.js can show a sentence ("Could not reach the cloud. Nothing was
+  uploaded; retrying.") or a raw Firebase error. `#cloud-status` may then wrap to several lines, and it drops under
+  "Signed in" as a full-width block (the `.toggle-row` wraps); a short one stays a one-line pill beside it, at the
+  card's right edge. It is never cut and never runs off the card (both apps; the look tests try every message).
 - WHOOP card (`connector.js:311`), must: drop `style="flex:1;min-width:0"` on `#conn-code` (`.row > .input` does it).
 - Reminders rows (`connector.js:338-340`), must:
   `'<div class="toggle-row" style="flex-direction:column;align-items:stretch;gap:8px">'` becomes `'<div class="toggle-row stack">'`;

@@ -14,7 +14,8 @@
 # For a new number this script changes:
 #   - the ?v= on every file address in index.html, sw.js, fuel/index.html and fuel/sw.js;
 #   - VERSION in overload.js and in fuel/fuel.js (a line  const VERSION = '3.0';  in each), and the release
-#     in sync.js (a line  release: '3.0',  in window.__overloadSync);
+#     in sync.js, backup.js and connector.js (a line  release: '3.0',  in window.__overloadSync,
+#     window.__overloadBackup and window.__overloadConn: overload.js uses no such module of another release);
 #   - the first line  /* release 3.0 ... */  of every other file with ?v= in a worker's install list (scripts
 #     and stylesheets of both apps and shared/): the workers store and run such a file only when it names the
 #     release of its address;
@@ -22,15 +23,22 @@
 #     only one app changed: a worker file that did not change is never installed again, and a page with a
 #     new ?v= cannot be stored by a worker that still expects the old one.
 # Then it checks, and fails loudly (exit code 1) when:
-#   - a ?v= with another number is left in those four files, or a VERSION, the release in sync.js or the
-#     first line of another versioned file differs, or one of these marks is not there exactly once;
+#   - a ?v= with another number is left in those four files, or a VERSION, the release in sync.js, backup.js
+#     or connector.js or the first line of another versioned file differs, or one of these marks is not there
+#     exactly once;
 #   - sw.js or fuel/sw.js differs from the published one (origin/main: GitHub Pages serves main) while its
 #     cache name is the same: phones would install the changed worker into the cache the running one serves
 #     from. Skipped where git or origin/main is not there, and for a worker that is new since then;
+#   - the release is the published one (VERSION in origin/main's overload.js) and a page or a file with ?v= in
+#     an install list differs from its published copy: a phone that has the release keeps its stored copies of
+#     the ?v= files for the whole release and runs them under the new page. Skipped like the check above, and
+#     for the page and files of a worker that is new since then (no phone stored them);
 #   - app.js, styles.css or food.js is at the root: v2.8's page asks the server for these names, and its
 #     worker would run (and store) whatever answers there in the v2.8 page;
 #   - a file in a worker's install list (ASSETS in sw.js and fuel/sw.js, one address per line) is not on
-#     disk: that install fails on every phone, and nobody gets the release;
+#     disk: that install fails on every phone, and nobody gets the release. In a git repository (run from its
+#     root), also when such a file, a page or a worker is not tracked by git: the published site would not
+#     have it. Files among them with changes that are not committed yet are named (a warning, not a failure);
 #   - a page loads a versioned file that its worker's install list does not name: the file would be missing
 #     when the app starts with no signal;
 #   - the food list's ?db= differs between fuel/food.js and fuel/sw.js: food search would stop working
@@ -40,7 +48,8 @@
 # fuel/ is not complete. Commit the result.
 #
 # Every change to a file the workers store needs a new number: a worker answers an address with ?v= from its
-# own stored copy for the whole release and never asks the server for it again.
+# own stored copy for the whole release and never asks the server for it again. (The pages are not stored that
+# way: a phone takes a changed page from the server and runs it with its old copies of the other files.)
 
 set -f   # no file name expansion: the words handled below hold "?"
 
@@ -101,6 +110,15 @@ is_release() {
 [ -f overload.js ] && [ -f sw.js ] && [ -f index.html ] || die "run it from the repo root (overload.js, sw.js and index.html are not here)"
 
 STAMPED="index.html sw.js fuel/index.html fuel/sw.js"
+# The modules that say their release in a line  release: '3.0',  (overload.js reads it there).
+RELEASED="sync.js backup.js connector.js"
+# Run from the root of a git repository: what GitHub Pages publishes is what git has, not what is on disk.
+IN_GIT=0
+if command -v git >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; then IN_GIT=1; fi
+tracked() { git ls-files --error-unmatch -- "$1" >/dev/null 2>&1; }
+# Exit 1 from git diff --quiet: the file differs from the last commit (staged or not).
+uncommitted() { git diff --quiet HEAD -- "$1" >/dev/null 2>&1; [ $? = 1 ]; }
+UNCOMMITTED=""
 
 MODE=bump MAJOR=0 NEW=""
 for a in "$@"; do
@@ -128,7 +146,9 @@ if [ "$MODE" = bump ]; then
   OLD=$(version_of overload.js)
   [ "$(lines "$OLD")" = 1 ] || die "overload.js must have exactly one line  const VERSION = '...'"
   is_release "$OLD" || die "overload.js says VERSION '$OLD', which is not a release number: set it by hand first"
-  [ "$(lines "$(release_of sync.js)")" = 1 ] || die "sync.js must have exactly one line  release: '...',"
+  for f in $RELEASED; do
+    [ "$(lines "$(release_of "$f")")" = 1 ] || die "$f must have exactly one line  release: '...',"
+  done
   N=$(cache_of sw.js overload)
   [ "$(lines "$N")" = 1 ] || die "sw.js must have exactly one line  const CACHE = 'overload-v<number>'"
   if have fuel/fuel.js; then
@@ -161,7 +181,7 @@ if [ "$MODE" = bump ]; then
     if have "$f"; then edit "$f" "s/?v=[0-9][0-9]*\(\.[0-9][0-9]*\)*/?v=$NEW/g"; fi
   done
   edit overload.js "s/const VERSION = '[^']*'/const VERSION = '$NEW'/"
-  edit sync.js "s/^\([[:space:]]*release: '\)[^']*'/\1$NEW'/"
+  for f in $RELEASED; do edit "$f" "s/^\([[:space:]]*release: '\)[^']*'/\1$NEW'/"; done
   if have fuel/fuel.js; then edit fuel/fuel.js "s/const VERSION = '[^']*'/const VERSION = '$NEW'/"; fi
   for f in $MARKED; do
     if [ -f "$f" ]; then edit "$f" "s|^/\* release [^ ]* |/* release $NEW |"; fi
@@ -195,6 +215,10 @@ for f in $STAMPED; do
 done
 [ "$(version_of overload.js)" = "$WANT" ] || fail "overload.js says VERSION '$(version_of overload.js)'; the release is $WANT"
 [ "$(release_of sync.js)" = "$WANT" ] || fail "sync.js says release '$(release_of sync.js)'; the release is $WANT (overload.js refuses to remove the old food log beside another release's sync module)"
+for f in backup.js connector.js; do
+  [ "$(release_of "$f")" = "$WANT" ] || fail "$f says release '$(release_of "$f")'; the release is $WANT (overload.js does not use a $f of another release)"
+  [ "$(occurs "$f" "release: '")" = 1 ] || fail "$f has \"release: '\" $(occurs "$f" "release: '") times; overload.js reads the module's release from it, so exactly once"
+done
 if have fuel/fuel.js; then
   [ "$(version_of fuel/fuel.js)" = "$WANT" ] || fail "fuel/fuel.js says VERSION '$(version_of fuel/fuel.js)'; the release is $WANT"
 fi
@@ -227,7 +251,13 @@ check_worker() {
     p=${a%%\?*}
     case "$p" in */) p="${p}index.html" ;; esac
     p="$2/${p#./}"
-    [ -f "$p" ] || fail "$1 lists $a, but ${p#./} is not on disk: the install would fail on every phone"
+    if [ ! -f "$p" ]; then fail "$1 lists $a, but ${p#./} is not on disk: the install would fail on every phone"; continue; fi
+    [ "$IN_GIT" = 1 ] || continue
+    q=${p#./}; case "$q" in */../*) q=${q#*/../} ;; esac   # the path from the root (fuel/../shared/ui.css is shared/ui.css)
+    case " $CHECKED " in *" $q "*) continue ;; esac
+    CHECKED="$CHECKED $q"
+    if ! tracked "$q"; then fail "$q is not in git: the published site would not have it. git add it"
+    elif uncommitted "$q"; then UNCOMMITTED="$UNCOMMITTED $q"; fi
   done
   [ -f "$3" ] || return
   for u in $(grep -E -o '(src|href)="[^"]*[?]v=[^"]*"' "$3" | sed 's/^[a-z]*="//; s/"$//'); do
@@ -236,8 +266,17 @@ check_worker() {
     [ "$hit" = 1 ] || fail "$3 loads $u, but the install list in $1 does not name it: it would be missing offline"
   done
 }
+CHECKED=""
 check_worker sw.js . index.html
 if have fuel/sw.js; then check_worker fuel/sw.js fuel fuel/index.html; fi
+# The workers themselves are published too.
+if [ "$IN_GIT" = 1 ]; then
+  for f in sw.js fuel/sw.js; do
+    [ -f "$f" ] || continue
+    if ! tracked "$f"; then fail "$f is not in git: the published site would not have it. git add it"
+    elif uncommitted "$f"; then UNCOMMITTED="$UNCOMMITTED $f"; fi
+  done
+fi
 
 # 4. The food list is asked for under the address it is stored under.
 if have fuel/food.js; then HAVE_FOOD=1; else HAVE_FOOD=0; fi
@@ -264,9 +303,35 @@ if command -v git >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel 2>/dev/n
     THEN=$(git show "$PUBLISHED:$f" | sed -n "s/.*const CACHE = '$pre-v\([0-9][0-9]*\)'.*/\1/p")
     [ "$THEN" != "$(cache_of "$f" "$pre")" ] || fail "$f differs from the published one ($PUBLISHED), but its cache is still $pre-v$THEN: phones would install it into the cache the running worker serves from. Run sh bump.sh with the next release"
   done
+  # Under the published release, every page and every file with ?v= the workers store must be the published copy.
+  # A phone that has the release answers the ?v= addresses from its stored copies for the whole release, but takes
+  # a changed page from the server: it would run the new page with the old scripts and stylesheets, also offline.
+  # (Two branches that each ran sh bump.sh with the same number merge cleanly, so this is not only a forgotten bump.)
+  PUBREL=$(git show "$PUBLISHED:overload.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p")
+  if [ "$PUBREL" = "$WANT" ] && is_release "$WANT"; then
+    NEXT="${WANT%%.*}.$((${WANT#*.} + 1))"
+    # Only a worker that was published stored anything on a phone: its page and its files with ?v=.
+    LISTED=""
+    for m in sw.js:.:index.html fuel/sw.js:fuel:fuel/index.html; do
+      w=${m%%:*} rest=${m#*:}; dir=${rest%%:*} page=${rest#*:}
+      [ -f "$w" ] && git cat-file -e "$PUBLISHED:$w" 2>/dev/null || continue
+      LISTED="$LISTED $page"
+      for a in $(assets_of "$w"); do case "$a" in *'?v='*) LISTED="$LISTED $(in_tree "$dir" "$a")" ;; esac; done
+    done
+    for f in $(printf '%s\n' $LISTED | sort -u); do
+      [ -f "$f" ] || continue
+      git cat-file -e "$PUBLISHED:$f" 2>/dev/null || continue   # new since then: its worker's install list changed too (above)
+      if git show "$PUBLISHED:$f" | cmp -s - "$f"; then continue; fi
+      case "$f" in
+        index.html|fuel/index.html) fail "$f changed but the release is still $WANT: phones run it with their old copies of the other files. Run sh bump.sh $NEXT" ;;
+        *) fail "$f changed but the release is still $WANT: phones keep the old copy. Run sh bump.sh $NEXT" ;;
+      esac
+    done
+  fi
 else
-  say "not compared with the published workers (no git repository here, or no $PUBLISHED)"
+  say "not compared with the published workers and files (no git repository here, or no $PUBLISHED)"
 fi
+[ -z "$UNCOMMITTED" ] || say "warning: not committed yet:$UNCOMMITTED. Commit them before you push."
 
 # ---------------------------------------------------------------------------
 [ -z "$SKIPPED" ] || say "skipped (not there):$SKIPPED"

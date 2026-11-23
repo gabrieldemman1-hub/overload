@@ -141,10 +141,19 @@ one account holds both apps' data, in documents of their own:
 - The three Firebase files are not in the worker's install list (a slow or blocked download must never keep
   the app from installing). The worker stores them once it is active, and whenever a page loads them.
 - Reset and Restore replace the food log in the account too when signed in, also on a start where the sync
-  module has not loaded yet (a note that names an account counts as signed in then). A second phone signed
-  in follows, except for what was logged or changed on it since it last synced: that comes back. Their
-  questions say so: to be sure nothing comes back, sign out on that phone first, and reset it there before
-  signing in again (its note is then gone, and its next sign-in takes the account's copy).
+  module has not said yet who is signed in (it has not loaded, or Firebase has not answered: a note that names
+  an account counts as signed in then; review findings sync#2, data#5). A second phone signed in follows,
+  except for what was logged or changed on it since it last synced: that comes back. That holds also when
+  the second phone never heard back from an upload (the app closed a moment after logging): its write counts
+  as taken once its offline cache or the server shows it, and a day that leaves the account keeps there only
+  what that phone logged or changed itself, never the whole day (sync#8). Their questions say so: to be sure
+  nothing comes back, sign out on that phone first, and reset it there before signing in again (its note is
+  then gone, and its next sign-in takes the account's copy).
+- Signed in, but before the first sign-in on this phone has read the account (no signal, or the read keeps
+  failing), Reset, Restore and the imports (Import JSON, Paste from Overload, Choose a file) do not start, and
+  say so as Overload does: "Cloud sync is still reading your account. Try again once it says Synced." The read
+  would bring the account's log back over them (sync#6). A phone that signed in here before is not held up,
+  also without signal.
 - The sign-out question says what the next sign-in does: what was logged while signed out is sent; after a
   Reset or Restore done while signed out, signing in brings back what the account holds (review finding
   look#1). While the sync module has not loaded, Settings says "Cloud sync is not available right now. It
@@ -218,13 +227,13 @@ node tests/fuel-backup.js    # export and import, automatic copies, restore, unr
 node tests/fuel-records.js   # a star taken off and a correction deleted stay so: Paste, a Fuel backup, the first sign-in, two phones
 node tests/fuel-words.js     # Welcome, From Overload, the import sheet, Backup, Cloud sync and sign-out say what the app does
 node tests/fuel-trends.js    # Trends left open over midnight, or found in the morning, follows the date
-node tests/fuel-look.js      # Today's three macro cells at 320, 390 and 430 px; the cloud status, sheets as dialogs, field names, focus clear of the bars
+node tests/fuel-look.js      # Today's three macro cells at 320, 390 and 430 px; the cloud status, sheets as dialogs, field names, focus clear of the bars and of a sheet's footer and "Added" line, long names
 node tests/fuel-host.js      # what the shell gives cloud sync, with a stand-in for sync.js
 node tests/fuel-update.js    # how the page takes a new offline worker, with stand-in workers
 node tests/fuel-rescue.js    # the start-up rescue in index.html, with stored copies put there by hand
 node tests/fuel-sync.js      # cloud sync against a stand-in for Firebase (tests/fake-firebase), next to Overload; sign-in against Paste
 node tests/fuel-sw.js        # the offline worker with real service workers, alone and beside Overload's
-node tests/fuel-release.js   # stale server copies, an install cut off, the next releases: what the phone keeps
+node tests/fuel-release.js   # stale server copies, an install cut off, the next releases: what the phone keeps; the line at the top
 ```
 
 `tests/fuel-common.js` is their shared helper. It builds what Overload hands over from the v2.8 fixtures and

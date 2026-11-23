@@ -352,6 +352,7 @@
   // Hooks for overload.js
   // ---------------------------------------------------------------------------
   window.__overloadConn = {
+    release: '3.0',   // the release this file belongs to (bump.sh sets it): overload.js uses no connector of another release
     settingsCard() {
       if (url() && !cs.loading && Date.now() - cs.lastStatus > 60000) setTimeout(() => refreshStatus(), 0);
       if (cs.pushOn === null) checkPush().then(() => redrawCards());

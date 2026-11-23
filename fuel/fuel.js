@@ -361,11 +361,7 @@
   }
   function agoText(ms) { const d = daysBetween(todayKey(new Date(ms)), todayKey()); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago'; }
   function lastExportText() { const t = backupInfo().lastExport; return t ? 'Last export: ' + agoText(t) + '.' : 'No export from this phone yet.'; }
-  function syncOn() {
-    const sync = window.__overloadSync;
-    if (sync) return !!sync.user;
-    return !!syncNote();   // still loading: a phone signed in when the module last ran counts as on (not one signed out since)
-  }
+  function syncOn() { return !!cloudAccount(); }   // before the module has reported: a phone signed in when it last ran counts as on (not one signed out since)
   // Cloud sync off and no export for 14 days (counted from the first start when there is none).
   function exportDue() {
     if (syncOn() || !Object.keys(state.diary).length) return false;
@@ -429,7 +425,7 @@
   }
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
   async function restoreCopy(id) {
-    const B = window.__overloadBackup; if (!B || ui.replacing) return;
+    const B = window.__overloadBackup; if (!B || ui.replacing || cloudStillReading()) return;
     let rec = null, parsed = null;
     try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
     if (!isObj(parsed) || parsed.v !== 1 || parsed.app !== 'fuel') { toast('That copy cannot be read'); return; }
@@ -933,6 +929,22 @@
     if (!el || !el.getClientRects().length || el.closest('[inert]') || (!sheetNav.keys && typingBox(el))) return;
     quietFocus(el);
   }
+  // Tab inside a sheet never stops under its sticky footer (.sheet-foot, the amount sheet's Add) or a strip that sticks
+  // at its top (#food-added in the Add sheet): their heights go to --sheet-foot-h and --sheet-head-h on the panel, which
+  // shared/ui.css makes the panel's scroll padding while keys are used. Measured when the sheet is drawn, and again when
+  // one of them changes size. The training app's is the same.
+  let sheetEdgeWatch = null;
+  function sheetEdges(panel) {
+    if (sheetEdgeWatch) { sheetEdgeWatch.disconnect(); sheetEdgeWatch = null; }
+    const stuck = [...panel.querySelectorAll(':scope > *, :scope > form > *')].filter((el) => getComputedStyle(el).position === 'sticky');
+    const foot = stuck.find((el) => getComputedStyle(el).bottom !== 'auto'), head = stuck.find((el) => getComputedStyle(el).top !== 'auto');
+    const measure = () => {
+      panel.style.setProperty('--sheet-foot-h', (foot && foot.isConnected ? foot.offsetHeight : 0) + 'px');
+      panel.style.setProperty('--sheet-head-h', (head && head.isConnected ? head.offsetHeight : 0) + 'px');
+    };
+    measure();
+    if ((foot || head) && typeof ResizeObserver === 'function') { sheetEdgeWatch = new ResizeObserver(measure); [foot, head].forEach((el) => { if (el) sheetEdgeWatch.observe(el); }); }
+  }
   function openSheet(html, key) {
     // key names what the sheet shows (for example 'meal:' + id); without one the title does.
     const panel = $('#sheet-panel'), fresh = $('#sheet').hidden, was = panel.dataset.sheet;
@@ -944,6 +956,7 @@
     ui.sheet = true; panel.innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden';
     const h = panel.querySelector('.sheet-title h2'), now = key != null ? 'k:' + key : 't:' + (h ? h.textContent : '');
     panel.dataset.sheet = now;
+    sheetEdges(panel);
     // A new sheet starts at its top, also when it replaces another one;
     // redrawing the open one (a renamed meal) keeps its place.
     if (fresh || was !== now) panel.scrollTop = 0;
@@ -960,6 +973,7 @@
   // Every way of closing a sheet comes through here: food.js turns the camera off and ends its Add trip on the event.
   function closeSheet() {
     ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = '';
+    sheetEdges($('#sheet-panel'));   // nothing sticks now: 0 px, and nothing is watched
     document.querySelectorAll(BEHIND).forEach((el) => { el.inert = false; });
     const opener = sheetNav.opener; sheetNav.opener = null;
     if (opener) setTimeout(() => focusBack(opener), 0);   // after the redraw that usually follows (save, then render)
@@ -1069,31 +1083,52 @@
       applyTheme(); const ok = save(); ui.screen = 'food'; render(); toast(ok ? 'Started fresh' : NOT_SAVED);
     }
   }
-  // Signed out, a reset or restore must not keep the note of what the cloud holds: the next sign-in would treat
-  // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
-  // While the sync module has not loaded yet (its files are slow to come, or this start has no signal), a note that
-  // names an account and is not marked signed out (sync.js marks it) counts as signed in: it stays, and the next
-  // link sends the reset or restore (review finding sync#2).
+  // Signed in to cloud sync, as far as Reset, Restore and the export reminder go: { email } (email may be '') or null.
+  // Once the sync module has said who is signed in (syncChanged, which sync.js calls at each sign-in and sign-out and
+  // once at every start, when Firebase first answers), its word counts. Before that (its files are slow to come, or
+  // this start has no signal; or the module has loaded and Firebase has not answered yet), a note that names an
+  // account and is not marked signed out (sync.js marks it) counts as signed in: it stays, and the next link sends the
+  // reset or restore (review findings sync#2, data#5), as Overload's cloudAccount does.
+  function cloudAccount() {
+    const sync = window.__overloadSync;
+    if (sync && sync.user) return { email: sync.user.email || '' };
+    if (sync && ui.authSeen) return null;
+    const note = syncNote();
+    return note ? { email: typeof note.email === 'string' ? note.email : '' } : null;
+  }
   function syncNote() {
     try { const n = JSON.parse(localStorage.getItem(SYNC_KEY)); return isObj(n) && typeof n.uid === 'string' && n.uid && !n.signedOut ? n : null; } catch (e) { return null; }
   }
+  // Signed out, a reset or restore must not keep the note of what the cloud holds: the next sign-in would treat
+  // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
   function forgetCloudIfSignedOut() {
+    if (!cloudAccount()) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
+  }
+  // Signed in, but cloud sync has not read the account yet (sync.js `linked`: the first read from the server is under
+  // way, or failed and is tried again). A Reset, Restore or import now would be undone without a word: once the read
+  // works, the first link merges the account's data back over it, and the account is not changed (review finding
+  // sync#6). So none of them starts, and the toast says when they can, in Overload's words. A phone that linked
+  // before (it has a note) is linked at once, offline too. A sync module of another release has no `linked` and
+  // holds nothing up. Not on the unreadable-data screen: nothing syncs there.
+  function cloudStillReading() {
     const sync = window.__overloadSync;
-    if (sync ? !sync.user : !syncNote()) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
+    if (ui.unreadable || !sync || !sync.user || sync.linked !== false) return false;
+    toast('Cloud sync is still reading your account. Try again once it says Synced.');
+    return true;
   }
   // Signed in, a reset or restore syncs out and replaces the cloud copy too. Say so, and what another phone
   // signed in to the account does: it follows (sync.js), except for what was logged or changed on it since it
   // last synced, which it keeps and sends back. Signing it out is not enough: it sends that at its next sign-in.
   // Reset there while signed out, and its next sign-in takes the account's copy instead.
   function cloudNote(verb) {
-    const sync = window.__overloadSync, note = sync ? null : syncNote();
-    if (!(sync ? sync.user : note)) return '';
-    const email = sync ? sync.user.email : typeof note.email === 'string' ? note.email : '';
+    const acct = cloudAccount();
+    if (!acct) return '';
+    const email = acct.email;
     return '\n\nYou are signed in to cloud sync, so the food log in your account' + (email ? ' (' + email + ')' : '') + ' is ' + verb + ' too. '
       + 'Another phone signed in to this account does the same, except for what was logged or changed on it since it last synced: that comes back. To be sure nothing comes back, sign out on that phone first, and reset it before you sign in there again.';
   }
   async function resetAll() {
-    if (ui.replacing) return;
+    if (ui.replacing || cloudStillReading()) return;
     // Everything it erases is named (review finding look#5), as Overload's Reset now names its settings and link.
     if (!confirm('Erase the food diary, saved foods, saved meals, targets and settings in ' + APP_NAME + ' on this phone, body weight, units and theme included?\n\nThis phone now: ' + dataSummary(state) + '.' + cloudNote('erased'))) return;
     if (!confirm('Really erase everything in ' + APP_NAME + '?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ' The latest copy stays in Settings > Automatic copies.'))) return;
@@ -1324,7 +1359,7 @@
   }
   // One import from start to finish. `get` gives the parsed data (or rejects with a message for him).
   async function importFrom(get, how) {
-    if (ui.unreadable || ui.gate || ui.importing) return;
+    if (ui.unreadable || ui.gate || ui.importing || cloudStillReading()) return;   // review finding sync#6
     ui.importing = true;
     try {
       const inc = incomingFrom(await get(), how), p = planImport(inc);
@@ -1373,6 +1408,7 @@
   // Paste from Overload: the clipboard is read on the tap. An iPhone shows a small Paste bubble first; where
   // reading is refused or missing, the sheet offers a box to paste into instead.
   async function pasteFromOverload() {
+    if (cloudStillReading()) return;   // before the clipboard is read (an iPhone shows its Paste bubble for that)
     let text = null;
     try { if (navigator.clipboard && navigator.clipboard.readText) text = await navigator.clipboard.readText(); } catch (e) { text = null; }
     if (text == null) { sheetImport({ box: true, msg: APP_NAME + ' could not read the clipboard here. Paste the copied text into the box below.' }); return; }
@@ -1425,7 +1461,7 @@
       case 'fuel-import': sheetImport(); break;
       case 'fuel-paste': pasteFromOverload(); break;
       case 'fuel-paste-box': sheetImport({ box: true }); break;
-      case 'fuel-file': case 'import': $('#import-file').click(); break;
+      case 'fuel-file': case 'import': if (!cloudStillReading()) $('#import-file').click(); break;   // review finding sync#6
       case 'fuel-here': importHere(); break;
 
       // Trends
@@ -1605,6 +1641,7 @@
     },
     // Signed in or out: redraw the pill and the Cloud sync card only, not the screen.
     syncChanged() {
+      if (window.__overloadSync) ui.authSeen = true;   // the module has said who is signed in (cloudAccount)
       renderTopbar();
       const card = $('#cloud-card');
       if (card) {

@@ -3,7 +3,7 @@
  * to #5 of the final review, for Fuel's worker (fuel/sw.js) and page (fuel/index.html), and the sync module item of
  * the code review's list. tests/train-release.js does the same for Overload.
  *
- *   node tests/fuel-release.js [--tree=<folder>] [--port=8962] [--only=stale|page|db|half|sync]
+ *   node tests/fuel-release.js [--tree=<folder>] [--port=8962] [--only=stale|page|db|half|sync|preload|line] [--shots=<folder>]
  *
  * Real service workers in a sealed Chromium (tests/lib.js: no Playwright routing, which makes Chromium install the
  * same worker again at every update check; the browser itself stops every host but 127.0.0.1). The server is
@@ -24,6 +24,13 @@
  *          install of another release deletes it, even when that install fails.
  *   sync   (code review, not checked) the 3.1 page whose fuel.js fails but whose sync.js ran: the rescue starts 3.0
  *          without running a second sync module; when sync.js failed too, 3.0's sync.js is run.
+ *   preload (round 4, rel#4) 3.0 installed, a 3.1 install that failed (its fetches leave the 3.1 page in the HTTP
+ *          cache), every worker stopped over CDP, a start with no signal: the stored 3.0 page runs whole. The sealed
+ *          browser runs without Chromium's ServiceWorkerAutoPreload, which would answer that start from the HTTP cache.
+ *   line   (round 4, rel#5) the line at the top ("Part of Fuel did not load"), at 390 and 320 px, dark and light, with
+ *          an iPhone's status bar emulated (47 px), with a script missing, without fuel.css, and without any
+ *          stylesheet: its text starts below the status bar, it lies over nothing, and the top bar starts below it.
+ *          Screenshots go to --shots (default: a new temporary folder, named in the output).
  * On every phone with a worker no worker file is installed twice (upgrade#5).
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree).
  * Prints one PASS or FAIL line per check; exit code 1 when a check failed. No server or browser is left running.
@@ -411,6 +418,89 @@ const brief = (f) => (f ? JSON.stringify({ started: f.started, food: f.food, ver
           } finally { site.rules.length = 0; await phone.close(); }
         });
       }
+    }
+
+    // =====================================================================
+    // preload (round 4, rel#4): a worker stopped over CDP, then a start with no signal, as on an iPhone
+    // =====================================================================
+    if (!ONLY || ONLY === 'preload') {
+      const L = 'a stopped worker, no signal';
+      const phone = await makePhone();
+      const ok = await run.step(L, 'set-up: 3.0 installed (' + C30 + '); a 3.1 install that fails on one file (it leaves the 3.1 page in the HTTP cache)', async () => {
+        await install(phone, base, C30, assetsOf(base).length);
+        site.root = s31;
+        site.rules.push({ test: (rel) => rel === SUB + 'icon-512.png', status: 404 });
+        const { out, page } = await update(phone);
+        await page.close();
+        site.rules.length = 0;
+        need(out === 'redundant', 'the 3.1 worker ended as: ' + out);
+        return 'the 3.1 worker ended as ' + out;
+      });
+      if (ok) {
+        await run.step(L, 'every worker stopped (as iOS does with an app in the background), then a start with no signal: the stored 3.0 page runs whole, not the 3.1 page from the HTTP cache (the sealed browser runs without ServiceWorkerAutoPreload: rel#4)', async () => {
+          site.rules.push({ test: (rel) => /(^|\/)sw\.js$/.test(rel), drop: true });
+          await phone.workers.cdp.send('ServiceWorker.stopAllWorkers');
+          await sleep(3000);
+          site.cut();
+          // An ordinary page, not lib.coldPage: that one skips the HTTP cache, where Chromium's preload finds the 3.1 page.
+          const page = await phone.context.newPage();
+          let f = null;
+          try {
+            await page.goto(site.at(SUB + 'index.html'), { waitUntil: 'load', timeout: 30000 });
+            await page.waitForFunction(() => (!!window.__overload && !!window.__overloadFood) || (document.getElementById('boot-note') && /did not finish/.test(document.getElementById('boot-note').textContent)), null, { timeout: 25000 });
+            await sleep(600);
+            f = await facts(page);
+          } finally { site.down = false; site.rules.length = 0; await page.close().catch(() => {}); }
+          need(whole(f, '3.0') && f.blobs === 0, 'the page that ran: ' + brief(f) + '; ' + (f ? f.blobs : '?') + ' scripts run by the rescue');
+          return '3.0 whole from ' + C30 + ', no rescue';
+        });
+      }
+      site.rules.length = 0; site.down = false;
+      await onceEach(phone, L);
+      await phone.close();
+    }
+
+    // =====================================================================
+    // line (round 4, rel#5): the line at the top lies over nothing, below the status bar
+    // =====================================================================
+    if (!ONLY || ONLY === 'line') {
+      const L = 'the line at the top';
+      const LOOKS = 'Part of Fuel did not load, so it looks plain. Everything you logged is still on this phone. Close the app and open it again where there is signal or Wi-Fi.';
+      const shots = path.resolve(String(args.shots || fs.mkdtempSync(path.join(require('os').tmpdir(), 'fuel-line-'))));
+      fs.mkdirSync(shots, { recursive: true });
+      const INSET = 47;   // an iPhone's status bar, emulated (Emulation.setSafeAreaInsetsOverride)
+      const cases = [['a script missing (shared/icons.js)', ['shared/icons.js'], SCRIPT_LOST], ['its own stylesheet missing (fuel.css)', [SUB + 'fuel.css'], LOOKS], ['no stylesheet (shared/ui.css and fuel.css)', ['shared/ui.css', SUB + 'fuel.css'], LOOKS]];
+      const phone = await makePhone({ serviceWorkers: 'block' });
+      site.root = base;
+      for (const scheme of ['dark', 'light']) for (const width of [390, 320]) for (const [what, lost, words] of cases) {
+        await run.step(L, width + ' px, ' + scheme + ', ' + what + ': below the status bar, over nothing; the top bar and the screen start below it', async () => {
+          site.rules.length = 0;
+          lost.forEach((f) => site.rules.push({ test: (rel) => rel === f, status: 404 }));
+          const page = await lib.coldPage(phone.context);
+          try {
+            await page.setViewportSize({ width, height: 844 });
+            await page.emulateMedia({ colorScheme: scheme });
+            await page.addInitScript((s) => {   // Fuel's own theme setting (the seeded state's) wins over the phone's
+              try { localStorage.setItem('fuel.theme', s); const st = JSON.parse(localStorage.getItem('fuel.state.v1')); if (st && st.settings) { st.settings.theme = s; localStorage.setItem('fuel.state.v1', JSON.stringify(st)); } } catch (e) { /* ignore */ }
+            }, scheme);
+            const cdp = await phone.context.newCDPSession(page);
+            await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { top: INSET, bottom: 34, left: 0, right: 0 } });
+            await page.goto(site.at(SUB + 'index.html'), { waitUntil: 'load', timeout: 30000 });
+            await page.waitForFunction(() => !!window.__overload && !!document.getElementById('boot-plain'), null, { timeout: 15000 });
+            await sleep(300);
+            const t = await lib.topLine(page);
+            const file = path.join(shots, 'fuel-' + lost.map((f) => path.basename(f).replace(/\.\w+$/, '')).join('+') + '-' + width + '-' + scheme + '.png');
+            await page.screenshot({ path: file });
+            need(t.text === words, 'the line says: ' + t.text);
+            need(t.textTop >= INSET, 'its text starts at ' + t.textTop + ' px, under the status bar (' + INSET + ' px)');
+            need(!t.covers.length && !t.hidden, 'it lies over ' + (t.covers.join(', ') || 'nothing') + (t.hidden ? '; something lies over it' : ''));
+            need(t.barTop == null || t.barTop >= t.bottom - 0.5, 'the top bar starts at ' + t.barTop + ' px, the line ends at ' + t.bottom);
+            return 'line ' + Math.round(t.top) + '-' + Math.round(t.bottom) + ' px, text from ' + Math.round(t.textTop) + ', top bar from ' + Math.round(t.barTop) + (t.fixedBar ? ' (fixed)' : ' (in the flow)') + '; ' + path.basename(file);
+          } finally { site.rules.length = 0; await page.close().catch(() => {}); }
+        });
+      }
+      console.log('# screenshots of the line: ' + shots);
+      await phone.close();
     }
   } catch (e) {
     run.say(false, 'fuel-release', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));

@@ -320,8 +320,9 @@ a local server on that port, and the cloud tests answer the app's files inside
 the browser instead. They never reach the internet: every request that is not
 to 127.0.0.1 is stopped. The worker tests use a sealed browser (`tests/lib.js`)
 that stops every other host itself, so their phones need no request routing,
-which would make Chromium install the same worker again at every start. Run
-them one at a time.
+which would make Chromium install the same worker again at every start. It also
+runs without Chromium's ServiceWorkerAutoPreload, so a worker stopped by a test
+answers the next start as on an iPhone. Run them one at a time.
 
 Overload:
 
@@ -333,15 +334,15 @@ node tests/train-rollback.js   # 2.8 running again on data 3.0 has used
 node tests/train-backup.js     # the automatic copies, also as 2.8 uses them (takes --port and the next one)
 node tests/train-settings.js   # what Settings says about the copies, storage used and cloud sync
 node tests/train-timer.js      # the rest and cardio timers across a reload
-node tests/train-look.js       # the cloud status at 320 px, sheets as dialogs, field names, focus clear of the bars
+node tests/train-look.js       # the cloud status at 320 px, sheets as dialogs, field names, focus clear of the bars and of a sheet's Save, long names, figures in rows
 node tests/train-rescue.js     # the start-up rescue in index.html
 node tests/train-connector.js  # what is sent to the connector
 node tests/train-sw.js         # the offline worker, with real service workers
 node tests/train-mixed.js      # a release on weak signal: the page that runs is one release, never a mix
-node tests/train-release.js    # stale server copies, an install cut off, the next releases: what the phone keeps
+node tests/train-release.js    # stale server copies, an install cut off, the next releases: what the phone keeps; the line at the top
 node tests/train-sync.js       # cloud sync against a stand-in for Firebase (--base=v28: beside 2.8's files)
 node tests/train-cloud.js      # cloud sync with two phones: Reset, Import and Restore (also before cloud sync loads), signing out, saved data gone missing
-node tests/train-bump.js       # bump.sh: which release numbers it takes and what it changes
+node tests/train-bump.js       # bump.sh: which release numbers it takes, what it changes and what it refuses
 ```
 
 Fuel (`fuel/README.md` says more):
@@ -360,7 +361,7 @@ node tests/fuel-update.js      # how the page takes a new offline worker
 node tests/fuel-rescue.js      # the start-up rescue in fuel/index.html
 node tests/fuel-sync.js        # cloud sync against a stand-in for Firebase, next to Overload
 node tests/fuel-sw.js          # the offline worker with real service workers, alone and beside Overload's
-node tests/fuel-release.js     # stale server copies, an install cut off, the next releases: what the phone keeps
+node tests/fuel-release.js     # stale server copies, an install cut off, the next releases: what the phone keeps; the line at the top
 ```
 
 And the tools under them:
@@ -409,7 +410,7 @@ nothing to fall back to.
 
 A new number changes the `?v=` on every file address in `index.html`, `sw.js`,
 `fuel/index.html` and `fuel/sw.js`, `VERSION` in `overload.js` and `fuel/fuel.js`,
-`release` in `sync.js`, the first line `/* release 3.0 … */` of every other
+`release` in `sync.js`, `backup.js` and `connector.js`, the first line `/* release 3.0 … */` of every other
 script and stylesheet the workers store (both apps and `shared/`), and moves
 both offline cache names on by one (`overload-vN`, `fuel-vN`), also when only
 one app changed. Commit the result and push; a phone picks the release up the
@@ -420,9 +421,11 @@ themselves, needs a new number. A worker answers an address with `?v=` from the
 copy it stored when it installed, for the whole release, and never asks the
 server for it again: GitHub Pages ignores `?v=`, so once the next release is
 published it would answer the old addresses with the new files, and the old page
-would run them. So a change pushed without a new number does not reach a phone
-that already has the release. A changed worker that keeps its cache name would
-install into the cache the phone runs from.
+would run them. So a change pushed without a new number reaches a phone that
+already has the release only half: it takes the changed page from the server
+and runs it with the scripts and stylesheets it stored for the release, also
+with no signal. A changed worker that keeps its cache name would install into
+the cache the phone runs from. `sh bump.sh --check` fails on both (below).
 
 Every file with `?v=` names its release, and the workers check it. The install
 refuses a file that does not name the release being installed (a server can
@@ -430,7 +433,21 @@ still hand out the previous release's copy for a few minutes), stores nothing
 until every file has arrived and passed, and then writes an entry `installed`
 that names the release; when it is refused, the phone stays on the release it
 has and tries again at the next start. A file that the server hands out later
-and that names another release is not run or stored either. Without its main
+and that names another release is not run or stored either, once a worker of
+3.0 or later is in charge. Before that, on the first starts of 3.0 on a phone
+that had 2.8, 2.8's worker hands out whatever the server has: the 3.0 page can
+run 2.8's `backup.js`, `connector.js` or `sync.js`. `overload.js` then uses
+none of them (each names its release, and 2.8's name none), and the line at the
+top says "Part of Overload did not load". Without `backup.js`, Automatic copies
+are not available, so Remove the old food log, Reset, Import and Restore
+refuse, as they do whenever no copy can be kept. Without `connector.js`, the
+WHOOP and Reminders cards are not shown; 2.8's connector still syncs WHOOP
+nights and sends its reminder times to the connector until 3.0 has taken over.
+2.8's `sync.js` is given nothing: it neither reads the account nor sends
+anything (it would sync 3.0's data by 2.8's rules, and bring back an old food
+log removed here), the Cloud sync card says sync is not available, and what is
+logged meanwhile is sent at the next start of 3.0 whole. 2.8's `programs.js` is
+3.0's but for its first line. Without its main
 script the page's start-up rescue starts the stored release whose install
 finished, or says the app did not finish starting. Without another script or a
 stylesheet the app starts without it, and a line at the top says "Part of
@@ -444,23 +461,34 @@ to its own stored copies, so a 2.8 page never runs newer code.
 
 The check fails, with exit code 1, when:
 
-- a `?v=` with another number is left, or the two `VERSION`s or `sync.js`'s
-  `release` differ;
+- a `?v=` with another number is left, or the two `VERSION`s or the `release`
+  of `sync.js`, `backup.js` or `connector.js` differ;
 - `const VERSION = '` in `overload.js` or `fuel/fuel.js`, or `release: '` in
   `sync.js`, is there more than once (a comment counts too): the worker's
-  install reads the release from it and would refuse the file;
+  install reads the release from it and would refuse the file. The same for
+  `release: '` in `backup.js` and `connector.js`, which `overload.js` reads;
 - the first line `/* release … */` of another script or stylesheet with `?v=`
   in an install list names another release, or `/* release ` is in that file
   more than once or not at all: the workers would refuse the file;
 - `app.js`, `styles.css` or `food.js` is at the root;
 - a file in a worker's install list (`ASSETS` in `sw.js` and `fuel/sw.js`) is
   not on disk: that install would fail on every phone;
+- in a git repository, such a file, a page or a worker is not in git: the
+  published site would not have it: `git add` it. Files with changes that are
+  not committed yet are only named, in a warning;
 - a page loads a versioned file its worker's list does not name: the app would
   start without it when there is no signal;
 - the food list's `?db=` differs between `fuel/food.js` and `fuel/sw.js`;
 - `sw.js` or `fuel/sw.js` differs from the published one (`origin/main`, which
-  GitHub Pages serves) but kept its cache name. This is not compared without
-  git or `origin/main`, nor for a worker that is new since then.
+  GitHub Pages serves) but kept its cache name;
+- the release is the published one and a page, or a file with `?v=` in an
+  install list, differs from its published copy: phones that have the release
+  would run the new page with their old copies. Run `sh bump.sh` with the next
+  number. Two branches that each ran `sh bump.sh 3.1` merge without a conflict,
+  so this is not only a forgotten bump.
+
+The last two are not compared without git or `origin/main`, nor for a worker
+that is new since then (or its files).
 
 So a new script or stylesheet goes into the page and into `ASSETS` of the same
 app's worker, written the same way, one address per line, and its first line is
@@ -486,7 +514,11 @@ since it last synced. The questions say so (`fuel/README.md`).
 
 The first sign-in on a phone reads the account from the server before sending
 anything. If that read fails (no signal, rules), nothing is uploaded and it
-retries, so a bad connection cannot overwrite the cloud copy.
+retries, so a bad connection cannot overwrite the cloud copy. Until that read
+has worked, Reset, Import and Restore do not start, in Overload and in Fuel
+(Fuel's Paste from Overload and Choose a file too): "Cloud sync is still
+reading your account. Try again once it says Synced." The read would bring the
+account's data back over them.
 
 Reset, Import and Restore say so when you are signed in, because they erase or
 replace the training data in the account too; the food log in the account is
@@ -534,16 +566,27 @@ What changed for food in 3.0:
   always all of it, so copy the log or save the file as well.
 - Phones still on 2.8 keep syncing food among themselves through `foodDays`.
 
-Two phones never overwrite each other's lists: weigh-ins and nights merge by
-date, even when a phone that was offline replays old writes. Deletions are
-recorded (kept 90 days) so a merge never brings back something you deleted. A
-change not uploaded yet wins over the cloud's copy. A phone on 3.0 sends its
-settings, program, weigh-ins and nights only when it changed something in them
-itself, and the first time after it opens only once it has taken in the
-account's latest copy, so an old copy on one phone cannot undo what another
-phone changed. A phone still on 2.8 can, so update both. On first sign-in a
-phone's own workouts, templates, weigh-ins and nights are kept, and its
-exercises are matched to the account's by name.
+Two phones do not undo each other's changes: the settings, the program and the
+rest merge part by part, weigh-ins and nights date by date. A phone keeps its
+own entry only for a date it added or changed since it last synced; for every
+other date the account's entry stands, and a date the account no longer has
+goes from the phone too (deleted on another phone, even more than 90 days ago,
+or gone with a Reset, Import or Restore there). Deletions are recorded (kept 90
+days) so a merge never brings back something you deleted, and a weigh-in or
+night you log again after deleting it stays. A change not uploaded yet wins
+over the cloud's copy. A phone on 3.0 sends its settings, program, weigh-ins
+and nights only when it changed something in them itself, and the first time
+after it opens only once it has taken in the account's latest copy, so an old
+copy on one phone cannot undo what another phone changed. One case is left: a
+change made after the signal went, while the app stayed open, goes up as it
+was made when the signal is back, and the account takes that phone's copy. A
+phone still on 2.8 can undo changes, so update both; it also deletes again a
+weigh-in or night logged again after it had taken the deletion. A workout in
+progress on a phone on 3.0 stays in progress there when another phone resets,
+imports or restores, and goes back to the account; on a phone still on 2.8 it
+is lost. A workout finished on one phone is finished on every phone. On first
+sign-in a phone's own workouts, templates, weigh-ins and nights are kept, and
+its exercises are matched to the account's by name.
 
 Firebase project setup (one time, in the Firebase console):
 

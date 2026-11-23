@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Cloud sync of the training app (Overload 3.0) against the fake Firebase in tests/fake-firebase/.
  *
- *   node tests/train-sync.js [--only=small|main] [--kind=account,flip,return,dates,expired,active] [--base=v28] [--app=<folder>] [--port=8410]
+ *   node tests/train-sync.js [--only=small|main] [--kind=account,flip,return,dates,expired,active,finish,relog,signin] [--base=v28] [--app=<folder>] [--port=8410]
  *
  * What must hold (SPEC section 3 item 9, section 6 and section 8; dev/notes/sync.md section 3 and hazards 1, 2, 15):
  *   - Overload 3.0 writes only users/{uid}/meta/state and users/{uid}/workouts/{id}. It issues no set and no
@@ -34,6 +34,18 @@
  *       A imports, restores or resets (also with B closed and its cache cleared), B sends it again, and B can finish
  *       it with its sets. Finished or discarded on A, it ends on B. On a phone still on v2.8 a Reset elsewhere still
  *       erases it (v2.8's merge).
+ *   - Review round 4 (runs finish, relog, signin; the last two not with --base=v28):
+ *     sync#9: a workout finished on A while B's workouts answer comes 1.5 s after A's core (B sends its core, still
+ *       naming the workout, in between): nothing is in progress afterwards, in the account, on B, or on A, where it
+ *       showed the workout again with Finish. The run 'active' holds B's answer back the same way (it hit this
+ *       order now and then by itself).
+ *     sync#7: a weigh-in and a night deleted and logged again (the check-in, on A and on B; also as every version's
+ *       check-in did it, without a time) stay in the account and on both phones, also when a core holding the record
+ *       arrives in between; deleted again afterwards, they go everywhere; a phone still on v2.8 holding the record
+ *       deletes them again (its merge).
+ *     sync#10, #10b: signed out on 3.0, signed in on v2.8: a 3.0 start without the sync module counts as signed in
+ *       (Reset says so, keeps the note, and stands). Signed in on 3.0, signed out on v2.8: it counts as signed in too
+ *       (nothing it can read says otherwise); the Reset reaches the account at the next sign-in, as its question said.
  *
  * How: every phone is a browser context with its own storage. The app's files are answered from a folder on
  * disk by a Playwright route (nothing listens on the port), so one phone can be switched between v2.8 (taken
@@ -1034,12 +1046,15 @@ async function activeRun(browser, trees, fx) {
     c(!!doc && !!JSON.parse(doc.data).finishedAt && af.finished && !af.activeId && !cloudCore(run).active, name + ': the account and A have it finished; nothing is in progress anywhere', JSON.stringify(af));
   }
 
-  // Finished or discarded on A, it ends on B as well (and nothing goes back and forth).
+  // Finished or discarded on A, it ends on B as well (and nothing goes back and forth). The finished copy reaches B
+  // more than a second after A's core (B's workouts listener is held back, review finding sync#9): B sends its core,
+  // still naming the workout, in between. Without the hold this order came now and then by itself.
   let id = await start(B);
-  await finish(A);
-  c(await settle(run), 'B starts a workout, A finishes it; the phones come to rest (no write loop)');
+  const ws = await coreBeforeWorkouts(run, A, B, () => finish(A));
+  c(await settle(run), 'B starts a workout, A finishes it, B gets A\'s core 1.5 s before the finished workout; the phones come to rest (no write loop)', 'writes in the gap: ' + ws);
   let b = await workoutOn(B, id);
-  c(b.there && b.finished && !b.activeId && !cloudCore(run).active, 'finished on A: finished on B too, and nothing in progress anywhere', JSON.stringify(b));
+  const af = await workoutOn(A, id);
+  c(b.there && b.finished && !b.activeId && !cloudCore(run).active && af.finished && !af.activeId, 'finished on A: finished on B too, and nothing in progress anywhere (account, A, B)', 'B ' + JSON.stringify(b) + '; account core.active ' + cloudCore(run).active + '; A ' + JSON.stringify(af));
   id = await start(B);
   await lib.openTab(A.page, 'today'); await click(A, '[data-action="discard-workout"]');
   c(await settle(run), 'B starts a workout, A discards it; the phones come to rest (no write loop)');
@@ -1061,6 +1076,253 @@ async function activeRun(browser, trees, fx) {
 }
 
 // ---------------------------------------------------------------------------
+// Review round 4: a workout finished on one phone (sync#9), a weigh-in or night logged again after it was deleted
+// (sync#7), and what a start without the sync module believes after a sign-in or sign-out on v2.8 (sync#10, #10b)
+// ---------------------------------------------------------------------------
+// The phone's listener reads of its workouts wait until released: the order of review finding sync#9 (the core
+// arrives more than a second before the workout it ends), as the verifier's a6-finished-comes-back.js holds it.
+const holdWorkouts = (phone) => phone.ev(() => {
+  if (!window.__heldBridge) {
+    const orig = window.__heldBridge = window.__fakeFirebase; window.__held = [];
+    window.__fakeFirebase = (op, p) => (window.__hold && op === 'fs.server' && p && p.via === 'listen' && /\/workouts$/.test(p.path)
+      ? new Promise((r) => window.__held.push(() => r(orig(op, p)))) : orig(op, p));
+  }
+  window.__hold = true;
+});
+const releaseWorkouts = (phone) => phone.ev(() => { window.__hold = false; (window.__held || []).splice(0).forEach((f) => f()); });
+const until = async (fn, what) => { for (let i = 0; i < 200; i++) { if (await fn()) return; await new Promise((r) => setTimeout(r, 50)); } throw new Error('waited in vain: ' + what); };
+// `act` on A ends B's workout in progress (Finish). B takes A's core while its workouts answer is held, B's own push
+// goes in that gap, then the answer is let through. Returns the writes made meanwhile, for the detail of a check.
+async function coreBeforeWorkouts(run, A, B, act) {
+  await holdWorkouts(B);
+  const mark = run.cloud.mark(), noteCore = async () => ((await noteOf(B)) || {}).core;
+  const before = await noteCore();
+  await act();
+  await A.page.waitForFunction(() => !window.__overload.state.active, null, { timeout: 5000 });
+  await A.page.clock.runFor(1100);
+  await until(() => run.cloud.writes({ from: mark, who: 'A' }).some((w) => w.path === META && w.state === 'applied'), 'A\'s upload of its core');
+  await until(async () => (await noteCore()) !== before, 'B taking A\'s core');
+  await B.page.clock.runFor(1500);
+  await new Promise((r) => setTimeout(r, 300));
+  await releaseWorkouts(B);
+  return brief(run.cloud.writes({ from: mark }));
+}
+
+// sync#9, the verifier's sequence (a6): B starts today's workout through the app and ticks two sets; A finishes it
+// through the app; B's workouts answer comes 1.5 s after A's core. Nothing may be in progress afterwards: not in the
+// account, not on B, and not on A, where he finished it (it showed the workout again, with Finish). Also after both
+// are opened again.
+async function finishRun(browser, trees, fx) {
+  const T = fx.name + ' finished elsewhere: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const { A, B } = await sharedAccount(run, fx, [['B', 'v30']]);
+  const click = (phone, sel) => phone.page.evaluate((s) => { const el = document.querySelector(s); if (!el) throw new Error('nothing to click: ' + s); el.click(); }, sel);
+  await lib.openTab(B.page, 'today');
+  await B.page.evaluate(() => {
+    if (!document.querySelector('[data-action="start-workout"]:not([disabled])')) { const o = document.querySelector('[data-action="toggle-others"]'); if (o) o.click(); }
+    document.querySelector('[data-action="start-workout"]:not([disabled])').click();
+  });
+  await B.page.waitForFunction(() => !!window.__overload.state.active, null, { timeout: 5000 });
+  await B.page.evaluate(() => { for (let k = 0; k < 2; k++) { const b = document.querySelector('[data-action="toggle-set"]:not(.on)'); if (b) b.click(); } });
+  await settle(run);
+  const id = await B.ev(() => window.__overload.state.active);
+  c(!!id && cloudCore(run).active === id && (await A.ev((w) => window.__overload.state.active === w, id)), 'B starts a workout and ticks two sets; the account and A have it in progress');
+  await lib.openTab(A.page, 'today');
+  const ws = await coreBeforeWorkouts(run, A, B, () => click(A, '[data-action="finish-workout"]'));
+  c(await settle(run), 'A finishes it; B gets A\'s core 1.5 s before the finished workout; the phones come to rest (no write loop)', 'writes in the gap: ' + ws);
+  const look = (P) => P.ev((w) => { const s = window.__overload.state, x = s.workouts.find((y) => y.id === w); return { active: s.active, finished: !!(x && x.finishedAt), finishButton: !!document.querySelector('[data-action="finish-workout"]') }; }, id);
+  await lib.openTab(A.page, 'history'); await lib.openTab(A.page, 'today'); await lib.openTab(B.page, 'history'); await lib.openTab(B.page, 'today');
+  let a = await look(A), b = await look(B);
+  c(!cloudCore(run).active, 'nothing is in progress in the account', 'core.active ' + cloudCore(run).active + (cloudCore(run).active === id ? ' (the workout he finished)' : ''));
+  c(!a.active && a.finished && !a.finishButton, 'A, where he finished it, does not show it in progress again (no Finish button)', JSON.stringify(a));
+  c(!b.active && b.finished && !b.finishButton, 'B has it finished, nothing in progress', JSON.stringify(b));
+  await A.restart(); await B.restart();
+  c(await settle(run), 'both opened again; the phones come to rest');
+  await lib.openTab(A.page, 'today');
+  a = await look(A);
+  c(!cloudCore(run).active && !a.active && !a.finishButton, 'after both were opened again: nothing in progress, in the account or on A', 'core.active ' + cloudCore(run).active + '; A ' + JSON.stringify(a));
+  const errors = run.phones.reduce((all, p) => all.concat(p.pageErrors.map((t) => p.name + ': ' + t.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// The app's own buttons: today's weigh-in and night deleted in Edit weigh-ins and Edit nights (History), and logged
+// in the morning check-in (Today).
+async function uiDeleteToday(phone, today) {
+  const pg = phone.page;
+  await lib.openTab(pg, 'today'); await lib.openTab(pg, 'history');
+  await pg.click('[data-action="bw-list"]', { timeout: 5000 });
+  await pg.click('#sheet [data-action="bw-delete"][data-date="' + today + '"]', { timeout: 5000 });
+  await pg.click('#sheet .sheet-title [data-action="sheet-close"]');
+  await pg.click('[data-action="sleep-list"]', { timeout: 5000 });
+  await pg.click('#sheet [data-action="sleep-delete"][data-date="' + today + '"]', { timeout: 5000 });
+  await pg.click('#sheet .sheet-title [data-action="sheet-close"]');
+  await pg.waitForFunction((d) => { const s = window.__overload.state; return !s.bodyweight.some((x) => x.date === d) && !s.sleep.some((x) => x.date === d) && s.deleted.bw[d] && s.deleted.sleep[d]; }, today, { timeout: 5000 });
+}
+async function uiCheckin(phone, today, weight, minutes) {
+  const pg = phone.page;
+  await lib.openTab(pg, 'history'); await lib.openTab(pg, 'today');
+  if (await pg.$('[data-action="checkin-edit"]')) await pg.click('[data-action="checkin-edit"]');
+  await pg.fill('#bw-form input[name="weight"]', String(weight));
+  await pg.fill('#bw-form input[name="totalH"]', String(Math.floor(minutes / 60)));
+  await pg.fill('#bw-form input[name="totalM"]', String(minutes % 60));
+  for (const k of ['remH', 'remM', 'deepH', 'deepM']) if (await pg.$('#bw-form input[name="' + k + '"]')) await pg.fill('#bw-form input[name="' + k + '"]', '');
+  await pg.click('#bw-form button[type="submit"]');
+  await pg.waitForFunction(([d, w, t]) => { const s = window.__overload.state; return s.bodyweight.some((x) => x.date === d && x.weight === w) && s.sleep.some((x) => x.date === d && x.total === t); }, [today, weight, minutes], { timeout: 5000 });
+}
+
+// sync#7: a weigh-in and a night deleted and then logged again stay, in the account and on every phone on 3.0. The
+// app takes the deletion record away when it is logged again; the other phones still hold it, and their merges
+// brought it back (and the entry went). Run through the app's buttons on A and on B, against a core that still holds
+// the record arriving at A after it logged again, and as the check-in of every version did it (the record taken
+// away, no time: the verifier's a4-relog-weighin.js). A deletion made after that still deletes it everywhere. A
+// phone still on 2.8 that holds the record puts it back (dev/notes/sync.md says so).
+async function relogRun(browser, trees, fx) {
+  const T = fx.name + ' log again: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const { A, B } = await sharedAccount(run, fx, [['B', 'v30']]);
+  const today = await A.ev(() => window.__overload.lib.todayKey());
+  const units = (await memState(A)).settings.units;
+  const three = async () => { const s = [cloudCore(run), await memState(A), await memState(B)]; return { bw: s.map((x) => bwAt(x, today)), night: s.map((x) => nightAt(x, today)), rec: s.map((x) => !!(x.deleted.bw[today] || x.deleted.sleep[today])), s }; };
+  const show = (t) => 'weigh-in (account, A, B) ' + t.bw.join(', ') + '; night ' + t.night.join(', ') + '; a record of the date ' + t.rec.join(', ');
+  const all = (t, w, n) => t.bw.every((x) => x === w) && t.night.every((x) => x === n) && !t.rec.some(Boolean);
+  c(units === 'lb' || units === 'kg', 'set-up: A (3.0) and B (3.0, a new phone) share the account; today is ' + today);
+
+  // 1. On A: deleted in Edit weigh-ins and Edit nights, then logged again in the check-in.
+  await uiDeleteToday(A, today); await settle(run);
+  let t = await three();
+  c(t.bw.every((x) => x === undefined) && t.night.every((x) => x === undefined) && t.rec.every(Boolean), 'A deletes today\'s weigh-in and night: gone from the account and B, which hold the deletion records', show(t));
+  let mark = cloud.mark();
+  await uiCheckin(A, today, 181.2, 431); await settle(run);
+  t = await three();
+  c(all(t, 181.2, 431), 'A logs them again in the check-in: they stay, in the account, on A and on B, and no record of that date is left', show(t) + '; writes ' + brief(cloud.writes({ from: mark })));
+  const aa = t.s[1];
+  c(bwAt(aa, today) === 181.2 && typeof aa.bodyweight.find((x) => x.date === today).at === 'number' && typeof aa.sleep.find((x) => x.date === today).at === 'number', 'the two entries logged again carry the time they were logged again (at)');
+
+  // 2. On B, which took A's deletion: A deletes, B logs them again.
+  await uiDeleteToday(A, today); await settle(run);
+  mark = cloud.mark();
+  await uiCheckin(B, today, 179.9, 402); await settle(run);
+  t = await three();
+  c(all(t, 179.9, 402), 'A deletes them again, B logs them again: they stay everywhere', show(t) + '; writes ' + brief(cloud.writes({ from: mark })));
+
+  // 3. A core that still holds the record reaches A after A logged them again, before A's own upload: B changes the
+  // rest time and its core goes up in that second.
+  await uiDeleteToday(A, today); await settle(run);
+  const rest = (await memState(B)).settings.restSec + 11;
+  await uiCheckin(A, today, 180.6, 415);
+  await changeRest(B, rest);
+  await B.page.clock.runFor(1100); await cloud.idle();
+  await A.ev(() => 0); await cloud.idle();
+  const bRecord = !!JSON.parse(cloud.get(META).core).deleted.bw[today];
+  c(await settle(run), 'A deletes them, logs them again, and B\'s core with the record arrives before A\'s upload; the phones come to rest');
+  t = await three();
+  c(all(t, 180.6, 415) && t.s.every((x) => x.settings.restSec === rest), 'they stay everywhere, and B\'s rest time too', show(t) + '; B\'s core held the record when A took it: ' + bRecord);
+
+  // 4. As the check-in of every version does it: the record taken away and the entry put in, no time (the
+  // verifier's a4-relog-weighin.js). Cloud sync gives it the time at the save.
+  await uiDeleteToday(A, today); await settle(run);
+  mark = cloud.mark();
+  await A.ev(([d, w, n]) => {
+    const s = window.__overload.state;
+    delete s.deleted.bw[d]; delete s.deleted.sleep[d];
+    s.bodyweight.push({ date: d, weight: w }); s.sleep.push({ date: d, total: n, rem: null, deep: null });
+    window.__overload.save();
+  }, [today, 182.4, 444]);
+  await settle(run);
+  t = await three();
+  c(all(t, 182.4, 444), 'logged again without a time (the record taken away, as the check-in does): they stay everywhere', show(t) + '; writes ' + brief(cloud.writes({ from: mark })));
+
+  // 5. Deleted after that, on B: gone everywhere (the new record is later than the time it was logged again).
+  await uiDeleteToday(B, today); await settle(run);
+  t = await three();
+  c(t.bw.every((x) => x === undefined) && t.night.every((x) => x === undefined) && t.rec.every(Boolean), 'B deletes them after that: gone from the account, A and B (a merge never brings back something deleted)', show(t));
+
+  // 6. Not for a Reset, Import or Restore here: the questions say another phone deletes again what was deleted in
+  // the last 90 days (tests/train-cloud.js 'Restore with two phones' runs it). And a phone still on 2.8 that holds
+  // the record merges it back, so the entry goes everywhere.
+  const V = await makePhone(run, 'V', null, 'v28');
+  await V.open(); await signInPhone(V); await settle(run);
+  c(!!(await memState(V)).deleted.bw[today], 'V (v2.8) signs in and holds the deletion record');
+  await uiCheckin(A, today, 183.3, 420);
+  c(await settle(run), 'A logs them again with V (v2.8) signed in; the phones come to rest (no write loop)');
+  const v = await memState(V);
+  t = await three();
+  c(t.bw.every((x) => x === undefined) && bwAt(v, today) === undefined, 'with a phone still on 2.8 holding the record, the weigh-in logged again goes again (v2.8\'s merge; dev/notes/sync.md says so)', show(t) + '; V ' + bwAt(v, today));
+  await V.page.close();
+  const errors = run.phones.reduce((all2, p) => all2.concat(p.pageErrors.map((x) => p.name + ': ' + x.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// sync#10, sync#10b: what a start of 3.0 without the sync module takes the phone to be, after a sign-in or a sign-out
+// made on v2.8 (a roll-back). Signed out, 3.0 keeps the note in a form of its own (its text ends with a line break);
+// any save of it by a signed-in sync module ends that form, v2.8's included, which saves it after every sign-in. A
+// sign-out on v2.8 writes nothing the app can read: the phone then counts as signed in (the questions say the
+// account changes too, the note stays), and the next sign-in sends the Reset, as the question said.
+async function signinRun(browser, trees, fx) {
+  const T = fx.name + ' signed in on v2.8: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const { A } = await sharedAccount(run, fx, []);
+  const raw = () => lib.readStorageText(A.page, NOTE);
+  const WARN = 'You are signed in to cloud sync, so the training data in your account is erased too.';
+  const counts = async () => { const a = await memState(A), core = cloudCore(run); return { a: a.workouts.length + '/' + a.bodyweight.length, acct: cloud.paths(WORKOUTS).length + '/' + core.bodyweight.length }; };
+  // 3.0 alone: signed out the note takes that form, signed in again it loses it at once.
+  await A.ev(() => window.__overloadSync.signOut()); await settle(run);
+  let text = await raw();
+  c(/\n$/.test(text) && JSON.parse(text).uid === 'U1', 'signed out on 3.0: the note stays, in its signed-out form (its text ends with a line break)', JSON.stringify(text.slice(-12)));
+  await signInPhone(A);
+  c(!/\n$/.test(await raw()), 'signed in again on 3.0: the note loses that form at once (before any upload)');
+  await settle(run);
+
+  // sync#10: signed out on 3.0, signed in on v2.8 (which changes nothing in the account), then 3.0 without the module.
+  await A.ev(() => window.__overloadSync.signOut()); await settle(run);
+  const content = JSON.stringify(JSON.parse(await raw()));
+  await A.restart('v28'); await settle(run);
+  let mark = cloud.mark();
+  await signInPhone(A); await settle(run);
+  text = await raw();
+  c(!/\n$/.test(text), 'A runs v2.8 again and signs in there: v2.8 saved the note, without that form', 'its content ' + (JSON.stringify(JSON.parse(text)) === content ? 'unchanged' : 'changed') + '; v2.8\'s writes: ' + brief(cloud.writes({ who: 'A', from: mark })));
+  await A.restart('v30', true);
+  c(!(await A.ev(() => !!window.__overloadSync)), 'A starts 3.0 without the sync module');
+  A.page.dialogs.length = 0;
+  await uiReset(A);
+  let q = A.page.dialogs.slice();
+  c(q.length === 2 && q[0].includes(WARN) && !!JSON.parse(await raw()), 'Reset: the question says the account is erased too, and the note stays', q.join(' / ').replace(/\n/g, ' | ').slice(0, 300));
+  await A.restart('v30'); await settle(run);
+  let n = await counts();
+  c(n.a === '0/0' && n.acct === '0/0' && (await A.ev(() => !!window.__overloadSync.user)), 'the next start with the module (signed in, from v2.8): the Reset stands on A and reached the account', 'workouts/weigh-ins: A ' + n.a + ', account ' + n.acct);
+
+  // sync#10b: signed in on 3.0, signed out on v2.8, then 3.0 without the module.
+  await addWorkout(A, 'testworkoutS1'); await settle(run);
+  await A.restart('v28'); await settle(run);
+  const before = await raw();
+  await A.ev(() => window.__overloadSync.signOut()); await settle(run);
+  c((await raw()) === before && !/\n$/.test(before), 'A runs v2.8 and signs out there: v2.8 leaves the note as it was');
+  await A.restart('v30', true);
+  A.page.dialogs.length = 0;
+  await uiReset(A);
+  q = A.page.dialogs.slice();
+  c(q.length === 2 && q[0].includes(WARN) && !!JSON.parse(await raw()), 'Reset on 3.0 without the module: the phone counts as signed in (nothing tells it otherwise): the question says the account is erased too, and the note stays', q.join(' / ').replace(/\n/g, ' | ').slice(0, 300));
+  await A.restart('v30'); await settle(run);
+  n = await counts();
+  c(n.a === '0/0' && n.acct === '1/0' && /\n$/.test(await raw()) && !(await A.ev(() => !!window.__overloadSync.user)), 'the next start with the module, signed out: nothing comes back to A, the account is not changed yet, and the note takes its signed-out form', 'A ' + n.a + ', account ' + n.acct);
+  mark = cloud.mark();
+  await signInPhone(A); await settle(run);
+  n = await counts();
+  c(n.a === '0/0' && n.acct === '0/0', 'signed in again: the Reset reaches the account, as its question said, and nothing comes back', 'A ' + n.a + ', account ' + n.acct + '; writes ' + brief(cloud.writes({ from: mark })));
+  const errors = run.phones.reduce((all, p) => all.concat(p.pageErrors.map((x) => p.name + ': ' + x.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   const v28 = extractV28();
   const from = args.app ? path.resolve(String(args.app)) : lib.REPO;
@@ -1069,9 +1331,13 @@ async function activeRun(browser, trees, fx) {
   const small = lib.loadFixture('v28-state-small'), main = lib.loadFixture('v28-state');
   const browser = await lib.launch();
   const plan = [];
-  const runs = { account: accountRun, flip: flipRun, return: returnRun, dates: datesRun, expired: expiredRun, active: activeRun };
-  const kinds = args.kind ? String(args.kind).split(',') : Object.keys(runs);
+  const runs = { account: accountRun, flip: flipRun, return: returnRun, dates: datesRun, expired: expiredRun, active: activeRun, finish: finishRun, relog: relogRun, signin: signinRun };
+  // These check what 3.0's overload.js does beside sync.js (the check-in's time, the note's signed-out form): with
+  // --base=v28 the 3.0 side has v2.8's app.js, so they do not apply there.
+  const appOnly = ['relog', 'signin'];
+  let kinds = args.kind ? String(args.kind).split(',') : Object.keys(runs);
   if (kinds.some((k) => !runs[k])) throw new Error('--kind= takes ' + Object.keys(runs).join(', '));
+  if (trees.strict && kinds.some((k) => appOnly.includes(k))) { console.log('# not run with --base=v28 (they need 3.0\'s overload.js): ' + kinds.filter((k) => appOnly.includes(k)).join(', ')); kinds = kinds.filter((k) => !appOnly.includes(k)); }
   if (!args.only || args.only === 'small') kinds.forEach((k) => plan.push([k, small, main]));
   if (!args.only || args.only === 'main') kinds.forEach((k) => plan.push([k, main, small]));
   for (const [kind, fx, other] of plan) {

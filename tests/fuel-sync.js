@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Fuel 3.0: cloud sync (fuel/sync.js) against the fake Firebase in tests/fake-firebase/.
  *
- *   node tests/fuel-sync.js [--only=account|clipboard|returning|race|early|solo|rules] [--app=<folder>] [--port=8430]
+ *   node tests/fuel-sync.js [--only=account|clipboard|returning|race|early|firstlink|lost|solo|rules] [--app=<folder>] [--port=8430]
  *
  * What must hold (SPEC section 6; dev/notes/sync.md sections 4 and 7):
  *   - Fuel writes only users/{uid}/meta/fuel and users/{uid}/fuelDays/{date}. It never writes or deletes
@@ -146,6 +146,20 @@ async function holdSdk(phone) {
   let held = true; const waiting = [];
   await phone.context.route(SDK, async (route) => { if (held) await new Promise((r) => waiting.push(r)); return route.fallback(); });
   return { release() { held = false; waiting.splice(0).forEach((r) => r()); } };
+}
+// Firebase slow to say who is signed in (Auth's own storage slow, or IndexedDB not answering): the module has loaded and
+// put window.__overloadSync in the page, and its onAuthStateChanged has not been called yet. The fake auth SDK is served
+// with its first report held back until release(page) (review finding data#5, as the verifier's authwindow.js).
+const AUTH_SDK = /^https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-auth\.js(\?.*)?$/;
+async function holdAuth(phone) {
+  const FIRST = 'ready(auth).then(() => { if (auth.subs.has(next)) next(auth.currentUser); });';
+  const real = fs.readFileSync(path.join(__dirname, 'fake-firebase', 'firebase-auth.js'), 'utf8');
+  if (!real.includes(FIRST)) throw new Error('the fake auth SDK changed: its first report cannot be held back here');
+  const text = 'window.__authHeld = new Promise((r) => { window.__releaseAuth = r; });\n'
+    + real.replace(FIRST, 'ready(auth).then(() => window.__authHeld).then(() => { if (auth.subs.has(next)) next(auth.currentUser); });');
+  const serve = (route) => route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', headers: { 'access-control-allow-origin': '*', 'cache-control': 'no-store' }, body: text });
+  await phone.context.route(AUTH_SDK, serve);
+  return { async release(page) { await phone.context.unroute(AUTH_SDK, serve); if (!page.isClosed()) await page.evaluate(() => window.__releaseAuth && window.__releaseAuth()); } };
 }
 // Fuel, started, before its sync module has run (the page's load event waits for the module, so not openApp).
 async function openFuelEarly(phone) {
@@ -1413,6 +1427,312 @@ async function earlyRun(browser, docs) {
       return 'writes once the module ran: ' + brief(cloud.writes({ from: mark }));
     });
   }
+  // The same once the module has loaded, while Firebase has not said yet who is signed in (Auth's own storage slow,
+  // or IndexedDB not answering): its user is null then, and that is not "signed out" (review finding data#5, the
+  // verifier's authwindow.js). The note counts until the module has said so.
+  const authEarly = async (doIt) => {
+    await closeFuel(A);
+    const auth = await holdAuth(A);
+    let said = null, kept = false;
+    try {
+      a = await openFuel(A);
+      need((await a.evaluate(() => window.__overloadSync.user)) === null, 'this check needs the module loaded and Firebase not answered yet');
+      const asked = a.dialogs.length;
+      await lib.openTab(a, 'settings');
+      await doIt(a);
+      said = a.dialogs.slice(asked).join(' / ');
+      kept = !!(await noteOf(a));
+    } finally { await auth.release(a); }
+    await a.waitForFunction(() => !!window.__overloadSync.user, null, { timeout: 8000 });
+    await rest(world);
+    return { said, kept };
+  };
+  if (ok) {
+    const ok2 = await step('Firebase has not answered yet (the module has loaded): Reset says the account is erased too, the note stays, and once Firebase answers the account is empty and stays so', async () => {
+      const mark = cloud.mark();
+      const r = await authEarly(async (pg) => { await pg.click('[data-action="reset"]'); await F.toast(pg, /Reset/); });
+      need(/is erased too\. Another phone signed in to this account does the same/.test(r.said) && r.said.includes('(' + EMAIL + ')'), 'the question reads: ' + r.said.replace(/\n+/g, ' | '));
+      need(r.kept, 'the note was removed: the next link is a first link, which brings the account\'s log back');
+      const st = await F.live(a), core = coreOfCloud(cloud);
+      need(!Object.keys(st.diary).length && !Object.keys(st.food.foods).length, 'A holds ' + Object.keys(st.diary).length + ' days and ' + Object.keys(st.food.foods).length + ' saved foods again');
+      need(cloud.paths(FUEL_DAYS).length === 0 && !Object.keys(core.food.foods).length, 'the account holds ' + cloud.paths(FUEL_DAYS).length + ' days, ' + Object.keys(core.food.foods).length + ' saved foods');
+      onlyFuelPaths(cloud, mark);
+      need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
+      return 'writes once Firebase answered: ' + brief(cloud.writes({ from: mark }));
+    });
+    if (ok2) {
+      await step('Firebase has not answered yet: Restore "Before reset" says the account is replaced too, and once Firebase answers the account holds the log again', async () => {
+        const mark = cloud.mark();
+        const r = await authEarly(async (pg) => {
+          await pg.click('#safety-copies [data-action="restore-copy"][data-id="before-reset"]', { timeout: 8000 });
+          await F.toast(pg, /Copy restored/);
+        });
+        need(/is replaced too\. Another phone signed in to this account does the same/.test(r.said), 'the question reads: ' + r.said.replace(/\n+/g, ' | '));
+        need(r.kept, 'the note was removed');
+        const st = await F.live(a);
+        need(Object.keys(st.diary).length === COUNTS.foodDays && cloud.paths(FUEL_DAYS).length === COUNTS.foodDays, 'A holds ' + Object.keys(st.diary).length + ' days, the account ' + cloud.paths(FUEL_DAYS).length);
+        same(coreAndDays(cloud).diary, st.diary, 'the account\'s diary against A\'s');
+        onlyFuelPaths(cloud, mark);
+        F.assertClean(A, 'phone A');
+        return 'writes once Firebase answered: ' + brief(cloud.writes({ from: mark }));
+      });
+    }
+  }
+  for (const p of world.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
+// 6b. Signed in, but the first link has not read the account yet (review finding sync#6, the verifier's a1): its read
+//     from the server fails ("Could not reach the cloud. Nothing was uploaded; retrying."). Reset, Restore and the
+//     imports do not start: no question, a toast says why, nothing changes (before, Reset went ahead and the link then
+//     merged the account's log back over it, the account unchanged). Once the read works they ask and reach the
+//     account. A phone that linked before (it has a note) is not held up, also when it starts without signal.
+// ---------------------------------------------------------------------------
+async function firstLinkRun(browser, docs) {
+  const world = v28Account(docs), { cloud } = world;
+  world.browser = browser;
+  const step = (title, fn) => run.step('first link not done', title, fn);
+  const SAYS = 'Cloud sync is still reading your account. Try again once it says Synced.';
+  const tmp = F.tempDir();
+  const F1 = await makePhone(world, 'F1', TREE);
+  let f1 = await openFuel(F1);
+  await signInAtWelcome(f1);
+  await rest(world);
+  // F2: a phone of its own with the same log on it, never signed in.
+  const logText = await F.storedText(f1);
+  const F2 = await makePhone(world, 'F2', TREE, { clipboard: true, seed: (ctx) => lib.seedStorage(ctx, { [F.KEY]: logText }) });
+  const f2 = await openFuel(F2);
+  // F2's reads from the server itself (getDocFromServer, getDocsFromServer) answer 'unavailable' while `on`; sign-in
+  // and the listeners are not touched.
+  const failReads = (on) => f2.evaluate((x) => {
+    if (!window.__origFake) {
+      const orig = window.__origFake = window.__fakeFirebase;
+      window.__fakeFirebase = (op, p) => (window.__failGet && op === 'fs.server' && p && p.via === 'get' ? Promise.resolve({ error: 'unavailable', rev: 0 }) : orig(op, p));
+    }
+    window.__failGet = x;
+  }, on);
+  const quiet = (pg) => pg.evaluate(() => { const t = document.querySelector('#toast'); t.hidden = true; t.textContent = ''; });
+  const more = JSON.parse(logText);
+  more.diary[TODAY] = more.diary[TODAY].concat([{ id: 'fuelfirst001', food: null, meal: 3, qty: null, unit: null, amt: '', name: 'From the backup', brand: '', kcal: 55, p: 1, c: 2, f: 3, at: NOW }]);
+  const file = tmp.file('fuel-backup-2026-11-20.json', JSON.stringify(more));
+  let ok = await step('signed in while the first read from the server fails: Reset, Restore, Import JSON, Paste from Overload, Choose a file and the paste box ask nothing, change nothing and send nothing; the toast says why', async () => {
+    await failReads(true);
+    await signInInSettings(f2);
+    await rest(world);
+    const st = await f2.evaluate((k) => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, error: window.__overloadSync.error, note: localStorage.getItem(k) }), NOTE);
+    need(st.user && /Could not reach the cloud/.test(st.error) && !st.note, 'F2 after signing in: ' + JSON.stringify(st));
+    await f2.waitForSelector('#safety-copies [data-action="restore-copy"]', { timeout: 5000 });
+    const before = await F.storedText(f2), mark = cloud.mark(), asked = f2.dialogs.length, said = [];
+    await f2.evaluate((t) => navigator.clipboard.writeText(t), F.foodText(F.payloadFrom(fx.state, NOW - 60000), true));
+    let choosers = 0; const onChooser = () => { choosers++; };
+    f2.on('filechooser', onChooser);
+    const tries = [
+      ['Reset all data', () => f2.click('[data-action="reset"]')],
+      ['Restore', () => f2.click('#safety-copies [data-action="restore-copy"]')],
+      ['Import JSON', () => f2.click('[data-action="import"]')],
+      ['a file given to Import', () => f2.setInputFiles('#import-file', file)],
+      ['Paste from Overload', async () => { await f2.click('[data-action="fuel-import"]'); await f2.click('#sheet [data-action="fuel-paste"]'); }],
+      ['Choose a file', () => f2.click('#sheet [data-action="fuel-file"]')],
+      ['the paste box', async () => { await f2.click('#sheet [data-action="fuel-paste-box"]'); await f2.fill('#fuel-paste', F.foodText(F.payloadFrom(fx.state, NOW - 60000), true)); await f2.click('#fuel-paste-form button[type="submit"]'); }]
+    ];
+    for (const [what, act] of tries) {
+      await quiet(f2); await act();
+      said.push(what + ': ' + await F.toast(f2, /still reading/).catch(() => 'no such toast'));
+      need(f2.dialogs.length === asked, what + ': questions were asked: ' + f2.dialogs.slice(asked).join(' / ').replace(/\n+/g, ' | ').slice(0, 300));
+    }
+    await rest(world);
+    f2.off('filechooser', onChooser);
+    await F.closeSheet(f2);
+    need(said.every((t) => t.endsWith(': ' + SAYS)), 'the toasts: ' + said.join(' | '));
+    need(!choosers, 'the file picker opened');
+    need((await F.storedText(f2)) === before, 'F2\'s data changed');
+    need(cloud.writes({ who: 'F2', from: mark }).length === 0, 'F2 wrote to the account: ' + brief(cloud.writes({ who: 'F2', from: mark })));
+    need(await f2.evaluate(() => window.__overloadSync.linked === false), 'sync.js does not say it has not read the account yet (linked)');
+    return SAYS;
+  });
+  if (ok) {
+    ok = await step('the read works (Sync now): F2 links, the card says Synced, and Choose a file then asks, adds and reaches the account and F1', async () => {
+      await failReads(false);
+      await lib.openTab(f2, 'settings');
+      await f2.click('[data-action="cloud-push"]');
+      await rest(world);
+      const st = await f2.evaluate(() => ({ linked: window.__overloadSync.linked, status: (document.querySelector('#cloud-status') || {}).textContent }));
+      need(st.linked === true && /^Synced/.test(st.status), 'F2: ' + JSON.stringify(st));
+      const asked = f2.dialogs.length;
+      await F.chooseFile(f2, '[data-action="import"]', file);
+      await F.toast(f2, /Brought in 1 entry on 1 day/);
+      need(f2.dialogs.length === asked + 1 && /^confirm: Bring this food log/.test(f2.dialogs[asked]), 'the import asked: ' + f2.dialogs.slice(asked).join(' / '));
+      await rest(world);
+      for (const [name, st2] of [['the account', coreAndDays(cloud)], ['F1', await F.live(f1)], ['F2', await F.live(f2)]]) need(ids(st2.diary[TODAY]).includes('fuelfirst001'), name + ' lacks the entry brought in');
+      return 'the entry brought in is in the account and on both phones';
+    });
+  }
+  if (ok) {
+    await step('a phone that linked before, started without signal, is not held up: its Reset asks with the account sentence and reaches the account once online; F2 follows', async () => {
+      await closeFuel(F1);
+      await F1.device.setOffline(true);
+      f1 = await openFuel(F1);
+      await f1.waitForFunction(() => !!window.__overloadSync.user, null, { timeout: 8000 });
+      need(await f1.evaluate(() => window.__overloadSync.linked === true), 'F1 counts as not linked on a start without signal');
+      await lib.openTab(f1, 'settings');
+      const asked = f1.dialogs.length;
+      await f1.click('[data-action="reset"]');
+      await F.toast(f1, /Reset/);
+      need(/the food log in your account \(owner@example\.com\) is erased too/.test(f1.dialogs[asked] || ''), 'the question reads: ' + (f1.dialogs[asked] || '').replace(/\n+/g, ' | '));
+      await F1.device.setOffline(false);
+      await rest(world);
+      for (const [name, st] of [['the account', coreAndDays(cloud)], ['F1', await F.live(f1)], ['F2', await F.live(f2)]]) need(!Object.keys(st.diary).length, name + ' holds ' + Object.keys(st.diary).length + ' days');
+      return 'the account and both phones are empty';
+    });
+    await step('Restore "Before import" on F2: it asks, and the account and F1 hold the log again', async () => {
+      await lib.openTab(f2, 'food'); await lib.openTab(f2, 'settings');
+      const asked = f2.dialogs.length;
+      await f2.click('#safety-copies [data-action="restore-copy"][data-id="before-import"]', { timeout: 8000 });
+      await F.toast(f2, /Copy restored/);
+      need(/the food log in your account \(owner@example\.com\) is replaced too/.test(f2.dialogs[asked] || ''), 'the question reads: ' + (f2.dialogs[asked] || '').replace(/\n+/g, ' | '));
+      await rest(world);
+      const st = await F.live(f2);
+      need(Object.keys(st.diary).length === COUNTS.foodDays, 'F2 holds ' + Object.keys(st.diary).length + ' days');
+      same(coreAndDays(cloud).diary, st.diary, 'the account\'s diary against F2\'s');
+      same(travels(await F.live(f1)), travels(st), 'F1 against F2');
+      onlyFuelPaths(cloud);
+      for (const p of [F1, F2]) F.assertClean(p, 'phone ' + p.name);
+      return COUNTS.foodDays + ' days in the account and on both phones';
+    });
+  }
+  tmp.rm();
+  for (const p of world.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
+// 6c. A phone that never heard back from an upload (review finding sync#8, the verifier's a2). B logs an entry; the
+//     server takes the write, but the answer never reaches the page (the app was closed a moment after, as one does on
+//     an iPhone). Then A resets or restores. The question promises that B does the same, except for what was logged or
+//     changed on it since it last synced. So B must count the write as taken once anything shows it: a copy without
+//     pending writes, the offline cache's too, or the server asked at B's next start (the SDK sends such a write again,
+//     and its answer changes only metadata, which the listeners are not told of). And when a day leaves the account
+//     while B's write of it is still not confirmed, B keeps only what it logged there itself, never the whole day.
+// ---------------------------------------------------------------------------
+async function lostAnswerRun(browser, docs) {
+  const world = v28Account(docs), { cloud } = world;
+  world.browser = browser;
+  const step = (title, fn) => run.step('lost answer', title, fn);
+  const A = await makePhone(world, 'A', TREE), B = await makePhone(world, 'B', TREE);
+  let a = await openFuel(A); await signInAtWelcome(a); await rest(world);
+  let b = await openFuel(B); await signInAtWelcome(b); await rest(world);
+  // B's next uploads reach the server, and their answer never comes (commit() never settles on this page).
+  const loseAnswers = (pg) => pg.evaluate(() => { const real = window.__fakeFirebase; window.__fakeFirebase = (op, p) => (op === 'fs.commit' ? (real(op, p), new Promise(() => {})) : real(op, p)); });
+  const own = async (pg, date) => ((await noteOf(pg)).own.days[date] || []).map((w) => w.c || 0);
+  const day = (st, date) => ids(st.diary[date]);
+  const everywhere = async () => [['the account', coreAndDays(cloud)], ['A', await F.live(a)], ['B', await F.live(b)]];
+  // From B's next page on, while test.cachePending names a day: the SDK's offline cache shows that day as still
+  // waiting to go up (it keeps the write, and sends it again at the start), as the real SDK does after a lost answer.
+  await B.context.addInitScript(() => {
+    const real = window.__fakeFirebase;
+    if (typeof real !== 'function') return;
+    window.__cachePendingReady = true;
+    window.__fakeFirebase = (op, p) => {
+      const r = real(op, p), d = localStorage.getItem('test.cachePending');
+      if (op !== 'fs.cached' || !d) return r;
+      return Promise.resolve(r).then((c) => { (c && c.docs || []).forEach((x) => { if (x.path.endsWith('/fuelDays/' + d)) x.pending = true; }); return c; });
+    };
+  });
+  const lostLog = async (date, id) => {
+    await loseAnswers(b);
+    const mark = cloud.mark();
+    await addEntry(b, date, id, 'Logged, answer lost', 95);
+    await rest(world);
+    const ws = cloud.writes({ who: 'B', from: mark });
+    need(ws.length === 1 && ws[0].path === FUEL_DAYS + '/' + date && ws[0].state === 'applied' && ids(dayOfCloud(cloud, date)).includes(id), 'B\'s write: ' + brief(ws));
+    same(await own(b, date), [0], 'B\'s own writes of ' + date + ' (1: confirmed), before it is closed');
+  };
+  const quietToast = (pg) => pg.evaluate(() => { const t = document.querySelector('#toast'); t.hidden = true; t.textContent = ''; });
+  const restoreOnA = async (id) => {
+    await lib.openTab(a, 'food'); await lib.openTab(a, 'settings');
+    const asked = a.dialogs.length;
+    await quietToast(a);
+    await a.click('#safety-copies [data-action="restore-copy"][data-id="' + id + '"]', { timeout: 8000 });
+    await F.toast(a, /Copy restored/);
+    need(/is replaced too\. Another phone signed in to this account does the same, except for what was logged or changed on it since it last synced: that comes back\./.test(a.dialogs[asked] || ''), 'the question reads: ' + (a.dialogs[asked] || '').replace(/\n+/g, ' | '));
+  };
+  const resetOnA = async () => {
+    await lib.openTab(a, 'settings');
+    const asked = a.dialogs.length;
+    await quietToast(a);
+    await a.click('[data-action="reset"]');
+    await F.toast(a, /Reset/);
+    need(/is erased too\. Another phone signed in to this account does the same, except for what was logged or changed on it since it last synced: that comes back\./.test(a.dialogs[asked] || ''), 'the question reads: ' + (a.dialogs[asked] || '').replace(/\n+/g, ' | '));
+  };
+
+  // (Each step goes on from what the one before left, whatever its outcome.)
+  await step('B logs an entry today and never hears back; opened again without signal, B counts its write as taken, from the offline cache; and so after a start with signal (nothing changed there)', async () => {
+    await lostLog(TODAY, 'fuellost0001');
+    await closeFuel(B);
+    await B.device.setOffline(true);
+    b = await openFuel(B); await rest(world);
+    const one = await own(b, TODAY);
+    await closeFuel(B);
+    await B.device.setOffline(false);
+    b = await openFuel(B); await rest(world);
+    same(one, [1], 'B\'s own writes of ' + TODAY + ' once opened again without signal (1: confirmed)');
+    same(await own(b, TODAY), [1], 'B\'s own writes of ' + TODAY + ' once opened with signal');
+    return TODAY + ': confirmed at the next start';
+  });
+  {
+    await step('A restores a copy without today: B follows, and nothing of that day comes back (B logged its entry before it last synced)', async () => {
+      await a.evaluate((d) => { const s = JSON.parse(JSON.stringify(window.__overload.state)); delete s.diary[d]; return window.__overloadBackup.take('import', JSON.stringify(s)); }, TODAY);
+      const mark = cloud.mark();
+      await restoreOnA('before-import');
+      await rest(world);
+      for (const [name, st] of await everywhere()) {
+        need(!day(st, TODAY).length, name + ': ' + TODAY + ' holds ' + day(st, TODAY).length + ' entries (B logged 1 of them before it last synced)');
+        need(Object.keys(st.diary).length === COUNTS.foodDays - 1, name + ' holds ' + Object.keys(st.diary).length + ' days');
+      }
+      return 'writes: ' + brief(cloud.writes({ from: mark }));
+    });
+  }
+  {
+    await step('B logs yesterday and never hears back; opened again while the SDK still holds that write (its cache shows it waiting), B asks the server for that day and counts the write as taken; A resets: nothing comes back', async () => {
+      await lostLog(YESTERDAY, 'fuellost0002');
+      await b.evaluate((d) => localStorage.setItem('test.cachePending', d), YESTERDAY);
+      await closeFuel(B);
+      const mark = cloud.mark();
+      b = await openFuel(B);
+      need(await b.evaluate(() => window.__cachePendingReady === true), 'this check needs the stand-in cache to show the write waiting');
+      await rest(world);
+      await b.evaluate(() => localStorage.removeItem('test.cachePending'));
+      const asked = cloud.reads({ who: 'B', from: mark }).some((r) => r.type === 'get' && r.via === 'get' && r.path === FUEL_DAYS + '/' + YESTERDAY), mine = await own(b, YESTERDAY);
+      await resetOnA();
+      await rest(world);
+      for (const [name, st] of await everywhere()) need(!Object.keys(st.diary).length, name + ' holds ' + Object.keys(st.diary).length + ' days: ' + Object.keys(st.diary).map((d) => d + ' ' + st.diary[d].length).join(', ').slice(0, 120));
+      same(mine, [1], 'B\'s own writes of ' + YESTERDAY + ' once opened again (1: confirmed)');
+      need(asked, 'B did not ask the server for ' + YESTERDAY);
+      return 'B asked: ' + cloud.reads({ who: 'B', from: mark }).filter((r) => r.via === 'get').map((r) => r.path.replace(/^users\/U\d+\//, '')).join(', ');
+    });
+  }
+  {
+    await step('B logs and never hears back, and its SDK\'s offline store is lost; A resets before B opens again: B keeps only the entry it logged, not the day, and sends it back', async () => {
+      await restoreOnA('before-reset');
+      await rest(world);
+      need(Object.keys((await F.live(b)).diary).length === COUNTS.foodDays - 1, 'B does not hold the log again');
+      const n = (await F.live(b)).diary[YESTERDAY].length;
+      await lostLog(YESTERDAY, 'fuellost0003');
+      await closeFuel(B);
+      B.device.loseOfflineStore('fuel');
+      await resetOnA();
+      await rest(world);
+      b = await openFuel(B);
+      await rest(world);
+      for (const [name, st] of await everywhere()) {
+        same(Object.keys(st.diary), [YESTERDAY], name + '\'s days');
+        same(day(st, YESTERDAY), ['fuellost0003'], name + '\'s entries of ' + YESTERDAY + ' (B logged 1 of the ' + (n + 1) + ')');
+      }
+      same(travels(await F.live(a)), travels(await F.live(b)), 'A against B');
+      onlyFuelPaths(cloud);
+      for (const p of [A, B]) F.assertClean(p, 'phone ' + p.name);
+      return YESTERDAY + ' holds only B\'s entry, in the account and on both phones';
+    });
+  }
   for (const p of world.phones) await p.close();
 }
 
@@ -1713,7 +2033,7 @@ async function sameRulesRun(browser, v28) {
   try {
     // The later runs start from the documents v2.8 uploaded in the first.
     const stopped = (label) => (e) => run.say(false, label, 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
-    const later = ['clipboard', 'returning', 'race', 'early'];
+    const later = ['clipboard', 'returning', 'race', 'early', 'firstlink', 'lost'];
     const made = args.only === 'solo' || args.only === 'rules' ? null : await accountRun(browser, v28, later.includes(args.only)).catch((e) => { stopped('account')(e); return null; });
     docs = made && made.docs;
     const want = (k) => !args.only || args.only === k;
@@ -1723,6 +2043,8 @@ async function sameRulesRun(browser, v28) {
     if (docs && want('returning')) await returningRun(browser, docs).catch(stopped('returning phone'));
     if (docs && want('race')) for (const last of ['F2', 'F1']) await raceRun(browser, docs, last).catch(stopped('race (' + last + ' lands last)'));
     if (docs && want('early')) await earlyRun(browser, docs).catch(stopped('before the module'));
+    if (docs && want('firstlink')) await firstLinkRun(browser, docs).catch(stopped('first link not done'));
+    if (docs && want('lost')) await lostAnswerRun(browser, docs).catch(stopped('lost answer'));
     if (!args.only || args.only === 'solo') await soloRun(browser).catch((e) => run.say(false, 'one phone', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
     // Sign-in and Paste from Overload, in both orders: an account of its own, which v2.8 fills.
     if (!args.only || args.only === 'rules') await sameRulesRun(browser, v28).catch((e) => run.say(false, 'sign-in and paste', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));

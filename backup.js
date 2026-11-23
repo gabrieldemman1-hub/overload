@@ -144,5 +144,8 @@
     });
   }
 
-  window.__overloadBackup = { take, list, get, KEEP_DAYS, KEEP_REMOVALS };
+  window.__overloadBackup = {
+    release: '3.0',   // the release this file belongs to (bump.sh sets it): overload.js uses no copies module of another release
+    take, list, get, KEEP_DAYS, KEEP_REMOVALS
+  };
 })();

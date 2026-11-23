@@ -44,7 +44,8 @@
     // copy: two sync modules would both sync one account.
     //
     // If the app started but one of its stylesheets or classic scripts did not arrive (the offline copy refuses a
-    // file that names another release), the app runs without it, and a line at the top says so.
+    // file that names another release), the app runs without it, and a line at the top says so. The same when
+    // backup.js or connector.js arrived from another release: overload.js does not use them (see part there).
     (function () {
       var failed = [], final = false;
       var sheets = function () { return Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]')); };
@@ -65,16 +66,27 @@
           var copy = css.cloneNode(); css.parentNode.insertBefore(copy, css); css.parentNode.removeChild(css);
         });
       };
-      // The app is running without a stylesheet or a script of its page: a line above everything (styled here,
-      // since a stylesheet may be what is missing).
+      // The app is running without a stylesheet or a script of its page: a line at the top, below the phone's status
+      // bar (styled here, since a stylesheet may be what is missing). It hides nothing: without the stylesheet it is
+      // the first thing on the page and pushes the rest down; with it the top bar is fixed at the top, so the line is
+      // fixed there instead and takes the place of the status bar's strip (--safe-top in shared/ui.css): the bar, the
+      // screen, the toasts and the sheets move down by its height.
       var plain = function (looks) {
         if (document.getElementById('boot-plain') || !document.body) return;
         var n = document.createElement('div');
         n.id = 'boot-plain'; n.setAttribute('role', 'status');
-        n.style.cssText = 'position:relative;z-index:1000;padding:12px 16px;padding-top:max(12px, env(safe-area-inset-top));background:Canvas;color:CanvasText;font:15px/1.45 -apple-system,system-ui,sans-serif';
+        n.style.cssText = 'position:relative;z-index:1000;box-sizing:border-box;padding:10px 16px;padding-top:calc(env(safe-area-inset-top, 0px) + 10px);background:Canvas;color:CanvasText;font:15px/1.45 -apple-system,system-ui,sans-serif';
         n.textContent = 'Part of Overload did not load, so ' + (looks ? 'it looks plain.' : 'some of it may not work.') + (logged() ? ' Everything you logged is still on this phone.' : '')
           + ' Close the app and open it again where there is signal or Wi-Fi.';
         document.body.insertBefore(n, document.body.firstChild);
+        var bar = document.querySelector('.topbar'), root = document.documentElement;
+        var fit = function () {
+          var fixed = !!bar && getComputedStyle(bar).position === 'fixed';
+          n.style.position = fixed ? 'fixed' : 'relative';
+          n.style.top = n.style.left = n.style.right = fixed ? '0' : '';
+          if (fixed) root.style.setProperty('--safe-top', n.offsetHeight + 'px'); else root.style.removeProperty('--safe-top');
+        };
+        fit(); window.addEventListener('resize', fit);
       };
       setTimeout(function () { say(true); }, 8000);   // the files may still be on their way: the app replaces this when it starts
       window.addEventListener('error', function (e) { var t = e.target; if (t && t !== window && (t.src || t.href)) failed.push(t.src || t.href); }, true);
@@ -83,7 +95,9 @@
         if (window.__overload) {   // this release started (overload.js sets it)
           var lostCss = css.some(function (l) { return failed.indexOf(l.href) >= 0; });
           var lostJs = scripts.some(function (s) { return s.type !== 'module' && failed.indexOf(s.src) >= 0; });   // sync.js (a module) is optional
-          if (lostCss || lostJs) plain(lostCss);
+          // A helper file that arrived from another release (2.8's worker hands out what the server has): overload.js leaves it unused.
+          var other = !!(window.__overload.otherParts && window.__overload.otherParts().length);
+          if (lostCss || lostJs || other) plain(lostCss);
           return;
         }
         var rel = function (url) { var m = /[?&]v=([^&#]+)/.exec(url); return m ? m[1] : ''; };
