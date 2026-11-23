@@ -52,9 +52,9 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 
 const host = () => window.__overload;
 let user = null;
-let known = null;          // { uid, core: hash|null, workouts: { id: hash }, days: { date: hash }, parts } — what the cloud is known to hold
+let known = null;          // { uid, core: hash|null, workouts: { id: hash }, days: { date: hash }, parts, unsent } — what the cloud is known to hold
                            // (days: the food days as a version up to 2.8 noted them; this version only ever removes from it, see forgetDays;
-                           // parts: the noted core in more detail, see partsOf)
+                           // parts: the noted core in more detail, see partsOf; unsent: workouts sent and not confirmed yet, see push)
 let unsubs = [];
 let pushTimer = null;
 let inflight = 0;
@@ -69,6 +69,7 @@ let reading = false;       // the read of readServerCore is in flight
 let readTimer = null;
 let readTries = 0;
 let linkGen = 0;           // goes up at every link and sign-out: an answer that arrives for an earlier one is dropped
+let swept = false;         // the workouts listener's first snapshot from the server in this session was compared with the note
 
 // ---------------------------------------------------------------------------
 // Bookkeeping
@@ -125,26 +126,39 @@ function coreOf(s, fp) {
 function coreJson(s, fp) { return JSON.stringify(coreOf(s, fp)); }
 
 // The note's `core` is one hash of the whole core text. Beside it the note keeps `parts`, worked out from the same
-// text: a hash of each training key, one of the food part, and the training deletion records themselves (weigh-ins,
-// nights and workouts deleted in the last 90 days: a few small entries). With them this phone can tell, also after
-// a restart and without the offline cache, what it changed itself since that core:
+// text: a hash of each training key, one of the food part, the training deletion records themselves (weigh-ins,
+// nights and workouts deleted in the last 90 days: a few small entries), and a hash of each weigh-in and each night
+// by its date. With them this phone can tell, also after a restart and without the offline cache, what it changed
+// itself since that core:
 //   - which keys (a merge keeps those and takes the cloud's for the rest);
+//   - which weigh-ins and nights (a merge keeps those dates and takes the cloud's for the rest, see mergeDated);
 //   - whether anything at all, leaving out its old food copy (frozen here, so it differs from the account's food
 //     part as soon as a phone on 2.8 logs a food) and deletion records past their 90 days (the app drops those at
 //     every start; that changes no data, and must not send this phone's whole core over newer ones).
 // Versions up to 2.8 keep a field of the note they do not know and leave it as it is. When one of them sends or
 // takes a core, `known.core` changes and `parts.core` no longer names it: the parts are then not used (notedParts).
 const textOf = (v) => (v === undefined ? '' : JSON.stringify(v));
+const DATED = ['bodyweight', 'sleep'];   // merged date by date (mergeDated); their deletion records: bw and sleep
+const GONE_OF = { bodyweight: 'bw', sleep: 'sleep' };
+// One list as { date: hash of its entry }. A date held twice counts once, the later entry (as unionByDate).
+function datesOf(list) {
+  const o = {};
+  (Array.isArray(list) ? list : []).forEach((x) => { if (x && typeof x.date === 'string') o[x.date] = hash(JSON.stringify(x)); });
+  return o;
+}
 function partsOf(core, coreHash) {
   const keys = {}; TRAIN_KEYS.forEach((k) => { keys[k] = hash(textOf(core[k])); });
   const del = {}, d = core.deleted && typeof core.deleted === 'object' ? core.deleted : {};
   Object.keys(d).forEach((k) => { if (k !== 'food' && d[k] && typeof d[k] === 'object') del[k] = Object.assign({}, d[k]); });
-  return { core: coreHash, keys, food: hash(textOf(foodPart(core))), del };
+  const dates = {}; DATED.forEach((k) => { dates[k] = datesOf(core[k]); });
+  return { core: coreHash, keys, food: hash(textOf(foodPart(core))), del, dates };
 }
 function notedParts() {
   const p = known && known.parts;
   if (!p || typeof p !== 'object' || !isHash(known.core) || p.core !== known.core) return null;
   if (!p.keys || typeof p.keys !== 'object' || !isHash(p.food) || !p.del || typeof p.del !== 'object') return null;
+  const okDates = (m) => !!m && typeof m === 'object' && Object.keys(m).every((date) => isHash(m[date]));
+  if (!p.dates || typeof p.dates !== 'object' || !DATED.every((k) => okDates(p.dates[k]))) return null;
   return TRAIN_KEYS.every((k) => isHash(p.keys[k])) ? p : null;
 }
 // The deletion records of one kind that are still kept, in one text: the same rule as normalize in overload.js.
@@ -190,9 +204,10 @@ function forgetDaysNow() {
 // ---------------------------------------------------------------------------
 // Merging. Two phones can change the same data, and Firestore replays a phone's
 // offline writes as-is when it reconnects. So lists are merged, never replaced:
-// weigh-ins and nights by date, minus anything in the deletion records
+// weigh-ins and nights date by date, minus anything in the deletion records
 // (state.deleted, merged too). Changes this phone has not uploaded yet win over
-// the cloud's copy. Food is not merged at all: this phone's old food copy and the
+// the cloud's copy; for the rest the cloud's copy stands, its absence of a date
+// included. Food is not merged at all: this phone's old food copy and the
 // cloud's food part each stay as they are.
 // ---------------------------------------------------------------------------
 let baseCore = null;   // the core document as the cloud last held it, for telling which side changed a key
@@ -217,6 +232,53 @@ function unionByDate(first, second, gone) {
   (first || []).forEach((x) => by.set(x.date, x));
   return [...by.values()].filter((x) => !(gone && gone[x.date])).sort((a, b) => (a.date < b.date ? -1 : 1));
 }
+// Weigh-ins or nights, date by date against the noted core (noted: { date: hash }, from the note's parts). A date is
+// this phone's when its entry is new here or differs from the noted one: that entry stays, also over the cloud's own
+// change of the date. It is also this phone's when the entry is gone from here and the cloud still holds the noted
+// one (a Reset, Import or Restore here; a deletion here writes a record anyway): it stays gone. Every other date is
+// the cloud's: its entry, or its absence (deleted on another phone, also once the record is past its 90 days, or
+// replaced there by a Reset, Import or Restore). So a list this phone did not change comes out as the cloud's.
+function mergeDated(local, remote, noted, gone) {
+  const by = (list) => { const m = new Map(); (list || []).forEach((x) => m.set(x.date, x)); return m; };
+  const L = by(local), R = by(remote), out = [];
+  new Set([...L.keys(), ...R.keys()]).forEach((date) => {
+    if (gone && gone[date]) return;
+    const l = L.get(date), r = R.get(date), n = noted[date];
+    let x;
+    if (l !== undefined && (n === undefined || hash(JSON.stringify(l)) !== n)) x = l;   // added or changed here
+    else if (l === undefined && n !== undefined) x = r !== undefined && hash(JSON.stringify(r)) !== n ? r : undefined;   // gone here, unless changed in the cloud since
+    else x = r;   // as noted here (or on neither): the cloud's entry, or its absence
+    if (x !== undefined) out.push(x);
+  });
+  return out.sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+// The workout in progress on this phone: not finished here, and no deletion record for it (discarded somewhere).
+function inProgress(st, deleted) {
+  const id = st.active;
+  if (!id || (deleted && deleted[id])) return null;
+  return (st.workouts || []).find((w) => w.id === id && !w.finishedAt) || null;
+}
+// The exercises a workout uses must be in the library it is shown with, or its entries (and their ticked sets)
+// cannot be shown or finished. One the library lacks is matched by name, as at a first link (a Reset elsewhere
+// gives every exercise a new id); one with no match there is kept, with its prescription. Returns the workout,
+// re-pointed when needed; out.exercises and out.presc get new objects when something is added.
+function keepExercisesOf(w, out, local) {
+  const lib = out.exercises || [], have = new Set(lib.map((e) => e.id));
+  const byName = new Map(lib.map((e) => [String(e.name).toLowerCase(), e.id]));
+  const idMap = {};
+  const need = (id) => {
+    if (!id || have.has(id) || idMap[id]) return;
+    const e = (local.exercises || []).find((x) => x.id === id); if (!e) return;
+    const cid = byName.get(String(e.name).toLowerCase());
+    if (cid) { idMap[id] = cid; return; }
+    out.exercises = (out.exercises || []).concat([e]); have.add(id); byName.set(String(e.name).toLowerCase(), id);
+    if (local.presc && local.presc[id] && !(out.presc && out.presc[id])) out.presc = Object.assign({}, out.presc, { [id]: local.presc[id] });
+  };
+  (w.entries || []).forEach((en) => { need(en.exId); need(en.swappedFrom); });
+  if (!Object.keys(idMap).length) return w;
+  const to = (id) => idMap[id] || id;
+  return Object.assign({}, w, { entries: w.entries.map((en) => Object.assign({}, en, { exId: to(en.exId), swappedFrom: en.swappedFrom ? to(en.swappedFrom) : en.swappedFrom })) });
+}
 // The result has no `food` key: the caller lays it over the state, whose own food stays.
 function mergeCore(local, remote) {
   // Which keys did this phone change since the noted core? With the note's parts, each key against its hash: the old
@@ -236,10 +298,27 @@ function mergeCore(local, remote) {
   });
   out.deleted = mergeDeleted(local.deleted, remote.deleted);
   out.deleted.food = (local.deleted && local.deleted.food) || {};   // nor are its food deletion records
-  // Weigh-ins and nights: both lists, by date. For a date both have, this phone's entry wins only if it changed this list.
-  const first = (k) => (p ? mine(k) : ahead);
-  out.bodyweight = first('bodyweight') ? unionByDate(local.bodyweight, remote.bodyweight, out.deleted.bw) : unionByDate(remote.bodyweight, local.bodyweight, out.deleted.bw);
-  out.sleep = first('sleep') ? unionByDate(local.sleep, remote.sleep, out.deleted.sleep) : unionByDate(remote.sleep, local.sleep, out.deleted.sleep);
+  // Weigh-ins and nights: date by date against the note (mergeDated). Without the note's parts (a note from a version
+  // up to 2.8): both lists by date, this phone's entry winning a date both have while its core is ahead, as there.
+  DATED.forEach((k) => {
+    const gone = out.deleted[GONE_OF[k]];
+    if (!Array.isArray(remote[k])) out[k] = unionByDate(local[k], [], gone);   // nothing in the cloud's core to go by
+    else if (p) out[k] = mergeDated(local[k], remote[k], p.dates[k], gone);
+    else out[k] = ahead ? unionByDate(local[k], remote[k], gone) : unionByDate(remote[k], local[k], gone);
+  });
+  // The workout in progress here stays in progress when the cloud's core names none, or one that is finished or
+  // deleted here (an older copy's): that core comes from another phone's Reset, Import or Restore, which also deleted
+  // the workout's document (the workouts listener keeps it, and the next push sends both back). It ends here as it
+  // ended there: discarded (a deletion record: inProgress), or finished (the workouts listener, when the finished
+  // copy arrives). Another workout in progress in that core is taken by the rule for every key (two phones can then
+  // never keep sending their own to each other).
+  const w = inProgress(local, out.deleted.workouts);
+  const over = (id) => id == null || !!out.deleted.workouts[id] || (local.workouts || []).some((x) => x.id === id && x.finishedAt);
+  if (w && remote.active !== w.id && over(remote.active)) out.active = w.id;
+  if (w && out.active === w.id && remote.active !== w.id) {
+    const kept = keepExercisesOf(w, out, local);
+    if (kept !== w) out.workouts = (local.workouts || []).map((x) => (x.id === w.id ? kept : x));
+  }
   return out;
 }
 // Drop the workouts the deletion records say are gone (after new records arrive from another phone).
@@ -308,34 +387,54 @@ async function push() {
   const cj = coreJson(s), ch = hash(cj);
   const ahead = cloudFood !== undefined && ch !== known.core && coreAhead(s);
   if (ahead && serverSeen) {
-    ops.push((b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 }));
+    ops.push({ run: (b) => b.set(metaRef(), { core: cj, updatedAt: now, v: 1 }) });
     known.core = ch; baseCore = JSON.parse(cj); cloudFood = foodPart(baseCore); known.parts = partsOf(baseCore, ch);
   }
   if (coreHeld !== (ahead && !serverSeen)) { coreHeld = !coreHeld; report(); }
   if (coreHeld) readServerCore();
 
-  const seen = {};
+  // A workout sent is noted at once, and also in `unsent` until the server has confirmed it: a write queued without
+  // signal is lost if the SDK's offline store is (iOS can clear it, or the SDK can fall back to memory). The
+  // workouts listener then sends it again instead of taking its absence on the server for a deletion (see listen).
+  const seen = {}, sent = {};
   s.workouts.forEach((w) => {
     const j = JSON.stringify(w), h = hash(j); seen[w.id] = true;
-    if (known.workouts[w.id] !== h) { ops.push((b) => b.set(workoutRef(w.id), { data: j, updatedAt: now, v: 1 })); known.workouts[w.id] = h; }
+    if (known.workouts[w.id] !== h) {
+      ops.push({ w: w.id, h, run: (b) => b.set(workoutRef(w.id), { data: j, updatedAt: now, v: 1 }) });
+      known.workouts[w.id] = h; sent[w.id] = h;
+    }
   });
   Object.keys(known.workouts).forEach((id) => {
-    if (!seen[id]) { ops.push((b) => b.delete(workoutRef(id))); delete known.workouts[id]; }
+    if (!seen[id]) { ops.push({ run: (b) => b.delete(workoutRef(id)) }); delete known.workouts[id]; }
   });
+  if (Object.keys(sent).length) known.unsent = Object.assign({}, known.unsent, sent);
+  Object.keys(known.unsent || {}).forEach((id) => { if (!seen[id]) delete known.unsent[id]; });
+  if (known.unsent && !Object.keys(known.unsent).length) delete known.unsent;
 
   saveKnown();
   if (!ops.length) return;
 
   // If a batch is rejected (rules, quota), forget that the cloud has it so the
   // next push sends it again. Sets are idempotent, so re-sending is harmless.
-  const rollback = () => { if (known && known.uid === user.uid) { known = JSON.parse(before); saveKnown(); } };
+  const uid = user.uid;
+  const rollback = () => { if (known && known.uid === uid) { known = JSON.parse(before); saveKnown(); } };
   for (let i = 0; i < ops.length; i += BATCH_LIMIT) {
-    const b = writeBatch(db);
-    ops.slice(i, i + BATCH_LIMIT).forEach((op) => op(b));
+    const b = writeBatch(db), part = ops.slice(i, i + BATCH_LIMIT);
+    part.forEach((op) => op.run(b));
     inflight++; report();
-    b.commit().then(() => { lastSync = Date.now(); lastError = ''; }, (e) => { lastError = friendly(e); rollback(); setTimeout(schedulePush, 60000); })
+    b.commit().then(() => {
+      lastSync = Date.now(); lastError = '';
+      if (known && known.uid === uid) { part.forEach((op) => { if (op.w) dropUnsent(op.w, op.h); }); saveKnown(); }
+    }, (e) => { lastError = friendly(e); rollback(); setTimeout(schedulePush, 60000); })
       .finally(() => { inflight--; report(); });
   }
+}
+// A workout no longer needs sending again: the server holds this phone's write of it (hash h), or the copy here was
+// replaced by the cloud's or removed (no h).
+function dropUnsent(id, h) {
+  if (!known || !known.unsent || (h !== undefined && known.unsent[id] !== h)) return;
+  delete known.unsent[id];
+  if (!Object.keys(known.unsent).length) delete known.unsent;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,33 +504,72 @@ function listen() {
     if (!snap.metadata.fromCache && !serverSeen) { serverSeen = true; schedulePush(); }
   }, (e) => { lastError = friendly(e); report(); }));
 
+  swept = false;
   unsubs.push(onSnapshot(workoutsCol(), (qs) => {
-    let changed = false, resurrected = false;
-    const list = host().state.workouts.slice();
+    let changed = false, noted = false, send = false;   // changed: the app's workouts; noted: the note only; send: a push is due
+    const st = host().state, list = st.workouts.slice(), del = (st.deleted || {}).workouts || {};
+    const own = inProgress(st, del);   // the workout in progress here
+    const fromServer = !qs.metadata.fromCache;
+    let active = st.active;
     qs.docChanges().forEach((ch) => {
       if (ch.doc.metadata.hasPendingWrites) return;
       const id = ch.doc.id;
       if (ch.type === 'removed') {
         if (known.workouts[id] === undefined) return;
+        delete known.workouts[id];
+        // The workout in progress here, deleted by another phone's Reset, Import or Restore: it stays, with its sets,
+        // and the next push sends it again. (Discarded there, its deletion record comes with that phone's core and
+        // ends it here: mergeCore.)
+        if (own && id === own.id) { noted = true; send = true; return; }
+        dropUnsent(id);
         const i = list.findIndex((w) => w.id === id);
         if (i >= 0) list.splice(i, 1);
-        delete known.workouts[id]; changed = true;
+        changed = true;
       } else {
         const j = ch.doc.data().data;
-        if (typeof j !== 'string' || known.workouts[id] === hash(j)) return;
+        if (typeof j !== 'string') return;
+        const jh = hash(j);
+        if (known.workouts[id] === jh) return;
         let w; try { w = parse(j); } catch (e) { return; }
-        const del = (host().state.deleted || {}).workouts || {};
         // Deleted here but brought back by another phone's old write: the next push deletes it again.
-        if (del[id] && id !== host().state.active) { known.workouts[id] = hash(j); resurrected = true; return; }
+        if (del[id] && id !== active) { known.workouts[id] = jh; noted = true; send = true; return; }
         const i = list.findIndex((x) => x.id === id);
         if (i >= 0) list[i] = w; else list.push(w);
-        known.workouts[id] = hash(j); changed = true;
+        known.workouts[id] = jh; dropUnsent(id); changed = true;
+        // The workout in progress here, finished on another phone: it is over here too. What the cloud's core names
+        // as in progress, if another workout, takes its place.
+        if (id === active && w.finishedAt) active = baseCore && typeof baseCore.active === 'string' && baseCore.active !== id ? baseCore.active : null;
       }
     });
-    if (resurrected) { saveKnown(); schedulePush(); }
-    if (!changed) return;
+    if (fromServer) {
+      const there = new Map(qs.docs.map((d) => [d.id, d]));
+      // This phone's writes the server now holds as they were sent: confirmed (see push).
+      Object.keys(known.unsent || {}).forEach((id) => {
+        const d = there.get(id), j = d && !d.metadata.hasPendingWrites ? d.data().data : null;
+        if (typeof j === 'string' && hash(j) === known.unsent[id]) { dropUnsent(id); noted = true; }
+      });
+      // The first snapshot from the server in this session lists every workout the server holds. A start with the
+      // offline cache cleared gets no 'removed' for one deleted meanwhile, so it is compared with the note here: a
+      // workout the note lists and the server no longer has was deleted on another phone (also once its deletion
+      // record is past its 90 days) or replaced there by a Reset, Import or Restore, and it goes here too. It stays
+      // when this phone changed it since (the next push sends it), and it stays and is sent again when it is the
+      // workout in progress here or its write from here was never confirmed (it may never have reached the server).
+      if (!swept) {
+        swept = true;
+        Object.keys(known.workouts).forEach((id) => {
+          if (there.has(id)) return;
+          const i = list.findIndex((w) => w.id === id);
+          if (i < 0) return;   // gone here too: the next push deletes it, as before
+          if ((own && id === own.id) || (known.unsent && known.unsent[id])) { delete known.workouts[id]; noted = true; send = true; return; }
+          if (hash(JSON.stringify(list[i])) !== known.workouts[id]) return;
+          list.splice(i, 1); delete known.workouts[id]; changed = true;
+        });
+      }
+    }
+    if (send) schedulePush();
+    if (!changed) { if (noted) saveKnown(); return; }
     list.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-    host().setState(Object.assign({}, host().state, { workouts: list }));
+    host().setState(Object.assign({}, host().state, { workouts: list, active }));
     saveKnown();
   }, (e) => { lastError = friendly(e); report(); }));
   // No listener on foodDays: food days are neither read nor merged here any more.
@@ -556,8 +694,9 @@ window.__overloadSync = {
   // Does the account hold this phone's whole old food log? True only when the note proves it: the phone has
   // food days, every one is noted with exactly the content it has now, the note lists no other day, and the
   // saved foods, meals and targets are the ones in the account. This version uploads no food, so whatever a
-  // version up to 2.8 had not sent is on this phone only: the app can ask here before it says that signing in
-  // to the diet app brings the food log across.
+  // version up to 2.8 had not sent is on this phone only. The app no longer asks (since review finding S4 its
+  // Food card never says that signing in to Fuel brings the whole log). Tests use it: tests/train-sync.js reads it,
+  // and tests/train-mixed.js tells this module from v2.8's by it.
   get foodInCloud() {
     if (!user || !known || !cloudFood) return false;
     const s = host().state, diary = s.diary || {}, dates = Object.keys(diary);

@@ -22,6 +22,12 @@
  *     another file under that name (the server ignores ?v=, so after the next release it has); a file without
  *     ?v= is still asked for first; a stored copy that is missing is fetched and stored again; a main script
  *     from the network that names another release is neither run nor stored (review finding O1).
+ *   - (final review, upgrade#2, #4, #5) a finished install ends with the entry "installed", which names the release;
+ *     v2.8's page from a server that has not caught up yet is answered with the stored 3.0 page; after the update,
+ *     three more starts with the same sw.js install no worker again and ask the server for no file with ?v=.
+ * Every phone is sealed (tests/lib.js): no Playwright routing, which makes Chromium install the same worker
+ * again at every update check; the browser itself stops every host but 127.0.0.1. On every phone no worker
+ * file is installed twice.
  *
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree). Give a copy
  *                when the tree's page and worker do not fit each other yet (a file one of them names is still
@@ -167,8 +173,17 @@ const updateOutcome = (page) => page.evaluate(async () => {
   site.pages['fuel/__slow.html'] = { body: probe('Fuel slow probe') };
   site.pages['fuel/__probe.js'] = { type: TYPES['.js'], body: 'window.probeScript = true;' };
   site.rules.push({ test: (rel) => rel === 'fuel/__slow.html', delay: 4500 });
-  const browser = await lib.launch();
+  const browser = await lib.launch({ sealed: true });
   const fx = lib.loadFixture('v28-state-small');
+  // What the server hands out now under an address (noted for every worker version the phone makes).
+  const served = (u) => { let rel = new URL(u).pathname.slice(BASE.length); if (rel === '' || rel.endsWith('/')) rel += 'index.html'; return site.pages[rel] ? site.pages[rel].body : fs.readFileSync(path.join(site.root, rel), 'utf8'); };
+  const sealedPhone = async () => { const p = await lib.newPhone(browser, { serviceWorkers: 'allow', sealed: true }); p.workers = await lib.watchWorkers(p.context, served); return p; };
+  const onceEach = (p, name) => {
+    const twice = p.workers.installedTwice();
+    check(!twice.length, name + ': no worker file was installed twice (sealed phone, no routing)', twice.length ? twice.map((x) => x.script.replace(site.url, '') + ' x' + x.times).join(', ') : p.workers.installed().length + ' installs finished, ' + p.workers.count() + ' worker versions');
+  };
+  const DONE = at('installed');
+  const doneSays = (page, cache) => page.evaluate(async ([name, u]) => { const r = await (await self.caches.open(name)).match(u); return r ? r.text() : null; }, [cache, DONE]);
 
   try {
     // ---- the install list itself ----
@@ -188,7 +203,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
     // Phone 1: the update from v2.8, with good signal
     // =====================================================================
     site.root = v28;
-    const phone = await lib.newPhone(browser, { serviceWorkers: 'allow' });
+    const phone = await sealedPhone();
     await lib.seedV28(phone.context, fx);
     let page = await lib.openApp(phone.context, at('index.html'));
     let cs = await until(async () => { const c = await caches(page); return c[old.cache] && c[old.cache].length >= old.assets.length && (await pageFacts(page)).controlled ? c : null; }, 30000);
@@ -233,6 +248,25 @@ const updateOutcome = (page) => page.evaluate(async () => {
     check(!!facts && !facts.foodTab, 'the page ends on 3.0 under the new worker (no Food tab)', (self2 ? 'the page reloaded itself' : 'the page held its reload back; reloaded by the test') + (facts ? ', files ?v=' + facts.versions[0] : ''));
     const kept = JSON.parse(await lib.readStorageText(page, lib.STATE_KEY));
     check(JSON.stringify(kept.food) === JSON.stringify(fx.state.food) && JSON.stringify(kept.diary) === JSON.stringify(fx.state.diary), 'the saved data came through the update: food and diary of the fixture, byte for byte');
+    check((await doneSays(page, now.cache)) === now.release, 'the install ended with the entry "installed" in ' + now.cache + ', which names the release', 'it says ' + await doneSays(page, now.cache));
+    // What a phone keeps for the release: Chromium compares the worker's bytes at each update check and installs
+    // nothing when they are the same (under Playwright routing it would install again, and fetch every file again).
+    const versionsThen = phone.workers.count();
+    site.log.length = 0;
+    for (let i = 0; i < 3; i++) {
+      const t = await phone.context.newPage();
+      await t.goto(at('index.html')); await t.waitForFunction(() => !!window.__overload, null, { timeout: 15000 });
+      await sleep(2000); await t.close();
+    }
+    const askedAgain = site.log.filter((u) => /\?v=/.test(u));
+    check(phone.workers.count() === versionsThen && !askedAgain.length, 'three more starts with the same sw.js: no worker is installed again, and no file with ?v= is asked of the server', (phone.workers.count() - versionsThen) + ' new worker versions; asked: ' + (askedAgain.join(', ') || 'none'));
+    // A server that has not caught up yet hands out the previous release's page (final review, upgrade#2).
+    site.pages['index.html'] = { body: fs.readFileSync(path.join(v28, 'index.html'), 'utf8') };
+    let staleFacts = null;
+    const stalePage = await phone.context.newPage();
+    try { await stalePage.goto(at('index.html')); await stalePage.waitForFunction(() => !!window.__overload, null, { timeout: 15000 }); staleFacts = await pageFacts(stalePage); } catch (e) { staleFacts = null; } finally { delete site.pages['index.html']; }
+    await stalePage.close();
+    check(isRelease(staleFacts, now.release) && !staleFacts.foodTab, 'v2.8\'s page from a server that has not caught up: the worker answers with the stored 3.0 page, and it starts', staleFacts ? 'files ?v=' + staleFacts.versions[0] : 'the app did not start');
 
     // ---- what the 3.0 worker does with the diet app's addresses ----
     await page.evaluate(() => fetch('./connector.json?probe=1').then((r) => r.status));
@@ -252,7 +286,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
     resp = await fuelPage.goto(at('fuel/__missing.html'));
     check(resp.status() === 404 && !!(await fuelPage.$('#server-404')) && (await fuelPage.title()) !== 'Overload' && !(await fuelPage.$('#app')), 'a missing page under fuel/ is the server\'s own 404, not the training page', 'status ' + resp.status() + ', title "' + (await fuelPage.title()) + '"');
     t0 = Date.now();
-    resp = await fuelPage.goto(at('fuel/__slow.html'));
+    resp = await fuelPage.goto(at('fuel/__slow.html?again'));   // an address of its own: the browser's HTTP cache has the first answer (max-age 600)
     check((await fuelPage.title()) === 'Fuel slow probe' && Date.now() - t0 >= 4400, 'a slow page under fuel/ arrives as itself after its 4.5 s, not as the training page after 3 s', (Date.now() - t0) + ' ms, title "' + (await fuelPage.title()) + '"');
 
     // ---- a reminder's tap ----
@@ -275,13 +309,14 @@ const updateOutcome = (page) => page.evaluate(async () => {
     try { await fuelPage.goto(at('fuel/__other.html'), { timeout: 10000 }); gone = { title: await fuelPage.title(), app: !!(await fuelPage.$('#app')) }; } catch (e) { gone = { error: String(e.message).split('\n')[0] }; }
     check(!!gone.error || (gone.title !== 'Overload' && !gone.app), 'with no network a page under fuel/ is the browser\'s own error, not the training page', gone.error || 'title "' + gone.title + '"');
     site.down = false;
+    onceEach(phone, 'phone 1');
     await phone.close();
 
     // =====================================================================
     // Phone 2: one file of the install list fails
     // =====================================================================
     site.root = v28;
-    const phone2 = await lib.newPhone(browser, { serviceWorkers: 'allow' });
+    const phone2 = await sealedPhone();
     await lib.seedV28(phone2.context, fx);
     let page2 = await lib.openApp(phone2.context, at('index.html'));
     await until(async () => { const c = await caches(page2); return c[old.cache] && c[old.cache].length >= old.assets.length && (await pageFacts(page2)).controlled; }, 30000);
@@ -308,6 +343,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
     await page2.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r.update())).catch(() => {});
     cs = await until(async () => { const c = await caches(page2); return c[now.cache] && !c[old.cache] ? c : null; }, 30000);
     check(!!cs && now.assets.every((a) => cs[now.cache].includes(abs(a))), 'the next update check, with every file answering, completes the update', cs ? 'caches: ' + Object.keys(cs).join(', ') : 'no ' + now.cache + ' after 30 s');
+    onceEach(phone2, 'phone 2');
     await phone2.close();
 
     // =====================================================================
@@ -322,9 +358,12 @@ const updateOutcome = (page) => page.evaluate(async () => {
     const readOr = (rel) => { try { return fs.readFileSync(path.join(TREE, rel), 'utf8'); } catch (e) { return ''; } };
     const realMain = readOr(mainRel), realCss = readOr(cssRel);
     const nextMain = realMain.replace("const VERSION = '" + now.release + "'", "const VERSION = '9.9'");
-    const phone3 = await lib.newPhone(browser, { serviceWorkers: 'allow' });
+    const phone3 = await sealedPhone();
     await lib.seedV28(phone3.context, fx);
-    const page3 = await lib.openApp(phone3.context, at('index.html'));
+    let page3 = await lib.openApp(phone3.context, at('index.html'));
+    // A start of the app after it was closed: a new page with nothing in the browser's memory cache, so every file
+    // it asks for reaches the worker (a reload of the same page may take its scripts from memory).
+    const start3 = async () => { await page3.close(); page3 = await lib.coldPage(phone3.context); page3.on('dialog', (d) => d.accept().catch(() => {})); await page3.goto(at('index.html')); return page3; };
     cs = await until(async () => { const c = await caches(page3); return c[now.cache] && now.assets.every((a) => c[now.cache].includes(abs(a))) && (await pageFacts(page3)).controlled ? c : null; }, 30000);
     check(!!cs && !!main && !!css, 'set-up: this tree installed under its own worker (' + now.cache + ')', main + ', ' + css);
     const entry = (page, url) => page.evaluate(async ([name, u]) => { const r = await (await self.caches.open(name)).match(u); return r ? r.text() : null; }, [now.cache, url]);
@@ -333,7 +372,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
     site.pages[cssRel] = { type: TYPES['.css'], body: realCss + '\n/* the next release */\n' };
     site.pages['icon.svg'] = { type: TYPES['.svg'], body: '<svg xmlns="http://www.w3.org/2000/svg"><!-- the next release --></svg>' };
     site.log.length = 0;
-    await page3.reload(); await page3.waitForFunction(() => !!window.__overload);
+    await start3(); await page3.waitForFunction(() => !!window.__overload);
     await page3.evaluate(() => fetch('./icon.svg').then((r) => r.text()));   // a file without ?v=, as the page's icon link asks for it
     await sleep(700);
     const askedV = site.log.filter((u) => /\?v=/.test(u));
@@ -342,22 +381,23 @@ const updateOutcome = (page) => page.evaluate(async () => {
     check(/the next release/.test((await entry(page3, abs('./icon.svg'))) || ''), 'a file without ?v= is still asked for first, and its stored copy refreshed (network first, as before)');
     delete site.pages[cssRel];
     await page3.evaluate(([name, u]) => self.caches.open(name).then((c) => c.delete(u)), [now.cache, abs(css)]);
-    await page3.reload(); await page3.waitForFunction(() => !!window.__overload);
+    await start3(); await page3.waitForFunction(() => !!window.__overload);
     await sleep(700);
     check((await entry(page3, abs(css))) === realCss && await page3.evaluate(() => [...document.querySelectorAll('link[rel="stylesheet"]')].every((l) => l.sheet && l.sheet.cssRules.length > 0)), 'a stored copy that is missing is taken from the network and stored again', cssRel);
     await page3.evaluate(([name, u]) => self.caches.open(name).then((c) => c.delete(u)), [now.cache, abs(main)]);
     let gaveUp = null;
     try {
-      await page3.goto(at('index.html'));
+      await start3();
       await page3.waitForFunction(() => { const n = document.getElementById('boot-note'); return (n && /did not finish starting/.test(n.textContent)) || !!window.__overload; }, null, { timeout: 15000 });
       gaveUp = await page3.evaluate(() => ({ started: !!window.__overload, note: (document.getElementById('boot-note') || {}).textContent || '' }));
     } catch (e) { gaveUp = { error: String(e.message).split('\n')[0] }; }
     check(!!gaveUp && gaveUp.started === false && /did not finish starting/.test(gaveUp.note), 'the main script missing, and the server\'s naming another release: that file is not run (the page says it did not finish starting)', JSON.stringify(gaveUp).slice(0, 160));
     check((await entry(page3, abs(main))) === null && (await lib.readStorageText(page3, lib.STATE_KEY)) !== null, '... and not stored; the saved data is still there');
     delete site.pages[mainRel]; delete site.pages['icon.svg'];
-    await page3.goto(at('index.html')); await page3.waitForFunction(() => !!window.__overload, null, { timeout: 15000 });
+    await start3(); await page3.waitForFunction(() => !!window.__overload, null, { timeout: 15000 });
     await sleep(700);
     check((await entry(page3, abs(main))) === realMain && (await shown(page3)) === 'Overload · v' + now.release, 'with the right file on the server again, the next start runs it and stores it');
+    onceEach(phone3, 'phone 3');
     await phone3.close();
   } catch (e) {
     check(false, 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));

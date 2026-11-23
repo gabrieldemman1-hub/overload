@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Fuel — automatic safety copies. (Fuel's own copy of Overload's backup.js: the two apps share one site, and in
  * an ordinary browser one storage, so each keeps its copies in a database of its own.)
  * The whole saved data is copied into IndexedDB, which is separate from (and much larger than) the space the app
@@ -12,6 +13,7 @@
   const DB = 'fuel-copies';   // never Overload's 'overload-copies': the two would overwrite each other's daily copy
   const KEEP_DAYS = 7;
   const OPEN_WAIT = 2000;   // Safari can leave the open request unanswered: give up then, so callers fall back
+  const RUN_WAIT = 5000;    // and a transaction that never finishes: give up then too (review finding data#2)
   let dbp = null;           // the open database (a promise of it), kept for the session
   let kept = null;          // the database dbp gave, once it did
 
@@ -57,13 +59,20 @@
   // of the database, and is tried once more on a fresh connection. A transaction that failed changed nothing,
   // so the second try starts from the same place. When the database does not open, there is no second try:
   // the caller already waited OPEN_WAIT for it.
+  // A transaction that neither completes nor fails within RUN_WAIT is given up the same way, without a second
+  // try: the connection is let go (the next call opens it again) and the call rejects, so take() resolves
+  // false and the caller's own fallback applies (Reset, Restore and an import then do nothing and say so). A
+  // copy that would complete after that was not counted on: nothing was done in its name.
   function run(stores, mode, fn) {
     const once = () => open().then((db) => new Promise((resolve, reject) => {
-      const lost = (err) => { forget(db); reject({ again: true, err }); };
-      let t;
+      let over = false, t = null;
+      const end = (f) => (v) => { if (over) return; over = true; clearTimeout(wait); f(v); };
+      const lost = end((err) => { forget(db); reject({ again: true, err }); });
+      const stuck = end((err) => { forget(db); reject(err); });
+      const wait = setTimeout(() => { stuck(new Error('IndexedDB did not finish')); try { if (t) t.abort(); } catch (x) { /* over already */ } }, RUN_WAIT);
       try { t = db.transaction(stores, mode); } catch (e) { lost(e); return; }
       let out;
-      t.oncomplete = () => resolve(out);
+      t.oncomplete = end(() => resolve(out));
       t.onerror = () => lost(t.error || new Error('IndexedDB error'));
       t.onabort = () => lost(t.error || new Error('IndexedDB aborted'));
       try { fn(t, (v) => { out = v; }); } catch (e) { try { t.abort(); } catch (x) { /* over already */ } lost(e); }

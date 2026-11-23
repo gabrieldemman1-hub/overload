@@ -44,7 +44,9 @@ function stored(cache, v) {
     Object.assign(at('/fuel/sync.js'), { type: js, body: 'window.__rescuedSync = ' + JSON.stringify(v) + ';\n' }),
     Object.assign(at('/shared/icons.js'), { type: js, body: read('shared/icons.js') + '\nwindow.__rescuedIcons = ' + JSON.stringify(v) + ';\n' }),
     Object.assign(at('/shared/ui.css'), { type: css, body: read('shared/ui.css') + '\nbody { --stored-styles: ' + JSON.stringify(v) + '; }\n' }),
-    Object.assign(at('/fuel/fuel.css'), { type: css, body: read('fuel/fuel.css') + '\nbody { --stored-fuel-css: ' + JSON.stringify(v) + '; }\n' })
+    Object.assign(at('/fuel/fuel.css'), { type: css, body: read('fuel/fuel.css') + '\nbody { --stored-fuel-css: ' + JSON.stringify(v) + '; }\n' }),
+    // The entry fuel/sw.js writes last when an install finished, naming the release: the rescue uses no other cache.
+    { cache, url: '/fuel/installed', type: 'text/plain', body: v }
   ];
 }
 

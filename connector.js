@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload ↔ connector (connector/worker.js on Cloudflare): WHOOP sleep sync and push reminders.
  *
  * Loaded after overload.js; plugs in through window.__overloadConn (Settings cards, actions)
@@ -306,7 +307,7 @@
   function whoopCard() {
     if (!url()) {
       return '<div class="group-title">WHOOP</div><div class="card"><p class="small muted">Sleep, REM, deep and recovery from your WHOOP fill in on their own once the connector is set up (README → WHOOP and reminders).</p>'
-        + '<div class="field mt8"><label>Connector address</label><input class="input" placeholder="https://overload-connector….workers.dev" data-field="conn-url"></div></div>';
+        + '<div class="field mt8"><label>Connector address</label><input class="input" placeholder="https://overload-connector….workers.dev" data-field="conn-url" aria-label="Connector address"></div></div>';
     }
     const s = cs.status, w = s && s.whoop;
     let body;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Fuel 3.0: cloud sync (fuel/sync.js) against the fake Firebase in tests/fake-firebase/.
  *
- *   node tests/fuel-sync.js [--only=account|clipboard|solo|rules] [--app=<folder>] [--port=8430]
+ *   node tests/fuel-sync.js [--only=account|clipboard|returning|race|early|solo|rules] [--app=<folder>] [--port=8430]
  *
  * What must hold (SPEC section 6; dev/notes/sync.md sections 4 and 7):
  *   - Fuel writes only users/{uid}/meta/fuel and users/{uid}/fuelDays/{date}. It never writes or deletes
@@ -21,8 +21,21 @@
  *   - A second Fuel phone: an added, an edited and a deleted entry, a deleted saved food and saved meal, a
  *     changed target and a day that lost its last entry travel both ways, and nothing deleted comes back,
  *     also not when a phone that was offline sends its old copies later.
+ *   - A phone never sends an old copy over another phone's changes (review finding sync#1): a change made
+ *     without signal waits on the phone and goes up merged once the server's copy is in; a merge keeps a
+ *     phone's value only for what it changed itself since the copy its note names (each target, the theme,
+ *     units with the body weight, each saved food and meal, each entry). So another phone's edited entry,
+ *     corrected food, target and theme stand when a phone comes back after a while without signal (run
+ *     "returning"), when its uploads were held up on the way and land late ("queued replay"), and when two
+ *     phones make the first sign-in at the same moment (run "race"). Every document says which copy its
+ *     writer had (base), and the note keeps what it needs (parts, own).
+ *   - Reset on one phone while another is signed in: the other follows, except for what was logged or
+ *     changed on it since it last synced; the question says so, and its advice works.
+ *   - Reset while signed in, on a start where the sync module has not loaded yet: the question says the account
+ *     is erased too, the note stays, and the reset reaches the account once the module runs (sync#2, run "early").
  *   - An account that holds Overload's core but no food days gives what it has; the log pasted afterwards
- *     goes up without doubling anything.
+ *     goes up without doubling anything. Signing in there takes none of Overload's deletion records, so that
+ *     signing in and Paste from Overload end the same in either order there too (sync#5, run "rules").
  *   - Nothing is uploaded while the first server read has not worked; an upload the cloud refuses is sent
  *     again; a day whose name is not a date or an entry without an id is never sent; a note left behind on a
  *     phone that lost its data deletes nothing, also when the sync module arrives after Start fresh was tapped
@@ -170,6 +183,23 @@ const brief = (ws) => { const l = list(ws); return l.length ? l.length + ': ' + 
 const coreOfCloud = (cloud) => { const d = cloud.get(FUEL_META); return d ? JSON.parse(d.core) : null; };
 const dayOfCloud = (cloud, date) => { const d = cloud.get(FUEL_DAYS + '/' + date); return d ? JSON.parse(d.data) : null; };
 const noteOf = async (page) => JSON.parse((await lib.readStorageText(page, NOTE)) || 'null');
+// The account's food log as one state: meta/fuel's core with the days of fuelDays.
+function coreAndDays(cloud) {
+  const diary = {};
+  cloud.paths(FUEL_DAYS).forEach((p) => { diary[p.split('/').pop()] = JSON.parse(cloud.get(p).data); });
+  return Object.assign({}, coreOfCloud(cloud), { diary });
+}
+// Holds a page's uploads on the way to the cloud, as when the connection drops without the phone noticing: the
+// app's writes are issued, and wait (window.__held counts them) until release() lets them go, in order.
+async function holdCommits(page) {
+  await page.evaluate(() => {
+    const real = window.__fakeFirebase, waiting = [];
+    window.__held = 0;
+    window.__releaseCommits = () => { window.__fakeFirebase = real; waiting.splice(0).forEach((r) => r()); };
+    window.__fakeFirebase = (op, p) => (op === 'fs.commit' ? (window.__held++, new Promise((r) => waiting.push(r)).then(() => real(op, p))) : real(op, p));
+  });
+  return { release: () => page.evaluate(() => window.__releaseCommits()) };
+}
 // Everything of Overload's in the account, as text: two of these are equal only when nothing changed, byte for byte.
 const overloadDocs = (cloud) => JSON.stringify([cloud.snapshot('users/U1/meta/state'), cloud.text(OLD_META), cloud.snapshot(OLD_DAYS), cloud.snapshot(WORKOUTS)]);
 // The part of a Fuel state that travels: what two phones on one account must agree on.
@@ -315,8 +345,9 @@ async function accountRun(browser, v28, setUpOnly) {
 
   await first('meta/fuel holds settings (units and theme only), food, deleted and bodyweight; no connector key, nothing of training', async () => {
     const d = cloud.get(FUEL_META), text = cloud.text(FUEL_META);
-    same(Object.keys(d).sort(), ['core', 'updatedAt', 'v'], 'the fields of meta/fuel');
-    need(typeof d.core === 'string' && d.v === 1 && typeof d.updatedAt === 'number', 'meta/fuel is ' + text.slice(0, 80));
+    same(Object.keys(d).sort(), ['base', 'core', 'updatedAt', 'v'], 'the fields of meta/fuel');
+    // base: the copy the writer had taken in; on an account new to Fuel there was none.
+    need(typeof d.core === 'string' && d.v === 1 && typeof d.updatedAt === 'number' && d.base === null, 'meta/fuel is ' + text.slice(0, 80));
     const core = JSON.parse(d.core);
     same(Object.keys(core), ['settings', 'food', 'deleted', 'bodyweight'], 'the keys of the core');
     same(core.settings, { units: 'lb', theme: 'dark' }, 'settings');
@@ -328,10 +359,10 @@ async function accountRun(browser, v28, setUpOnly) {
     return d.core.length.toLocaleString() + ' characters; Overload\'s core is ' + cloud.get(OLD_META).core.length.toLocaleString();
   });
 
-  await first('every fuelDays document is { data, updatedAt, v: 1 } with that day\'s entries exactly as v2.8 uploaded them', async () => {
+  await first('every fuelDays document is { data, updatedAt, v: 1, base: null } with that day\'s entries exactly as v2.8 uploaded them', async () => {
     for (const date of DATES) {
       const d = cloud.get(FUEL_DAYS + '/' + date), o = cloud.get(OLD_DAYS + '/' + date);
-      need(d && typeof d.data === 'string' && d.v === 1 && typeof d.updatedAt === 'number' && Object.keys(d).length === 3, 'fuelDays/' + date + ' is ' + JSON.stringify(d).slice(0, 80));
+      need(d && typeof d.data === 'string' && d.v === 1 && typeof d.updatedAt === 'number' && d.base === null && Object.keys(d).length === 4, 'fuelDays/' + date + ' is ' + JSON.stringify(d).slice(0, 80));
       need(d.data === o.data, 'fuelDays/' + date + ' differs from foodDays/' + date);
     }
     return DATES.length + ' days, byte for byte';
@@ -383,13 +414,17 @@ async function accountRun(browser, v28, setUpOnly) {
     return JSON.stringify(sheet.groups);
   });
 
-  await first('the note fuel.sync.v1 lists the account, the core and every day; no "before cloud" copy of an empty phone', async () => {
-    const n = await noteOf(a);
-    need(n && n.uid === 'U1' && /^h/.test(n.core) && Object.keys(n.days).length === COUNTS.foodDays, 'the note is ' + JSON.stringify(n).slice(0, 120));
-    same(Object.keys(n).sort(), ['core', 'days', 'uid'], 'the fields of the note');
+  await first('the note fuel.sync.v1 lists the account, the core and every day, with their parts; no "before cloud" copy of an empty phone', async () => {
+    const n = await noteOf(a), text = await lib.readStorageText(a, NOTE);
+    need(n && n.uid === 'U1' && n.email === EMAIL && /^h/.test(n.core) && Object.keys(n.days).length === COUNTS.foodDays, 'the note is ' + JSON.stringify(n).slice(0, 120));
+    same(Object.keys(n).sort(), ['core', 'days', 'email', 'own', 'parts', 'uid'], 'the fields of the note');
+    // The parts name the copies the note names, and hold one short hash per item (no copy of the data itself).
+    need(n.parts.core.h === n.core && DATES.every((d) => n.parts.days[d] && n.parts.days[d].h === n.days[d]), 'the parts do not name the noted copies');
+    const entries = DATES.reduce((k, d) => k + n.parts.days[d].n.split(' ').length, 0);
+    need(entries === COUNTS.foodEntries && !text.includes('"name"') && !text.includes('kcal'), entries + ' entry hashes, or data in the note');
     need(!(await F.copies(a)).some((c) => c.id === 'before-cloud'), 'a copy of the empty phone was kept as "before cloud"');
     need((await lib.readStorage(a, 'overload.sync.v1')) === null, 'Fuel wrote Overload\'s note');
-    return Object.keys(n.days).length + ' days noted';
+    return Object.keys(n.days).length + ' days noted; the note is ' + text.length.toLocaleString() + ' characters';
   });
 
   await first('nothing of Overload\'s in the account changed, byte for byte, and v2.8 next to it noticed nothing', async () => {
@@ -536,45 +571,96 @@ async function accountRun(browser, v28, setUpOnly) {
     return cloud.paths(FUEL_DAYS).length + ' days in the account';
   });
 
-  // ---- a phone that was offline sends its old copies later ----
-  const late = (title, fn) => step('offline replay', title, fn);
-  let wentOffline = 0;
-  await late('B logs a saved food without signal; meanwhile A deletes an entry of that day and a saved food', async () => {
+  // ---- a phone without signal: its change waits on the phone and goes up merged (review finding sync#1) ----
+  // Meanwhile the other phone deletes an entry of that day and a saved food, edits another entry of that day,
+  // corrects a saved food, changes a target and the theme. None of that may be undone by the phone coming back.
+  const late = (title, fn) => step('without signal', title, fn);
+  const E5 = fx.state.diary[TODAY][3].id, W = plain[4];
+  const aChanges = (pg, gone1, food1, edit1, corr1, kcal, theme) => pg.evaluate(([d, g, f, e, c, k, t]) => {
+    const O = window.__overload, s = O.state;
+    s.diary[d] = s.diary[d].filter((x) => x.id !== g).map((x) => (x.id === e ? Object.assign({}, x, { kcal: x.kcal + 100 }) : x));
+    O.lib.markDeleted('food', g);
+    delete s.food.foods[f]; O.lib.markDeleted('foods', f);
+    s.food.foods[c] = Object.assign({}, s.food.foods[c], { src: 'custom', n: Object.assign({}, s.food.foods[c].n, { kcal: 999 }) });
+    s.food.targets.kcal = k; s.settings.theme = t;
+    O.save(); O.render();
+  }, [TODAY, gone1, food1, edit1, corr1, kcal, theme]);
+  // A's changes, as they must stand on both phones and in the account.
+  const aStands = (st, gone1, food1, edit1, editKcal, corr1, kcal, theme) => [
+    ids(st.diary[TODAY]).includes(gone1) && 'the deleted entry is back', st.food.foods[food1] && 'the deleted food is back',
+    ((st.diary[TODAY] || []).find((e) => e.id === edit1) || {}).kcal !== editKcal && 'the edited entry has ' + ((st.diary[TODAY] || []).find((e) => e.id === edit1) || {}).kcal,
+    !(st.food.foods[corr1] && st.food.foods[corr1].n.kcal === 999 && st.food.foods[corr1].src === 'custom') && 'the corrected food is not as corrected',
+    st.food.targets.kcal !== kcal && 'the target is ' + st.food.targets.kcal, st.settings.theme !== theme && 'the theme is ' + st.settings.theme
+  ].filter(Boolean);
+  await late('B logs a saved food without signal: nothing is sent or queued, it waits on the phone; meanwhile A changes six things', async () => {
     await B.device.setOffline(true);
-    const mark = wentOffline = cloud.mark();
+    const mark = cloud.mark();
     await addEntry(b, TODAY, 'fueltestlate1', 'Logged offline', 111, Z);
     await rest(world);
-    const queued = cloud.writes({ who: 'B', from: mark });
-    need(queued.length === 2 && queued.every((w) => w.state === 'queued') && queued.some((w) => w.path === FUEL_META) && queued.some((w) => w.path === FUEL_DAYS + '/' + TODAY), 'B\'s writes: ' + brief(queued));
-    await deleteEntry(a, TODAY, E2);
-    await deleteThing(a, 'foods', Y);
+    const ws = cloud.writes({ who: 'B', from: mark });
+    need(ws.length === 0 && B.device.queued('fuel').length === 0, 'B issued writes: ' + brief(ws));
+    need(ids((await F.stored(b)).diary[TODAY]).includes('fueltestlate1'), 'the entry is not saved on B');
+    await aChanges(a, E2, Y, E5, W, 2468, 'light');
     await rest(world);
-    need(!ids(dayOfCloud(cloud, TODAY)).includes(E2) && !coreOfCloud(cloud).food.foods[Y], 'A\'s deletions are not in the account');
     const sb = await F.live(b);
     need(ids(sb.diary[TODAY]).includes(E2) && !!sb.food.foods[Y], 'B knows already: this check needs it not to');
-    return 'B holds a core and a day to send, both from before the deletions';
+    need(aStands(coreAndDays(cloud), E2, Y, E5, fx.state.diary[TODAY][3].kcal + 100, W, 2468, 'light').length === 0, 'A\'s changes are not in the account');
+    return 'B holds a change to send, made on its copy from before A\'s';
   });
-  await late('B is online again and its old copies arrive: the deleted entry and food do not come back, B\'s new entry stays', async () => {
+  await late('B is online again: its change goes up merged; A\'s changes stand on both phones and in the account, nothing deleted comes back', async () => {
     const mark = cloud.mark();
     await B.device.setOffline(false);
     await rest(world);
-    const sent = cloud.writes({ who: 'B', from: wentOffline }).filter((w) => w.path === FUEL_DAYS + '/' + TODAY && w.state === 'applied' && ids(JSON.parse(JSON.parse(w.json).data)).includes(E2));
-    need(sent.length > 0, 'B\'s old copy of the day (with the deleted entry) never reached the account: this check needs it to');
     onlyFuelPaths(cloud, mark);
-    const day = ids(dayOfCloud(cloud, TODAY)), core = coreOfCloud(cloud);
-    need(!day.includes(E2), 'the deleted entry is back in the account');
-    need(day.includes('fueltestlate1'), 'the entry logged offline is not in the account');
-    need(!core.food.foods[Y] && core.deleted.foods[Y] > 0 && core.deleted.food[E2] > 0, 'the deleted food is back in the account, or the records are gone');
+    const ws = cloud.writes({ who: 'B', from: mark });
+    need(ws.every((w) => w.type === 'set' && (w.path === FUEL_META || w.path === FUEL_DAYS + '/' + TODAY)), 'B wrote ' + brief(ws));
+    need(ws.every((w) => !ids(w.path === FUEL_META ? [] : JSON.parse(JSON.parse(w.json).data)).includes(E2)), 'B sent the day with the deleted entry: ' + brief(ws));
+    const core = coreOfCloud(cloud);
+    need(core.deleted.foods[Y] > 0 && core.deleted.food[E2] > 0, 'the records are gone');
     need(core.food.foods[Z].used >= NOW, 'the food logged offline lost its "used" time');
-    for (const [name, pg] of [['A', a], ['B', b]]) {
-      const st = await F.live(pg);
-      need(!ids(st.diary[TODAY]).includes(E2), name + ' has the deleted entry');
+    for (const [name, st] of [['the account', coreAndDays(cloud)], ['A', await F.live(a)], ['B', await F.live(b)]]) {
+      const bad = aStands(st, E2, Y, E5, fx.state.diary[TODAY][3].kcal + 100, W, 2468, 'light');
+      need(!bad.length, name + ': ' + bad.join(', '));
       need(ids(st.diary[TODAY]).includes('fueltestlate1'), name + ' lacks the entry logged offline');
-      need(!st.food.foods[Y], name + ' has the deleted food');
       need(gone(st).length === 0, name + ' has ' + gone(st).join(', ') + ' again');
     }
     same(travels(await F.live(a)), travels(await F.live(b)), 'A against B');
     return 'writes after B came back: ' + brief(cloud.writes({ from: mark }));
+  });
+
+  // ---- uploads held up on the way: the phone thought it had signal, and its writes land late ----
+  // (A connection that drops without the phone noticing: the SDK queues the writes and sends them later.) They
+  // are B's copies from before A's changes, and arrive after them. A sees from their base that B did not have
+  // its copies, keeps what it changed itself, and sends the merge; B takes it.
+  const queued = (title, fn) => step('queued replay', title, fn);
+  const E6 = fx.state.diary[TODAY][4].id, E7 = fx.state.diary[TODAY][5].id, Q = plain[5], W2 = plain[6];
+  let held = null;
+  await queued('B logs a saved food; its uploads are held up on the way; meanwhile A changes six things', async () => {
+    held = await holdCommits(b);
+    const mark = cloud.mark();
+    await addEntry(b, TODAY, 'fueltestlate2', 'Held up on the way', 112, Z);
+    await rest(world);
+    need((await b.evaluate(() => window.__held)) === 1 && cloud.writes({ who: 'B', from: mark }).length === 0, 'B\'s upload is not held: ' + brief(cloud.writes({ who: 'B', from: mark })));
+    await aChanges(a, E6, Q, E7, W2, 2333, 'dark');
+    await rest(world);
+    need(aStands(coreAndDays(cloud), E6, Q, E7, fx.state.diary[TODAY][5].kcal + 100, W2, 2333, 'dark').length === 0, 'A\'s changes are not in the account');
+    return 'B\'s upload of the core and the day waits; A\'s changes are in the account';
+  });
+  await queued('B\'s held-up copies land after A\'s: A\'s changes stand on both phones and in the account, B\'s entry stays', async () => {
+    const mark = cloud.mark();
+    await held.release();
+    await rest(world);
+    const late2 = cloud.writes({ who: 'B', from: mark });
+    need(late2.some((w) => w.path === FUEL_DAYS + '/' + TODAY && ids(JSON.parse(JSON.parse(w.json).data)).includes(E6)), 'B\'s old copy of the day never reached the account: this check needs it to: ' + brief(late2));
+    onlyFuelPaths(cloud, mark);
+    for (const [name, st] of [['the account', coreAndDays(cloud)], ['A', await F.live(a)], ['B', await F.live(b)]]) {
+      const bad = aStands(st, E6, Q, E7, fx.state.diary[TODAY][5].kcal + 100, W2, 2333, 'dark');
+      need(!bad.length, name + ': ' + bad.join(', '));
+      need(ids(st.diary[TODAY]).includes('fueltestlate2') && ids(st.diary[TODAY]).includes('fueltestlate1'), name + ' lacks an entry B logged');
+      need(gone(st).length === 0, name + ' has ' + gone(st).join(', ') + ' again');
+    }
+    same(travels(await F.live(a)), travels(await F.live(b)), 'A against B');
+    return 'writes once they landed: ' + brief(cloud.writes({ from: mark }));
   });
 
   // ---- the first server read fails ----
@@ -639,11 +725,15 @@ async function accountRun(browser, v28, setUpOnly) {
     need(cloud.writes({ who: 'A', from: mark }).length === 0, 'A wrote while signed out: ' + brief(cloud.writes({ who: 'A', from: mark })));
     return 'three changes waiting';
   });
-  await again('signed in again (Settings): the three changes go up without a server read, and reach the other phone', async () => {
+  await again('signed in again (Settings): no first link; once the server holds the copies the note names, the three changes go up and reach the other phone', async () => {
     const mark = cloud.mark();
     await signInInSettings(a);
     await rest(world);
-    need(!cloud.reads({ who: 'A', from: mark }).some((r) => r.via === 'get'), 'a known phone read the account from the server (a first link, not a push)');
+    // Not a first link (that lists fuelDays): only the documents with something to send are asked for, to see that
+    // the server holds the copies the note names (nothing changed there meanwhile, so no listener says so).
+    const gets = cloud.reads({ who: 'A', from: mark }).filter((r) => r.via === 'get');
+    const asked = [FUEL_META, FUEL_DAYS + '/' + TODAY, FUEL_DAYS + '/' + YESTERDAY];
+    need(gets.every((r) => r.type === 'get' && asked.includes(r.path)) && asked.every((p) => gets.some((r) => r.path === p)), 'the server reads: ' + gets.map((r) => r.type + ' ' + r.path).join(', '));
     onlyFuelPaths(cloud, mark);
     const day = dayOfCloud(cloud, TODAY), E4 = fx.state.diary[YESTERDAY][3].id;
     need(day.some((e) => e.name === 'Logged while signed out' && e.kcal === 432), 'the entry logged while signed out is not in the account');
@@ -1007,37 +1097,44 @@ async function clipboardRun(browser, docs) {
     return msg;
   });
 
-  // A Reset replaces the data without deletion records, and a day leaves a phone only through those: so a
-  // second signed-in phone keeps its log and uploads it again. (With one phone the account is emptied: see
-  // the run "one phone".)
-  // The question says so (dev/notes/review-findings.md, S3), and the next step does what it advises.
-  await step('Reset on one phone while another is signed in: the question says the other keeps its copy and sends it back; it does', async () => {
-    const d = D.fuel, had = await F.live(d), mark = cloud.mark();
+  // A Reset replaces the data without deletion records. A second signed-in phone follows it: what its note says
+  // the account held, it did not change since, and the account no longer holds, goes there too (review finding
+  // sync#1: the cloud's absence of what the noted copy held means it was removed on another phone). What was
+  // logged or changed on that phone since it last synced stays, and comes back. (With one phone the account is
+  // emptied: see the run "one phone".) The question says so (review findings S3, sync#1), and the next step does
+  // what it advises.
+  await step('Reset on one phone while another is signed in: the other follows, except the entry it logged without signal, which comes back; the question says so', async () => {
+    const d = D.fuel, mark = cloud.mark();
+    await D.device.setOffline(true);
+    await addEntry(d, TODAY, 'fueltestkeep1', 'Logged on the other phone', 123);
+    await rest(world);
     await lib.openTab(c, 'settings');
     const asked = c.dialogs.length;
     await c.click('[data-action="reset"]');
     await F.toast(c, /Reset/);
     const q = c.dialogs.slice(asked).join(' / ');
-    need(/the food log in your account \(owner@example\.com\) is erased too\. Another phone signed in to this account keeps its own copy and sends it back\. Sign out on that phone first, and reset it before you sign in there again\./.test(q), 'the question reads: ' + q.replace(/\n+/g, ' | '));
+    need(/the food log in your account \(owner@example\.com\) is erased too\. Another phone signed in to this account does the same, except for what was logged or changed on it since it last synced: that comes back\. To be sure nothing comes back, sign out on that phone first, and reset it before you sign in there again\./.test(q), 'the question reads: ' + q.replace(/\n+/g, ' | '));
     await rest(world);
     const ws = cloud.writes({ from: mark });
     need(ws.filter((w) => w.who === 'C' && w.type === 'delete').length === COUNTS.foodDays, 'the reset did not delete the days in the account: ' + brief(ws));
+    await D.device.setOffline(false);
+    await rest(world);
     onlyFuelPaths(cloud, mark);
-    const now = await F.live(d);
-    same(now.diary, had.diary, 'the other phone\'s diary');
-    same(now.food.foods, had.food.foods, 'the other phone\'s saved foods');
-    same(now.food.meals, had.food.meals, 'the other phone\'s saved meals');
-    need(cloud.paths(FUEL_DAYS).length === COUNTS.foodDays, cloud.paths(FUEL_DAYS).length + ' days in the account');
-    same((await F.live(c)).diary, had.diary, 'the diary on the phone that was reset, once the other had answered');
-    same(travels(await F.live(c)), travels(now), 'the two phones');
+    const sc = await F.live(c), sd = await F.live(d);
+    for (const [name, st] of [['the account', coreAndDays(cloud)], ['C', sc], ['D', sd]]) {
+      same(Object.keys(st.diary), [TODAY], name + '\'s days');
+      same(ids(st.diary[TODAY]), ['fueltestkeep1'], name + '\'s entries');
+      need(!Object.keys(st.food.foods).length && !Object.keys(st.food.meals).length && st.food.targets.kcal == null, name + ' holds ' + Object.keys(st.food.foods).length + ' saved foods, ' + Object.keys(st.food.meals).length + ' saved meals, target ' + st.food.targets.kcal);
+    }
+    same(travels(sc), travels(sd), 'the two phones');
     need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
-    const t = now.food.targets;
-    return 'the log is back on both and in the account; targets on both are now ' + JSON.stringify(t) + ', units ' + now.settings.units + ', theme ' + now.settings.theme;
+    return 'the account and both phones hold the one entry logged on D; writes after D came back: ' + brief(cloud.writes({ from: mark }).filter((w) => w.who === 'D'));
   });
 
-  // Signing the other phone out alone is not enough: at its next sign-in it sends its copy back (its note is kept
-  // on sign-out). Reset there while signed out forgets the note, and its next sign-in takes the account's copy.
-  await step('as the question advises: sign out on the other phone and reset it, then Reset here; the log does not come back, also not when it signs in again', async () => {
+  // Signing the other phone out alone is not enough: at its next sign-in it sends what changed on it back (its
+  // note is kept on sign-out). Reset there while signed out forgets the note, and its next sign-in takes the
+  // account's copy.
+  await step('as the question advises: sign out on the other phone and reset it, then Reset here; nothing comes back, also not when it signs in again', async () => {
     const d = D.fuel, mark = cloud.mark();
     await F.closeSheet(d);   // the import sheet of the paste above
     await signOutInSettings(d);
@@ -1120,8 +1217,207 @@ async function noDaysRun(browser, docs) {
   for (const p of world.phones) await p.close();
 }
 
+// The account as v2.8 left it (its documents, text for text), for a run of its own.
+function v28Account(docs) {
+  const world = { browser: null, cloud: createCloud(), phones: [] };
+  world.cloud.addAccount(EMAIL, PASSWORD);
+  Object.keys(docs).forEach((p) => world.cloud.docs.set(p, docs[p]));
+  return world;
+}
+
 // ---------------------------------------------------------------------------
-// 4. One phone and a new account: Create account, Reset, Restore
+// 4. A phone put away for a month comes back without signal and logs a saved food (review finding sync#1, the
+//    reviewer's t6). Meanwhile the daily phone changed the targets and the theme, corrected a saved food and
+//    edited an entry of an older day. Nothing of that may be undone, on either phone or in the account.
+// ---------------------------------------------------------------------------
+async function returningRun(browser, docs) {
+  const world = v28Account(docs), { cloud } = world;
+  world.browser = browser;
+  const step = (title, fn) => run.step('returning phone', title, fn);
+  const A = await makePhone(world, 'A', TREE), B = await makePhone(world, 'B', TREE);
+  const OLD = '2026-11-19', M = fx.state.diary[OLD][2];
+  const foods = Object.keys(fx.state.food.foods).sort(), Z = foods[3], W = foods[5];
+  const later = NOW + 30 * 864e5;
+  let a = null, b = null, today = null;
+  const aStands = (st) => [
+    !(st.food.targets.kcal === 2222 && st.food.targets.protein === 190 && st.food.targets.carbs === 200 && st.food.targets.fat === 70) && 'targets ' + JSON.stringify(st.food.targets),
+    !(st.food.foods[W] && st.food.foods[W].src === 'custom' && st.food.foods[W].n.kcal === 777) && 'the corrected food has ' + (st.food.foods[W] && st.food.foods[W].n.kcal),
+    st.settings.theme !== 'light' && 'theme ' + st.settings.theme,
+    ((st.diary[OLD] || []).find((e) => e.id === M.id) || {}).kcal !== M.kcal + 50 && 'the edited entry has ' + ((st.diary[OLD] || []).find((e) => e.id === M.id) || {}).kcal
+  ].filter(Boolean);
+  const ok = await step('A and B sign in at Welcome; B is put away; 30 days later A changes the targets and the theme, corrects a saved food and edits an entry of ' + OLD, async () => {
+    a = await openFuel(A); await signInAtWelcome(a); await rest(world);
+    b = await openFuel(B); await signInAtWelcome(b); await rest(world);
+    same(travels(await F.live(a)), travels(await F.live(b)), 'A against B');
+    await closeFuel(B);
+    for (const p of [A, B]) await p.context.clock.setSystemTime(new Date(later));
+    await closeFuel(A); a = await openFuel(A); await rest(world);
+    await a.evaluate(([w, d, m]) => {
+      const O = window.__overload, s = O.state;
+      s.food.targets = { kcal: 2222, protein: 190, carbs: 200, fat: 70 };
+      s.food.foods[w] = Object.assign({}, s.food.foods[w], { src: 'custom', n: Object.assign({}, s.food.foods[w].n, { kcal: 777 }) });
+      s.settings.theme = 'light';
+      s.diary[d] = s.diary[d].map((e) => (e.id === m ? Object.assign({}, e, { kcal: e.kcal + 50 }) : e));
+      O.save(); O.render();
+    }, [W, OLD, M.id]);
+    await rest(world);
+    const bad = aStands(coreAndDays(cloud));
+    need(!bad.length, 'the account: ' + bad.join(', '));
+    return 'the account holds A\'s four changes';
+  });
+  if (ok) {
+    await step('B is opened without signal and logs a saved food today: nothing is sent or queued', async () => {
+      await B.device.setOffline(true);
+      const mark = cloud.mark();
+      b = await openFuel(B);
+      await rest(world);
+      today = await b.evaluate(() => window.__overload.lib.todayKey());
+      await addEntry(b, today, 'fuelreturn01', 'Logged on the way back', 150, Z);
+      await rest(world);
+      need(cloud.writes({ who: 'B', from: mark }).length === 0 && B.device.queued('fuel').length === 0, 'B issued writes: ' + brief(cloud.writes({ who: 'B', from: mark })));
+      need(aStands(await F.live(b)).length === 4, 'B knows already: this check needs it not to');
+      return 'B holds its entry of ' + today + ', on its copy from a month ago';
+    });
+    await step('B gets signal: A\'s changes stand on both phones and in the account; B\'s entry and the food\'s new "used" time reach A', async () => {
+      const mark = cloud.mark();
+      await B.device.setOffline(false);
+      await rest(world);
+      onlyFuelPaths(cloud, mark);
+      for (const [name, st] of [['the account', coreAndDays(cloud)], ['A', await F.live(a)], ['B', await F.live(b)]]) {
+        const bad = aStands(st);
+        need(!bad.length, name + ': ' + bad.join(', '));
+        need((st.diary[today] || []).some((e) => e.id === 'fuelreturn01') && st.food.foods[Z].used >= later, name + ' lacks B\'s entry or the food\'s "used" time');
+      }
+      same(travels(await F.live(a)), travels(await F.live(b)), 'A against B');
+      for (const p of [A, B]) F.assertClean(p, 'phone ' + p.name);
+      return 'writes: ' + brief(cloud.writes({ from: mark }));
+    });
+  }
+  for (const p of world.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
+// 5. Two phones make the first sign-in to an account Fuel never wrote to, at the same moment (review finding
+//    sync#1, the reviewer's t4): both read the account before either upload lands. F1 had pasted the log and
+//    used it (an entry deleted, one edited, one added, a saved food deleted); F2 is new. Both orders of landing.
+// ---------------------------------------------------------------------------
+async function raceRun(browser, docs, order) {
+  const world = v28Account(docs), { cloud } = world;
+  world.browser = browser;
+  const step = (title, fn) => run.step('race (' + order + ' lands last)', title, fn);
+  const text = F.foodText(F.payloadFrom(fx.state, NOW - 60000), true);
+  const E = fx.state.diary[YESTERDAY][0].id, M = fx.state.diary[TODAY][1];
+  const X = Object.keys(fx.state.food.foods).filter((id) => !fx.state.food.foods[id].fav).sort()[0];
+  const F1 = await makePhone(world, 'F1', TREE, { clipboard: true }), F2 = await makePhone(world, 'F2', TREE);
+  let f1 = null, f2 = null;
+  const ok = await step('F1 pastes the log and uses it; then F1 and F2 sign in at once, and both read the account before either upload lands', async () => {
+    f1 = await openFuel(F1);
+    await f1.evaluate((t) => navigator.clipboard.writeText(t), text);
+    await f1.click('[data-action="fuel-paste"]');
+    await F.toast(f1, /Brought in/);
+    await deleteEntry(f1, YESTERDAY, E);
+    await editEntry(f1, TODAY, M.id, M.kcal + 100);
+    await addEntry(f1, TODAY, 'fuelrace0001', 'Own on F1', 210);
+    await deleteThing(f1, 'foods', X);
+    f2 = await openFuel(F2);
+    const h1 = await holdCommits(f1), h2 = await holdCommits(f2);
+    await Promise.all([signInInSettings(f1), signInAtWelcome(f2)]);
+    for (let i = 0; i < 200; i++) {
+      if ((await f1.evaluate(() => window.__held)) > 0 && (await f2.evaluate(() => window.__held)) > 0) break;
+      await f1.clock.runFor(100); await f2.clock.runFor(100); await cloud.idle();
+    }
+    need((await f1.evaluate(() => window.__held)) > 0 && (await f2.evaluate(() => window.__held)) > 0 && cloud.writes().length === 0, 'the two uploads are not both waiting');
+    for (const h of order === 'F2' ? [h1, h2] : [h2, h1]) { await h.release(); await cloud.idle(); }
+    await rest(world);
+    return 'writes: ' + brief(cloud.writes());
+  });
+  if (ok) {
+    await step('both phones and the account: F1\'s edit, its own entry and its deletions stand; 1,576 entries, each once; the same diary on both', async () => {
+      for (const [name, st] of [['the account', coreAndDays(cloud)], ['F1', await F.live(f1)], ['F2', await F.live(f2)]]) {
+        const all = allIds(st.diary);
+        need(all.length === COUNTS.foodEntries && new Set(all).size === all.length, name + ': ' + all.length + ' entries, ' + new Set(all).size + ' ids');
+        need(!all.includes(E) && all.includes('fuelrace0001') && !st.food.foods[X], name + ': the deleted entry ' + (all.includes(E) ? 'is back' : 'stays gone') + ', the own entry ' + (all.includes('fuelrace0001') ? 'is there' : 'is missing') + ', the deleted food ' + (st.food.foods[X] ? 'is back' : 'stays gone'));
+        need(st.diary[TODAY].find((e) => e.id === M.id).kcal === M.kcal + 100, name + ': the entry edited on F1 has ' + st.diary[TODAY].find((e) => e.id === M.id).kcal + ' (F1 set ' + (M.kcal + 100) + ')');
+      }
+      same(travels(await F.live(f1)), travels(await F.live(f2)), 'F1 against F2');
+      onlyFuelPaths(cloud);
+      need(cloud.paths(OLD_DAYS).length === COUNTS.foodDays, 'Overload\'s food days changed');
+      for (const p of [F1, F2]) F.assertClean(p, 'phone ' + p.name);
+      return 'F1 wrote ' + cloud.writes({ who: 'F1' }).length + ', F2 ' + cloud.writes({ who: 'F2' }).length;
+    });
+  }
+  for (const p of world.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
+// 6. Reset and Restore while signed in, on a start where the sync module has not loaded yet (review finding
+//    sync#2, the reviewer's t8): the questions say the account changes too, the note stays, and the account
+//    follows once the module runs.
+// ---------------------------------------------------------------------------
+async function earlyRun(browser, docs) {
+  const world = v28Account(docs), { cloud } = world;
+  world.browser = browser;
+  const step = (title, fn) => run.step('before the module', title, fn);
+  const A = await makePhone(world, 'A', TREE);
+  let a = await openFuel(A);
+  await signInAtWelcome(a);
+  await rest(world);
+  const overload0 = overloadDocs(cloud);
+  await closeFuel(A);
+  // Settings > Reset or a Restore, before the module has run; then the module arrives.
+  const early = async (doIt) => {
+    const sdk = await holdSdk(A);
+    let said = null, kept = false;
+    try {
+      a = await openFuelEarly(A);
+      need(!(await a.evaluate(() => !!window.__overloadSync)), 'this check needs the page to run before its sync module');
+      const asked = a.dialogs.length;
+      await lib.openTab(a, 'settings');
+      await doIt(a);
+      said = a.dialogs.slice(asked).join(' / ');
+      kept = !!(await noteOf(a));
+    } finally { sdk.release(); }
+    await a.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+    await rest(world);
+    return { said, kept };
+  };
+  const ok = await step('Reset: the question says the account is erased too, the note stays, and once the module runs the account is empty and stays so', async () => {
+    const mark = cloud.mark();
+    const r = await early(async (pg) => { await pg.click('[data-action="reset"]'); await F.toast(pg, /Reset/); });
+    need(/is erased too\. Another phone signed in to this account does the same/.test(r.said) && r.said.includes('(' + EMAIL + ')'), 'the question reads: ' + r.said.replace(/\n+/g, ' | '));
+    need(r.kept, 'the note was removed');
+    const st = await F.live(a), core = coreOfCloud(cloud);
+    need(!Object.keys(st.diary).length && !Object.keys(st.food.foods).length, 'A holds ' + Object.keys(st.diary).length + ' days and ' + Object.keys(st.food.foods).length + ' saved foods again');
+    need(cloud.paths(FUEL_DAYS).length === 0 && !Object.keys(core.food.foods).length && !Object.keys(core.food.meals).length, 'the account holds ' + cloud.paths(FUEL_DAYS).length + ' days, ' + Object.keys(core.food.foods).length + ' saved foods');
+    onlyFuelPaths(cloud, mark);
+    need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
+    return 'writes once the module ran: ' + brief(cloud.writes({ from: mark }));
+  });
+  if (ok) {
+    await step('Restore "Before reset": the question says the account is replaced too, and once the module runs the account holds the log again', async () => {
+      await closeFuel(A);
+      const mark = cloud.mark();
+      const r = await early(async (pg) => {
+        await pg.click('#safety-copies [data-action="restore-copy"][data-id="before-reset"]', { timeout: 8000 });
+        await F.toast(pg, /Copy restored/);
+      });
+      need(/is replaced too\. Another phone signed in to this account does the same/.test(r.said), 'the question reads: ' + r.said.replace(/\n+/g, ' | '));
+      need(r.kept, 'the note was removed');
+      const st = await F.live(a);
+      need(Object.keys(st.diary).length === COUNTS.foodDays && cloud.paths(FUEL_DAYS).length === COUNTS.foodDays, 'A holds ' + Object.keys(st.diary).length + ' days, the account ' + cloud.paths(FUEL_DAYS).length);
+      same(coreAndDays(cloud).diary, st.diary, 'the account\'s diary against A\'s');
+      same(coreOfCloud(cloud).food, JSON.parse(JSON.stringify(st.food)), 'the account\'s saved foods, meals and targets against A\'s');
+      onlyFuelPaths(cloud, mark);
+      need(overloadDocs(cloud) === overload0, 'meta/state, workouts or foodDays changed');
+      F.assertClean(A, 'phone A');
+      return 'writes once the module ran: ' + brief(cloud.writes({ from: mark }));
+    });
+  }
+  for (const p of world.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
+// 7. One phone and a new account: Create account, Reset, Restore
 // ---------------------------------------------------------------------------
 async function soloRun(browser) {
   const world = { browser, cloud: createCloud(), phones: [] };
@@ -1361,7 +1657,51 @@ async function sameRulesRun(browser, v28) {
     for (const p of [P, Q, R]) F.assertClean(p, 'phone ' + p.name);
     return JSON.stringify(a.diary).length.toLocaleString() + ' characters of diary, ' + JSON.stringify(a.food).length.toLocaleString() + ' of food, on both';
   });
-  for (const p of world.phones.concat(world2.phones)) await p.close();
+
+  // ---- the same on an account that holds Overload's core but no food days (cloud sync was turned on in Overload
+  // after 2.8, which uploads no food days; the reviewer's t3). Overload's deletion records hold Y's, the copy v2.8
+  // removed from one of its two days: they protect nothing there, and sign-in takes none of them, so the paste
+  // that comes after brings Y on the day v2.8 still shows it, as Paste alone does (review finding sync#5) ----
+  const noDays = {};
+  Object.keys(docs).filter((p) => !p.startsWith(OLD_DAYS + '/')).forEach((p) => { noDays[p] = docs[p]; });
+  const worlds = [0, 1].map(() => { const w = { browser, cloud: createCloud(), phones: [] }; w.cloud.addAccount(EMAIL, PASSWORD); Object.keys(noDays).forEach((p) => w.cloud.docs.set(p, noDays[p])); return w; });
+  const ends = [];
+  await step('an account without food days: sign in, then paste, gives exactly what Paste alone gives, with ' + Y + ' on ' + DAY_C, async () => {
+    const w = worlds[0], S = await makePhone(w, 'S', TREE, { seed }), s = await openFuel(S);
+    need(JSON.parse(w.cloud.get(OLD_META).core).deleted.food[Y] > 0 && !w.cloud.paths(OLD_DAYS).length, 'this check needs Y\'s record in meta/state and no food days');
+    await signInInSettings(s);
+    await rest(w);
+    need(!(await F.stored(s)).deleted.food[Y], 'the sign-in took Overload\'s record of ' + Y);
+    await pasteInSettings(s, text);
+    await rest(w);
+    const st = await F.stored(s); ends.push(st);
+    need(travelsOf(st).diary === travelsOf(ref).diary, 'the diary differs from Paste alone at ' + (F.diff(st.diary, ref.diary) || 'the order of keys'));
+    need(travelsOf(st).food === travelsOf(ref).food, 'the saved foods, meals or targets differ from Paste alone at ' + (F.diff(st.food, ref.food) || 'the order of keys'));
+    same(st.deleted, ref.deleted, 'the deletion records');
+    once(st);
+    for (const date of Object.keys(st.diary)) need(w.cloud.get(FUEL_DAYS + '/' + date) && w.cloud.get(FUEL_DAYS + '/' + date).data === JSON.stringify(st.diary[date]), 'fuelDays/' + date + ' is not the phone\'s day');
+    onlyFuelPaths(w.cloud);
+    F.assertClean(S, 'phone S');
+    return Object.keys(st.diary).length + ' days, ' + allIds(st.diary).length.toLocaleString() + ' entries';
+  });
+  await step('an account without food days: paste, then sign in, ends byte for byte the same as sign in, then paste', async () => {
+    const w = worlds[1], T = await makePhone(w, 'T', TREE, { seed }), t = await openFuel(T);
+    await pasteInSettings(t, text);
+    const pasted = await F.storedText(t);
+    await signInInSettings(t);
+    await rest(w);
+    const st = await F.stored(t);
+    const p0 = JSON.parse(pasted);
+    need(travelsOf(st).diary === travelsOf(p0).diary && travelsOf(st).food === travelsOf(p0).food, 'the sign-in changed the diary or the saved foods at ' + (F.diff(st.diary, p0.diary) || F.diff(st.food, p0.food) || 'the order of keys'));
+    need(ends.length === 1, 'this check needs the other order\'s result');
+    need(travelsOf(st).diary === travelsOf(ends[0]).diary && travelsOf(st).food === travelsOf(ends[0]).food, 'the two orders differ at ' + (F.diff(st.diary, ends[0].diary) || F.diff(st.food, ends[0].food) || 'the order of keys'));
+    same(st.deleted, ends[0].deleted, 'the deletion records');
+    once(st);
+    onlyFuelPaths(w.cloud);
+    F.assertClean(T, 'phone T');
+    return 'the same ' + JSON.stringify(st.diary).length.toLocaleString() + ' characters of diary';
+  });
+  for (const p of world.phones.concat(world2.phones, worlds[0].phones, worlds[1].phones)) await p.close();
 }
 
 // ---------------------------------------------------------------------------
@@ -1371,14 +1711,18 @@ async function sameRulesRun(browser, v28) {
   const browser = await lib.launch();
   let docs = null;
   try {
-    // The second run starts from the documents v2.8 uploaded in the first.
-    const made = args.only === 'solo' || args.only === 'rules' ? null : await accountRun(browser, v28, args.only === 'clipboard').catch((e) => { run.say(false, 'account', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); return null; });
+    // The later runs start from the documents v2.8 uploaded in the first.
+    const stopped = (label) => (e) => run.say(false, label, 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | '));
+    const later = ['clipboard', 'returning', 'race', 'early'];
+    const made = args.only === 'solo' || args.only === 'rules' ? null : await accountRun(browser, v28, later.includes(args.only)).catch((e) => { stopped('account')(e); return null; });
     docs = made && made.docs;
-    if (args.only !== 'account' && args.only !== 'solo' && args.only !== 'rules') {
-      if (!docs) run.say(false, 'clipboard first', 'needs the account v2.8 fills in the first run', 'not run');
-      else await clipboardRun(browser, docs).catch((e) => run.say(false, 'clipboard first', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
-    }
-    if (docs && (!args.only || args.only === 'clipboard')) await noDaysRun(browser, docs).catch((e) => run.say(false, 'account without food days', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
+    const want = (k) => !args.only || args.only === k;
+    if (later.some(want) && !docs) run.say(false, 'clipboard first', 'needs the account v2.8 fills in the first run', 'not run');
+    if (docs && want('clipboard')) await clipboardRun(browser, docs).catch(stopped('clipboard first'));
+    if (docs && want('clipboard')) await noDaysRun(browser, docs).catch(stopped('account without food days'));
+    if (docs && want('returning')) await returningRun(browser, docs).catch(stopped('returning phone'));
+    if (docs && want('race')) for (const last of ['F2', 'F1']) await raceRun(browser, docs, last).catch(stopped('race (' + last + ' lands last)'));
+    if (docs && want('early')) await earlyRun(browser, docs).catch(stopped('before the module'));
     if (!args.only || args.only === 'solo') await soloRun(browser).catch((e) => run.say(false, 'one phone', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));
     // Sign-in and Paste from Overload, in both orders: an account of its own, which v2.8 fills.
     if (!args.only || args.only === 'rules') await sameRulesRun(browser, v28).catch((e) => run.say(false, 'sign-in and paste', 'the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')));

@@ -15,11 +15,18 @@
 #   - the ?v= on every file address in index.html, sw.js, fuel/index.html and fuel/sw.js;
 #   - VERSION in overload.js and in fuel/fuel.js (a line  const VERSION = '3.0';  in each), and the release
 #     in sync.js (a line  release: '3.0',  in window.__overloadSync);
+#   - the first line  /* release 3.0 ... */  of every other file with ?v= in a worker's install list (scripts
+#     and stylesheets of both apps and shared/): the workers store and run such a file only when it names the
+#     release of its address;
 #   - both offline cache names by one step: overload-vN in sw.js and fuel-vN in fuel/sw.js. Both, also when
 #     only one app changed: a worker file that did not change is never installed again, and a page with a
 #     new ?v= cannot be stored by a worker that still expects the old one.
 # Then it checks, and fails loudly (exit code 1) when:
-#   - a ?v= with another number is left in those four files, or a VERSION or the release in sync.js differs;
+#   - a ?v= with another number is left in those four files, or a VERSION, the release in sync.js or the
+#     first line of another versioned file differs, or one of these marks is not there exactly once;
+#   - sw.js or fuel/sw.js differs from the published one (origin/main: GitHub Pages serves main) while its
+#     cache name is the same: phones would install the changed worker into the cache the running one serves
+#     from. Skipped where git or origin/main is not there, and for a worker that is new since then;
 #   - app.js, styles.css or food.js is at the root: v2.8's page asks the server for these names, and its
 #     worker would run (and store) whatever answers there in the v2.8 page;
 #   - a file in a worker's install list (ASSETS in sw.js and fuel/sw.js, one address per line) is not on
@@ -27,7 +34,8 @@
 #   - a page loads a versioned file that its worker's install list does not name: the file would be missing
 #     when the app starts with no signal;
 #   - the food list's ?db= differs between fuel/food.js and fuel/sw.js: food search would stop working
-#     offline. (This script never changes ?db=; that number moves by hand when the food list is rebuilt.)
+#     offline. (This script never changes ?db=; that number moves by hand when the food list is rebuilt, and
+#     then the release moves on too: sh bump.sh <next release>.)
 # A file of the diet app that does not exist is skipped and named, so the script also works on a tree where
 # fuel/ is not complete. Commit the result.
 #
@@ -61,6 +69,23 @@ edit() { sed "$2" "$1" > "$1.bump.tmp" && cat "$1.bump.tmp" > "$1" && rm -f "$1.
 stamps() { grep -o "?$2=[0-9A-Za-z._-][0-9A-Za-z._-]*" "$1" | sed 's/\.$//' | sort -u; }
 # The addresses of a worker's install list: the lines of  const ASSETS = [ ... ];  that start with a quote.
 assets_of() { sed -n "/const ASSETS = \[/,/^\];/p" "$1" | sed -n "s/^[[:space:]]*'\([^']*\)'.*/\1/p"; }
+# The path from the repo root of an address in the install list of the worker in folder $1 (. or fuel).
+in_tree() {
+  p=${2%%\?*}; p=${p#./}
+  case "$1" in
+    .) printf '%s\n' "$p" ;;
+    *) case "$p" in ../*) printf '%s\n' "${p#../}" ;; *) printf '%s\n' "$1/$p" ;; esac ;;
+  esac
+}
+# Every file with ?v= in the workers' install lists, each once. The main scripts and sync.js carry their own
+# marks (VERSION, release); every other one carries the first line  /* release <number> ... */.
+versioned() {
+  for a in $(assets_of sw.js); do case "$a" in *'?v='*) in_tree . "$a" ;; esac; done
+  if [ -f fuel/sw.js ]; then for a in $(assets_of fuel/sw.js); do case "$a" in *'?v='*) in_tree fuel "$a" ;; esac; done; fi
+}
+first_line_marked() { versioned | sort -u | grep -v -x -F -e overload.js -e sync.js -e fuel/fuel.js; }
+mark_count() { grep -o '/\* release ' "$1" | grep -c .; }
+mark_of() { sed -n 's|^/\* release \([^ ]*\) .*|\1|p' "$1"; }
 # A name v2.8's page asks for that is on disk, if any.
 v28_name() { for f in app.js styles.css food.js; do [ -e "$f" ] && { printf '%s' "$f"; return 0; }; done; return 1; }
 V28_WHY="v2.8's page asks for it, and its worker would run this file in the v2.8 page and keep it there. Leave the name unused"
@@ -113,6 +138,11 @@ if [ "$MODE" = bump ]; then
     M=$(cache_of fuel/sw.js fuel)
     [ "$(lines "$M")" = 1 ] || die "fuel/sw.js must have exactly one line  const CACHE = 'fuel-v<number>'"
   fi
+  MARKED=$(first_line_marked)
+  for f in $MARKED; do
+    if [ ! -f "$f" ]; then case "$f" in fuel/*) have "$f"; continue ;; esac; die "$f is in sw.js's install list but not on disk"; fi
+    [ "$(mark_count "$f")" = 1 ] && [ -n "$(mark_of "$f")" ] || die "$f must have exactly one first line  /* release <number> ... */  (the workers refuse the file otherwise)"
+  done
 
   # Higher than the current release, number by number; a new first number only with --major.
   OMAJ=${OLD%%.*} OMIN=${OLD#*.} NMAJ=${NEW%%.*} NMIN=${NEW#*.}
@@ -133,6 +163,9 @@ if [ "$MODE" = bump ]; then
   edit overload.js "s/const VERSION = '[^']*'/const VERSION = '$NEW'/"
   edit sync.js "s/^\([[:space:]]*release: '\)[^']*'/\1$NEW'/"
   if have fuel/fuel.js; then edit fuel/fuel.js "s/const VERSION = '[^']*'/const VERSION = '$NEW'/"; fi
+  for f in $MARKED; do
+    if [ -f "$f" ]; then edit "$f" "s|^/\* release [^ ]* |/* release $NEW |"; fi
+  done
   edit sw.js "s/const CACHE = 'overload-v$N'/const CACHE = 'overload-v$((N + 1))'/"
   CACHES="overload-v$((N + 1))"
   if have fuel/sw.js; then
@@ -171,6 +204,14 @@ for m in "overload.js:const VERSION = '" "sync.js:release: '" "fuel/fuel.js:cons
   have "$f" || continue
   [ "$(occurs "$f" "$w")" = 1 ] || fail "$f has \"$w\" $(occurs "$f" "$w") times; its worker's install wants it exactly once, or it refuses the file"
 done
+# Every other file with ?v= in an install list says its release in its first line, exactly once.
+for f in $(first_line_marked); do
+  have "$f" || continue
+  n=$(mark_count "$f")
+  if [ "$n" != 1 ]; then fail "$f has \"/* release \" $n times; the workers want it exactly once, in its first line  /* release $WANT ... */, or they refuse the file"; continue; fi
+  r=$(mark_of "$f")
+  [ "$r" = "$WANT" ] || fail "$f says release '$r' in its first line  /* release ... */; the release is $WANT (the workers refuse the file)"
+done
 
 # 2. Names v2.8's page asks for are not answered.
 for f in app.js styles.css food.js; do
@@ -206,6 +247,25 @@ if have fuel/sw.js && [ "$HAVE_FOOD" = 1 ]; then
   if [ "$(lines "$(stamps fuel/food.js db)")" != 1 ]; then fail "fuel/food.js must ask for the food list under exactly one ?db= (found: ${A:-none})"
   elif [ "$A" != "$B" ]; then fail "the food list is ${A}in fuel/food.js but ${B:-not }in fuel/sw.js: food search would not work offline"
   fi
+fi
+
+# 5. A worker that changed since the published release has a new cache name. Otherwise a phone installs the
+# changed worker into the cache the running one serves from, and an install that fails there (one file not
+# arriving on a weak signal) leaves the app with nothing to start from offline. Published = origin/main (GitHub
+# Pages serves main); without git or origin/main this check is skipped, and so is a worker new since then.
+PUBLISHED=origin/main
+if command -v git >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] \
+    && git rev-parse -q --verify "$PUBLISHED^{commit}" >/dev/null 2>&1; then
+  for m in sw.js:overload fuel/sw.js:fuel; do
+    f=${m%%:*} pre=${m#*:}
+    [ -f "$f" ] || continue
+    git cat-file -e "$PUBLISHED:$f" 2>/dev/null || continue
+    if git show "$PUBLISHED:$f" | cmp -s - "$f"; then continue; fi
+    THEN=$(git show "$PUBLISHED:$f" | sed -n "s/.*const CACHE = '$pre-v\([0-9][0-9]*\)'.*/\1/p")
+    [ "$THEN" != "$(cache_of "$f" "$pre")" ] || fail "$f differs from the published one ($PUBLISHED), but its cache is still $pre-v$THEN: phones would install it into the cache the running worker serves from. Run sh bump.sh with the next release"
+  done
+else
+  say "not compared with the published workers (no git repository here, or no $PUBLISHED)"
 fi
 
 # ---------------------------------------------------------------------------

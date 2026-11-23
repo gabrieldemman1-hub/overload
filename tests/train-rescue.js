@@ -65,8 +65,10 @@ async function store(page, base, entries) {
     }
   }, entries);
 }
-// A whole release in a cache: every file of the page under ?v=<v>; `appBody` replaces overload.js.
-const release = (base, cache, v, appBody) => FILES.map((f) => (f === 'overload.js' && appBody != null ? { cache, url: base + '/' + f + '?v=' + v, body: appBody } : { cache, url: base + '/' + f + '?v=' + v, from: base + '/' + f }));
+// A whole release in a cache: every file of the page under ?v=<v>; `appBody` replaces overload.js. And the entry
+// "installed" naming the release, which sw.js writes last when an install finished (the rescue uses no other cache).
+const release = (base, cache, v, appBody) => FILES.map((f) => (f === 'overload.js' && appBody != null ? { cache, url: base + '/' + f + '?v=' + v, body: appBody } : { cache, url: base + '/' + f + '?v=' + v, from: base + '/' + f }))
+  .concat([{ cache, url: base + '/installed', body: v }]);
 const versionShown = async (page) => { await lib.openTab(page, 'settings'); return T.text(page, '#app p.version'); };
 // Waits for the rescue to give up (its last word) and returns what the page says.
 async function gaveUp(page, base) {

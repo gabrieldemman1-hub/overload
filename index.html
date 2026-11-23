@@ -37,20 +37,26 @@
     //
     // Only an older release with the same first number is used (3.0 for a 3.1 page, never 2.8 for a 3.0
     // page): a release with another first number was written for a different page, and running it here
-    // would be worse than the note. And only stored copies of this app's own files count, found by their
-    // whole address: the diet app in fuel/ has its own files and its own offline copy.
+    // would be worse than the note. Only a release whose install finished is used: its offline copy holds the
+    // entry "installed", which sw.js writes last and which names the release, and every file is taken from
+    // that one copy. And only this app's own offline copies count (overload-…): the diet app in fuel/ has its
+    // own files and its own. A module script (sync.js) that did load is not run a second time from the stored
+    // copy: two sync modules would both sync one account.
+    //
+    // If the app started but one of its stylesheets or classic scripts did not arrive (the offline copy refuses a
+    // file that names another release), the app runs without it, and a line at the top says so.
     (function () {
       var failed = [], final = false;
       var sheets = function () { return Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]')); };
+      var logged = function () { try { return !!localStorage.getItem('overload.state.v1'); } catch (e) { return false; } };
       var say = function (still) {
         var app = document.getElementById('app');
         if (window.__overload || !app || (app.textContent.trim() && !document.getElementById('boot-note'))) return;   // the app drew itself
         if (still && final) return;   // the last word was already said: nothing more is coming
         if (!still) final = true;
-        var logged = false; try { logged = !!localStorage.getItem('overload.state.v1'); } catch (e) {}
         app.innerHTML = '<div id="boot-note" class="empty" style="padding:24px 8px;line-height:1.5;font-family:-apple-system,system-ui,sans-serif">'
           + (still ? 'Overload is still starting. The signal is weak, so this can take a while.' : 'Overload did not finish starting.')
-          + (logged ? ' Everything you logged is still on this phone.' : '')
+          + (logged() ? ' Everything you logged is still on this phone.' : '')
           + (still ? '' : '<br><br>Close the app and open it again where there is signal or Wi-Fi.') + '</div>';
         // A stylesheet that is still on its way keeps the browser from drawing anything, this note included.
         // Swap each one for a copy added from here, which does not hold up drawing (it still applies when it arrives).
@@ -59,11 +65,27 @@
           var copy = css.cloneNode(); css.parentNode.insertBefore(copy, css); css.parentNode.removeChild(css);
         });
       };
+      // The app is running without a stylesheet or a script of its page: a line above everything (styled here,
+      // since a stylesheet may be what is missing).
+      var plain = function (looks) {
+        if (document.getElementById('boot-plain') || !document.body) return;
+        var n = document.createElement('div');
+        n.id = 'boot-plain'; n.setAttribute('role', 'status');
+        n.style.cssText = 'position:relative;z-index:1000;padding:12px 16px;padding-top:max(12px, env(safe-area-inset-top));background:Canvas;color:CanvasText;font:15px/1.45 -apple-system,system-ui,sans-serif';
+        n.textContent = 'Part of Overload did not load, so ' + (looks ? 'it looks plain.' : 'some of it may not work.') + (logged() ? ' Everything you logged is still on this phone.' : '')
+          + ' Close the app and open it again where there is signal or Wi-Fi.';
+        document.body.insertBefore(n, document.body.firstChild);
+      };
       setTimeout(function () { say(true); }, 8000);   // the files may still be on their way: the app replaces this when it starts
       window.addEventListener('error', function (e) { var t = e.target; if (t && t !== window && (t.src || t.href)) failed.push(t.src || t.href); }, true);
       window.addEventListener('load', function () {
-        if (window.__overload) return;   // this release started (overload.js sets it)
         var scripts = Array.prototype.slice.call(document.querySelectorAll('script[src]')), css = sheets();
+        if (window.__overload) {   // this release started (overload.js sets it)
+          var lostCss = css.some(function (l) { return failed.indexOf(l.href) >= 0; });
+          var lostJs = scripts.some(function (s) { return s.type !== 'module' && failed.indexOf(s.src) >= 0; });   // sync.js (a module) is optional
+          if (lostCss || lostJs) plain(lostCss);
+          return;
+        }
         var rel = function (url) { var m = /[?&]v=([^&#]+)/.exec(url); return m ? m[1] : ''; };
         var swap = function (url, v) { return url.replace(/([?&]v=)[^&#]*/, '$1' + v); };
         var path = function (url) { try { var u = new URL(url, location.href); return u.origin === location.origin ? u.pathname : ''; } catch (e) { return ''; } };
@@ -73,19 +95,23 @@
         var main = scripts.filter(function (s) { return path(s.src) === mainPath; })[0];
         if (!main || !window.caches || failed.indexOf(main.src) < 0) return say();
         var mine = rel(main.src);
+        var done = new URL('./installed', location.href).href;   // the entry a finished install writes last (sw.js)
         caches.keys().then(function (keys) {
           keys = keys.filter(function (k) { return k.indexOf('overload-') === 0; });   // this app's offline copies (the diet app's are fuel-…)
-          var stored = function (url, type) {   // the stored copy as a local file, or null
-            return Promise.all(keys.map(function (k) { return caches.open(k).then(function (c) { return c.match(url); }); })).then(function (hits) {
-              var hit = hits.filter(Boolean)[0];
-              return hit ? hit.arrayBuffer().then(function (b) { return URL.createObjectURL(new Blob([b], { type: type })); }) : null;   // the bytes, not the stored blob: Chrome crashes running a stored blob as a script
-            });
-          };
-          return Promise.all(keys.map(function (k) { return caches.open(k).then(function (c) { return c.keys(); }); })).then(function (lists) {
-            var old = '';   // the newest stored release that is older than this page's
-            lists.forEach(function (reqs) { reqs.forEach(function (r) { var v = path(r.url) === mainPath ? rel(r.url) : ''; if (v && older(v, mine) && (!old || older(old, v))) old = v; }); });
-            if (!old) return say();
-            return Promise.all(scripts.map(function (s) { return stored(swap(s.src, old), 'text/javascript'); }).concat(css.map(function (l) { return stored(swap(l.href, old), 'text/css'); }))).then(function (have) {
+          return Promise.all(keys.map(function (k) {
+            return caches.open(k).then(function (c) { return c.match(done).then(function (hit) { return hit ? hit.text().then(function (v) { return { copy: c, v: v.trim() }; }) : null; }); });
+          })).then(function (finished) {
+            var best = null;   // the newest release whose install finished and that is older than this page's
+            finished.forEach(function (f) { if (f && older(f.v, mine) && (!best || older(best.v, f.v))) best = f; });
+            if (!best) return say();
+            var stored = function (url, type) {   // the stored copy as a local file, or null
+              return best.copy.match(url).then(function (hit) {
+                return hit ? hit.arrayBuffer().then(function (b) { return URL.createObjectURL(new Blob([b], { type: type })); }) : null;   // the bytes, not the stored blob: Chrome crashes running a stored blob as a script
+              });
+            };
+            var again = function (s) { return s.type !== 'module' || failed.indexOf(s.src) >= 0; };   // a module that loaded keeps running, alone
+            return Promise.all(scripts.map(function (s) { return again(s) ? stored(swap(s.src, best.v), 'text/javascript') : null; }).concat(css.map(function (l) { return stored(swap(l.href, best.v), 'text/css'); }))).then(function (have) {
+              if (!have[scripts.indexOf(main)]) return say();
               have.slice(scripts.length).forEach(function (u) { if (!u) return; var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = u; document.head.appendChild(l); });
               have.slice(0, scripts.length).forEach(function (u, i) { if (!u) return; var n = document.createElement('script'); if (scripts[i].type) n.type = scripts[i].type; n.async = false; n.src = u; document.body.appendChild(n); });
               setTimeout(say, 4000);
@@ -134,12 +160,14 @@
     <button class="tab" data-screen="settings"><span class="tab-icon"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h8.5M17.5 8H20M4 16h2.5M11.5 16H20"/><circle cx="15" cy="8" r="2.5"/><circle cx="9" cy="16" r="2.5"/></svg></span>Settings</button>
   </nav>
 
+  <!-- A sheet is a dialog, named by its title (overload.js gives the title the id sheet-heading). While it is open
+       the page behind is inert, Escape closes it and focus goes back to what opened it (openSheet, closeSheet). -->
   <div id="sheet" class="sheet" hidden>
     <div class="sheet-backdrop" data-action="sheet-close"></div>
-    <div class="sheet-panel" id="sheet-panel"></div>
+    <div class="sheet-panel" id="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheet-heading"></div>
   </div>
 
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
   <!-- The main script is overload.js and the stylesheets are shared/ui.css and train.css: names v2.8 never used.
        v2.8's stored page asks the server for ./app.js, ./styles.css and ./food.js. With nothing there, its worker

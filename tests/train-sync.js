@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Cloud sync of the training app (Overload 3.0) against the fake Firebase in tests/fake-firebase/.
  *
- *   node tests/train-sync.js [--only=small|main] [--base=v28] [--app=<folder>] [--port=8410]
+ *   node tests/train-sync.js [--only=small|main] [--kind=account,flip,return,dates,expired,active] [--base=v28] [--app=<folder>] [--port=8410]
  *
  * What must hold (SPEC section 3 item 9, section 6 and section 8; dev/notes/sync.md section 3 and hazards 1, 2, 15):
  *   - Overload 3.0 writes only users/{uid}/meta/state and users/{uid}/workouts/{id}. It issues no set and no
@@ -20,6 +20,20 @@
  *     made on another phone. A change made without signal still goes up, merged with what the others changed.
  *   - The note keeps every field v2.8 wrote, byte for byte; 3.0 adds `parts`, which v2.8 keeps and 3.0 uses only
  *     for the core it was worked out from.
+ *   - Review round 3 (runs dates, expired, active):
+ *     sync#3: weigh-ins and nights merge date by date against the note. A date corrected on one phone stands when
+ *       the other phone changed that list (a date of its own) while it could not sync, offline or signed out. A
+ *       Reset then brings back from a second phone on 3.0 only what it logged or changed since it last synced; from a
+ *       phone on v2.8, everything (its own merge). v2.8 keeps the note's new part; 3.0 with a note from v2.8 loses
+ *       nothing.
+ *     sync#4: a weigh-in, night and workout deleted on the daily phone stay deleted when a phone is opened more than
+ *       90 days later (their records gone), with or without its offline cache; that phone sends nothing. A workout
+ *       whose queued write was lost with the SDK's offline store stays on its phone and is sent again (the note's
+ *       `unsent`, which v2.8 keeps).
+ *     code#4: a workout in progress on B (two sets ticked) stays in progress there with its sets and exercises when
+ *       A imports, restores or resets (also with B closed and its cache cleared), B sends it again, and B can finish
+ *       it with its sets. Finished or discarded on A, it ends on B. On a phone still on v2.8 a Reset elsewhere still
+ *       erases it (v2.8's merge).
  *
  * How: every phone is a browser context with its own storage. The app's files are answered from a folder on
  * disk by a Playwright route (nothing listens on the port), so one phone can be switched between v2.8 (taken
@@ -748,6 +762,305 @@ async function returnRun(browser, trees, fx) {
 }
 
 // ---------------------------------------------------------------------------
+// Review round 3: weigh-ins and nights merged date by date (sync#3), deletions that outlive their records (sync#4),
+// and a workout in progress on one phone while another resets, imports or restores (code#4)
+// ---------------------------------------------------------------------------
+const DAY_MS = 864e5;
+const bwAt = (s, d) => { const x = (s.bodyweight || []).find((b) => b.date === d); return x ? x.weight : undefined; };
+const nightAt = (s, d) => { const x = (s.sleep || []).find((n) => n.date === d); return x ? x.total : undefined; };
+const signInPhone = (phone) => phone.ev(([e, p]) => window.__overloadSync.signIn(e, p), [EMAIL, PASSWORD]);
+const dayBefore = (date, n) => new Date(Date.parse(date + 'T12:00:00Z') - n * DAY_MS).toISOString().slice(0, 10);
+const listsOf = (s) => JSON.stringify([(s.bodyweight || []).map((b) => b.date + ':' + b.weight), (s.sleep || []).map((n) => n.date + ':' + n.total)]);
+// A (seeded with the fixture) creates the account on v2.8 and goes on to 3.0; each other phone is new, on the
+// version given, and signs in.
+async function sharedAccount(run, fx, others) {
+  const A = await makePhone(run, 'A', fx, 'v28');
+  await A.open();
+  await A.ev(([e, p]) => window.__overloadSync.createAccount(e, p), [EMAIL, PASSWORD]);
+  await settle(run);
+  await A.restart('v30');
+  await settle(run);
+  const out = { A };
+  for (const [name, version] of others) { const p = await makePhone(run, name, null, version); await p.open(); await signInPhone(p); await settle(run); out[name] = p; }
+  return out;
+}
+
+// sync#3: a weigh-in or night corrected on one phone stands, also when the other phone changed that list (logged a
+// date of its own) while it could not sync. What Reset on one phone brings back from a second one after that rule.
+// And the note's new part (a hash of each date) for v2.8, which keeps it, and back on 3.0, which falls back safely.
+async function datesRun(browser, trees, fx) {
+  const T = fx.name + ' dates: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const { A, B } = await sharedAccount(run, fx, [['B', 'v30']]);
+  const bwDates = fx.state.bodyweight.map((b) => b.date).sort(), nights = fx.state.sleep.map((n) => n.date).sort();
+  c(listsOf(cloudCore(run)) === listsOf(await memState(B)) && bwDates.length >= 3 && nights.length >= 2, 'set-up: A (3.0) and B (3.0, a new phone) share the account', bwDates.length + ' weigh-ins, ' + nights.length + ' nights');
+  const note = await noteOf(B);
+  c(!!note.parts && !!note.parts.dates && Object.keys(note.parts.dates.bodyweight).length === bwDates.length && Object.keys(note.parts.dates.sleep).length === nights.length,
+    'B\'s note holds a hash of each weigh-in and night of the core it names', note.parts && note.parts.dates ? Object.keys(note.parts.dates.bodyweight).length + ' and ' + Object.keys(note.parts.dates.sleep).length : 'no dates');
+
+  const variants = ['offline', 'signed out'];
+  for (let i = 0; i < variants.length; i++) {
+    const how = variants[i], d = bwDates[i], n = nights[i], both = bwDates[2];
+    const mineD = dayBefore(bwDates[0], 1 + i), mineN = dayBefore(nights[0], 1 + i);
+    const fixedW = Math.round((bwAt(cloudCore(run), d) - 2.2) * 10) / 10, fixedT = nightAt(cloudCore(run), n) + 37;
+    if (how === 'offline') { await B.page.close(); await B.device.setOffline(true); await B.open(); }
+    else await B.ev(() => window.__overloadSync.signOut());
+    await settle(run);
+    // B logs a weigh-in and a night of dates of their own (both lists change on B); offline it also corrects a date A corrects too.
+    await B.ev(([dw, dn, x]) => {
+      const s = window.__overload.state;
+      s.bodyweight.push({ date: dw, weight: 170.5 }); s.sleep.push({ date: dn, total: 430 });
+      if (x) s.bodyweight.find((b) => b.date === x).weight = 150.1;
+      window.__overload.save();
+    }, [mineD, mineN, how === 'offline' ? both : null]);
+    await settle(run);
+    let mark = cloud.mark();
+    await A.ev(([dw, w, dn, t, x]) => {
+      const s = window.__overload.state;
+      s.bodyweight.find((b) => b.date === dw).weight = w; s.sleep.find((y) => y.date === dn).total = t;
+      if (x) s.bodyweight.find((b) => b.date === x).weight = 160.2;
+      window.__overload.save();
+    }, [d, fixedW, n, fixedT, how === 'offline' ? both : null]);
+    await settle(run);
+    c(bwAt(cloudCore(run), d) === fixedW && nightAt(cloudCore(run), n) === fixedT, how + ': A corrects the weigh-in of ' + d + ' and the night of ' + n + '; the account holds them', 'A\'s writes: ' + brief(cloud.writes({ who: 'A', from: mark })));
+    mark = cloud.mark();
+    if (how === 'offline') await B.device.setOffline(false); else await signInPhone(B);
+    c(await settle(run), how + ': B syncs again; the phones come to rest');
+    const a = await memState(A), b = await memState(B), core = cloudCore(run);
+    const three = (f, date) => [f(core, date), f(a, date), f(b, date)];
+    c(three(bwAt, d).every((x) => x === fixedW) && three(nightAt, n).every((x) => x === fixedT),
+      how + ': A\'s corrections stand in the account, on A and on B (B changed those lists, not those dates)', 'weigh-in ' + three(bwAt, d).join(', ') + ' (A set ' + fixedW + '); night ' + three(nightAt, n).join(', ') + ' (A set ' + fixedT + '); B\'s writes: ' + brief(cloud.writes({ who: 'B', from: mark })));
+    c(three(bwAt, mineD).every((x) => x === 170.5) && three(nightAt, mineN).every((x) => x === 430), how + ': B\'s own weigh-in and night reached the account and A', three(bwAt, mineD).join(', ') + '; ' + three(nightAt, mineN).join(', '));
+    if (how === 'offline') c(three(bwAt, both).every((x) => x === 150.1), how + ': a date both phones corrected: B\'s change, not uploaded yet when A\'s arrived, wins everywhere (as for a setting)', three(bwAt, both).join(', '));
+    c(listsOf(core) === listsOf(a) && listsOf(a) === listsOf(b), how + ': the account and both phones hold the same weigh-ins and nights, each date once');
+  }
+
+  // What Reset on A brings back from B (3.0) under that rule: only what B logged or changed since it last synced.
+  let mark = cloud.mark();
+  await uiReset(A);
+  c(await settle(run), 'Reset on A with B (3.0) signed in; the phones come to rest');
+  let ln = [cloudCore(run), await memState(A), await memState(B)].map((s) => s.bodyweight.length + '/' + s.sleep.length);
+  c(ln.every((x) => x === '0/0'), 'Reset on A: no weigh-in or night comes back from B, which changed none since it last synced (weigh-ins/nights: account, A, B)', ln.join(', ') + '; writes: ' + brief(cloud.writes({ from: mark })));
+  const p1 = bwDates[bwDates.length - 1], p2 = dayBefore(p1, 1), p3 = dayBefore(p1, 2);
+  await A.ev(([x, y]) => { const s = window.__overload.state; s.bodyweight.push({ date: x, weight: 171 }, { date: y, weight: 172 }); window.__overload.save(); }, [p2, p3]);
+  await settle(run);
+  await B.ev(() => window.__overloadSync.signOut()); await settle(run);
+  await B.ev((x) => { const s = window.__overload.state; s.bodyweight.push({ date: x, weight: 173 }); window.__overload.save(); }, p1);
+  await uiReset(A); await settle(run);
+  await signInPhone(B);
+  c(await settle(run), 'A logs two weigh-ins, B (signed out) logs one more, A resets, B signs in again; the phones come to rest');
+  ln = [cloudCore(run), await memState(A), await memState(B)].map((s) => s.bodyweight.map((x) => x.date).join(','));
+  c(ln.every((x) => x === p1), 'only the weigh-in B logged while signed out comes back (account, A, B)', ln.join(' | ') + ' (B logged ' + p1 + ')');
+  // A phone still on 2.8 merges as before: everything it holds comes back.
+  const V = await makePhone(run, 'V', null, 'v28');
+  await V.open(); await signInPhone(V); await settle(run);
+  await A.ev(([x, y]) => { const s = window.__overload.state; s.bodyweight.push({ date: x, weight: 171 }, { date: y, weight: 172 }); window.__overload.save(); }, [p2, p3]);
+  await settle(run);
+  c((await memState(V)).bodyweight.length === 3, 'V (v2.8) signs in and holds the three weigh-ins');
+  await uiReset(A);
+  c(await settle(run), 'Reset on A with V (v2.8) and B (3.0) signed in; the phones come to rest');
+  ln = [cloudCore(run), await memState(A), await memState(B), await memState(V)].map((s) => s.bodyweight.length);
+  c(ln.every((x) => x === 3), 'with a phone still on 2.8 signed in, its weigh-ins come back (account, A, B, V hold 3): the question must still say so for such a phone', ln.join(', '));
+  await V.page.close();
+
+  // The note's parts on v2.8 and back: v2.8 keeps them as they are; 3.0 then merges by v2.8's rule until it has the
+  // noted core again (here the first core it sees is the server's newer one: its offline cache is cleared), and
+  // loses nothing.
+  const before = await noteOf(B);
+  await B.restart('v28'); await settle(run);
+  await changeRest(B, 141); await settle(run);
+  const onV28 = await noteOf(B);
+  c(JSON.stringify(onV28.parts) === JSON.stringify(before.parts) && onV28.parts.core !== onV28.core, 'v2.8 on B keeps the note\'s parts, dates included, byte for byte (now for an older core, so not used)');
+  await B.page.close();
+  const fixD = (await memState(A)).bodyweight[0].date;
+  await A.ev((x) => { const s = window.__overload.state; s.bodyweight.find((b) => b.date === x).weight = 168.8; s.sleep.push({ date: x, total: 401 }); window.__overload.save(); }, fixD);
+  await settle(run);
+  B.device.clearCache();
+  await B.restart('v30');
+  c(await settle(run), 'A corrects a weigh-in and logs a night while B is closed; B opens on 3.0 again with that note, its offline cache cleared; the phones come to rest');
+  const bb = await memState(B), aa = await memState(A), cc = cloudCore(run), back = await noteOf(B);
+  c(bwAt(bb, fixD) === 168.8 && nightAt(bb, fixD) === 401 && listsOf(bb) === listsOf(aa) && listsOf(aa) === listsOf(cc), 'B (3.0, note from v2.8) took A\'s correction and night; the account, A and B hold the same weigh-ins and nights', listsOf(bb) + ' | ' + listsOf(cc));
+  c(!!back.parts && back.parts.core === back.core && !!back.parts.dates, 'B\'s note has parts with dates again, for the core it names');
+  const errors = run.phones.reduce((all, p) => all.concat(p.pageErrors.map((t) => p.name + ': ' + t.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// sync#4: a weigh-in, night and workout deleted on the daily phone do not come back when a phone put away for more
+// than 90 days (its deletion records gone) is opened, with or without its offline cache. And the comparison that
+// takes the workout away on a phone without its cache never takes one whose write from that phone may have been
+// lost with the SDK's offline store: that one is sent again.
+async function expiredRun(browser, trees, fx) {
+  const T = fx.name + ' expired: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const { A, R, Q } = await sharedAccount(run, fx, [['R', 'v30'], ['Q', 'v30']]);
+  await R.page.close(); await Q.page.close();
+  const gone = await A.ev(() => {
+    const s = window.__overload.state, now = Date.now(), b = s.bodyweight[0], n = s.sleep[0], w = s.workouts[0];
+    s.bodyweight = s.bodyweight.filter((x) => x !== b); s.deleted.bw[b.date] = now;
+    s.sleep = s.sleep.filter((x) => x !== n); s.deleted.sleep[n.date] = now;
+    s.workouts = s.workouts.filter((x) => x !== w); s.deleted.workouts[w.id] = now;
+    window.__overload.save();
+    return { bw: b.date, sleep: n.date, workout: w.id };
+  });
+  await settle(run);
+  const later = run.meta.now + 91 * DAY_MS;
+  for (const p of [A, R, Q]) await p.context.clock.setSystemTime(new Date(later));
+  await A.restart();
+  const rest = cloudCore(run).settings.restSec + 15;
+  await changeRest(A, rest);
+  await settle(run);
+  const c0 = cloudCore(run);
+  c(!c0.deleted.bw[gone.bw] && !c0.deleted.sleep[gone.sleep] && !c0.deleted.workouts[gone.workout] && !cloud.get(WORKOUTS + '/' + gone.workout),
+    'A deletes a weigh-in, a night and a workout; 91 days later it changes the rest time, and the account\'s core no longer names the deletions');
+  const has = (s, ids) => ({ bw: s.bodyweight.some((x) => x.date === gone.bw), sleep: s.sleep.some((x) => x.date === gone.sleep), workout: ids ? ids.includes(gone.workout) : s.workouts.some((x) => x.id === gone.workout) });
+  for (const [P, how] of [[R, 'with its offline cache'], [Q, 'with its offline cache cleared']]) {
+    if (P === Q) Q.device.clearCache();
+    const mark = cloud.mark();
+    await P.open();
+    c(await settle(run), P.name + ' (' + how + ') opens 91 days later, online, nothing touched; the phones come to rest');
+    const p = await memState(P), a = await memState(A), ids = cloud.paths(WORKOUTS).map((x) => x.split('/').pop());
+    const back = [has(cloudCore(run), ids), has(a), has(p)];
+    c(!back.some((x) => x.bw || x.sleep), P.name + ' ' + how + ': the deleted weigh-in and night do not come back (account, A, ' + P.name + ')', JSON.stringify(back));
+    c(!back.some((x) => x.workout), P.name + ' ' + how + ': the deleted workout does not come back (account, A, ' + P.name + ')', JSON.stringify(back));
+    c(cloud.writes({ who: P.name, from: mark }).length === 0 && p.settings.restSec === rest && cloudCore(run).settings.restSec === rest, P.name + ' ' + how + ': it sent nothing, and took A\'s rest time', 'writes: ' + brief(cloud.writes({ who: P.name, from: mark })));
+    c(listsOf(p) === listsOf(a) && p.workouts.length === a.workouts.length, P.name + ' ' + how + ': it holds what A holds');
+  }
+
+  // R logs a workout without signal and is closed; then the SDK's offline store is lost (cache and queued writes).
+  await R.device.setOffline(true);
+  await R.restart(); await settle(run, [R]);
+  await addWorkout(R, 'testworkoutR1'); await settle(run, [R]);
+  c(R.device.queued().some((w) => w.path === WORKOUTS + '/testworkoutR1') && !!((await noteOf(R)).unsent || {}).testworkoutR1, 'R logs a workout without signal: its write is queued, and the note marks it as not confirmed yet (unsent)', JSON.stringify(R.device.queued()));
+  await R.page.close();
+  R.device.loseOfflineStore();
+  await R.device.setOffline(false);
+  let mark = cloud.mark();
+  await R.open();
+  c(await settle(run), 'R\'s offline store is lost while it is closed (the queued write with it); R opens online; the phones come to rest');
+  let r = await memState(R);
+  c(r.workouts.some((w) => w.id === 'testworkoutR1'), 'R still holds the workout (the server lacks it, but its write from R was never confirmed)');
+  c(!!cloud.get(WORKOUTS + '/testworkoutR1') && (await memState(A)).workouts.some((w) => w.id === 'testworkoutR1'), 'R sent it again: the account and A have it', 'R\'s writes: ' + brief(cloud.writes({ who: 'R', from: mark })));
+  c(!(await noteOf(R)).unsent, 'once it was sent, the note lists nothing as unsent');
+
+  // v2.8 keeps the new field as it is; back on 3.0 it clears itself once the server shows the write.
+  await R.device.setOffline(true);
+  await addWorkout(R, 'testworkoutR2'); await settle(run, [R]);
+  const unsent = JSON.stringify((await noteOf(R)).unsent);
+  await R.restart('v28'); await settle(run, [R]);
+  await R.device.setOffline(false);
+  c(await settle(run), 'R logs another workout without signal, opens on v2.8, the signal comes back; the phones come to rest');
+  c(!!cloud.get(WORKOUTS + '/testworkoutR2') && JSON.stringify((await noteOf(R)).unsent) === unsent, 'v2.8 sent the queued workout and kept the note\'s unsent field as it was', unsent);
+  await R.restart('v30'); await settle(run);
+  await addWorkout(A, 'testworkoutA9'); await settle(run);
+  r = await memState(R);
+  c(!(await noteOf(R)).unsent && r.workouts.some((w) => w.id === 'testworkoutA9'), 'back on 3.0, the next snapshot from the server shows R\'s write: the note no longer lists it as unsent');
+  const errors = run.phones.reduce((all, p) => all.concat(p.pageErrors.map((t) => p.name + ': ' + t.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// code#4: a workout in progress on B, two sets ticked, while A resets, imports or restores. It stays on B with its
+// sets and exercises, B sends it again, and B can finish it. Finished or discarded on A, it ends on B too.
+async function activeRun(browser, trees, fx) {
+  const T = fx.name + ' in progress: ';
+  const run = { browser, trees, meta: fx.meta, cloud: createCloud(), phones: [] };
+  const { cloud } = run;
+  const c = (ok, label, detail) => check(ok, T + label, detail);
+  const { A, B } = await sharedAccount(run, fx, [['B', 'v30']]);
+  const fileText = JSON.stringify(fx.state, null, 2);
+  const click = (phone, sel) => phone.page.evaluate((s) => { const el = document.querySelector(s); if (!el) throw new Error('nothing to click: ' + s); el.click(); }, sel);
+  const workoutOn = (phone, id) => phone.ev((wid) => {
+    const s = window.__overload.state, w = s.workouts.find((x) => x.id === wid), lib = new Set(s.exercises.map((e) => e.id));
+    return { active: s.active === wid, activeId: s.active, there: !!w, finished: !!(w && w.finishedAt), ticked: w ? w.entries.reduce((n, e) => n + e.sets.filter((x) => x.done).length, 0) : 0,
+      orphans: w ? w.entries.filter((e) => !lib.has(e.exId) || (e.swappedFrom && !lib.has(e.swappedFrom))).length : -1 };
+  }, id);
+  // Today's workout started on the phone, and two sets ticked (through the workout screen where it lets them be ticked,
+  // else as the app stores a ticked set).
+  async function start(phone) {
+    await lib.openTab(phone.page, 'today');
+    if (await phone.page.$('[data-action="start-workout"]:not([disabled])')) await click(phone, '[data-action="start-workout"]:not([disabled])');
+    else {
+      await phone.ev(() => {
+        const s = window.__overload.state, L = window.__overload.lib, day = s.program.days.find((d) => d.exercises.length);
+        const w = { id: L.uid(), date: L.todayKey(), startedAt: Date.now(), finishedAt: null, dayId: day.id, dayName: day.name, soreness: {},
+          entries: day.exercises.map((exId) => ({ exId, plannedSets: 3, weightAtStart: 100, targetReps: 8, sets: [0, 1, 2].map(() => ({ weight: 100, reps: 0, done: false, rir: null })), pump: null, joint: null, workload: null, done: false, next: null, prevPresc: null, warmups: null, prs: [], swappedFrom: null, soreCut: false })) };
+        s.workouts.push(w); s.active = w.id; window.__overload.save(); window.__overload.render();
+      });
+    }
+    await phone.page.waitForFunction(() => !!window.__overload.state.active, null, { timeout: 5000 });
+    await phone.page.evaluate(() => { for (let k = 0; k < 2; k++) { const b = document.querySelector('[data-action="toggle-set"]:not(.on)'); if (b) b.click(); } });
+    const id = await phone.ev(() => window.__overload.state.active);
+    const n = (await workoutOn(phone, id)).ticked;
+    if (n < 2) {
+      await phone.ev((k) => {
+        const s = window.__overload.state, w = s.workouts.find((x) => x.id === s.active);
+        w.entries.forEach((en) => en.sets.forEach((x) => { if (k > 0 && !x.done) { x.weight = x.weight || 100; x.reps = x.reps || en.targetReps || 8; x.done = true; k--; } }));
+        window.__overload.save(); window.__overload.render();
+      }, 2 - n);
+    }
+    await settle(run);
+    return id;
+  }
+  async function finish(phone) { await lib.openTab(phone.page, 'today'); await click(phone, '[data-action="finish-workout"]'); }
+
+  const rounds = [
+    ['Import of a backup file on A', false, () => uiImport(A, fileText, fx.state.workouts.length)],
+    ['Restore of the copy "Before import" on A', false, async () => { await settings(A); await A.page.click('#safety-copies [data-action="restore-copy"][data-id="before-import"]', { timeout: 8000 }); }],
+    ['Import on A while B is closed, its offline cache cleared', true, () => uiImport(A, fileText, fx.state.workouts.length)],
+    ['Reset on A', false, () => uiReset(A)]
+  ];
+  for (const [name, closed, act] of rounds) {
+    const id = await start(B);
+    const b0 = await workoutOn(B, id);
+    c(b0.ticked === 2 && !!cloud.get(WORKOUTS + '/' + id) && (await workoutOn(A, id)).active, name + ': B starts a workout and ticks two sets; the account and A have it in progress', JSON.stringify(b0));
+    if (closed) { await B.page.close(); B.device.clearCache(); }
+    await act();
+    if (closed) { await settle(run); await B.open(); }
+    c(await settle(run), name + '; the phones come to rest');
+    const b = await workoutOn(B, id), a = await workoutOn(A, id), core = cloudCore(run);
+    c(b.active && b.there && !b.finished && b.ticked === 2, name + ': the workout is still in progress on B, with its two ticked sets', JSON.stringify(b));
+    c(b.orphans === 0, name + ': every exercise it uses is in B\'s library (matched by name where the ids changed)', 'entries without their exercise: ' + b.orphans);
+    c(!!cloud.get(WORKOUTS + '/' + id) && core.active === id, name + ': B sent it again: the account has its document and its core names it in progress', 'core.active ' + core.active);
+    c(a.active && a.there && a.orphans === 0, name + ': it is in progress on A again too', JSON.stringify(a));
+    await finish(B);
+    c(await settle(run), name + ': B finishes the workout; the phones come to rest');
+    const bf = await workoutOn(B, id), af = await workoutOn(A, id), doc = cloud.get(WORKOUTS + '/' + id);
+    c(bf.there && bf.finished && bf.ticked >= 2 && bf.orphans === 0 && !bf.activeId, name + ': it is in B\'s history with its ticked sets, every exercise there', JSON.stringify(bf));
+    c(!!doc && !!JSON.parse(doc.data).finishedAt && af.finished && !af.activeId && !cloudCore(run).active, name + ': the account and A have it finished; nothing is in progress anywhere', JSON.stringify(af));
+  }
+
+  // Finished or discarded on A, it ends on B as well (and nothing goes back and forth).
+  let id = await start(B);
+  await finish(A);
+  c(await settle(run), 'B starts a workout, A finishes it; the phones come to rest (no write loop)');
+  let b = await workoutOn(B, id);
+  c(b.there && b.finished && !b.activeId && !cloudCore(run).active, 'finished on A: finished on B too, and nothing in progress anywhere', JSON.stringify(b));
+  id = await start(B);
+  await lib.openTab(A.page, 'today'); await click(A, '[data-action="discard-workout"]');
+  c(await settle(run), 'B starts a workout, A discards it; the phones come to rest (no write loop)');
+  b = await workoutOn(B, id);
+  c(!b.there && !b.activeId && !cloud.get(WORKOUTS + '/' + id) && !(await workoutOn(A, id)).there, 'discarded on A: gone from B and from the account', JSON.stringify(b));
+
+  // A phone still on 2.8 has v2.8's merge: there the workout in progress is lost (the question must say so).
+  await B.page.close();
+  const V = await makePhone(run, 'V', null, 'v28');
+  await V.open(); await signInPhone(V); await settle(run);
+  id = await start(V);
+  await uiReset(A);
+  c(await settle(run), 'V (v2.8) has a workout in progress, A resets; the phones come to rest');
+  const v = await workoutOn(V, id);
+  c(!v.there && !v.activeId, 'on a phone still on 2.8 the workout in progress is erased by the Reset on A (v2.8\'s merge; the question must say so)', JSON.stringify(v));
+  const errors = run.phones.reduce((all, p) => all.concat(p.pageErrors.map((t) => p.name + ': ' + t.split('\n')[0])), []);
+  c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
+  for (const p of run.phones) await p.close();
+}
+
+// ---------------------------------------------------------------------------
 (async () => {
   const v28 = extractV28();
   const from = args.app ? path.resolve(String(args.app)) : lib.REPO;
@@ -756,10 +1069,13 @@ async function returnRun(browser, trees, fx) {
   const small = lib.loadFixture('v28-state-small'), main = lib.loadFixture('v28-state');
   const browser = await lib.launch();
   const plan = [];
-  if (!args.only || args.only === 'small') plan.push(['account', small, main], ['flip', small], ['return', small]);
-  if (!args.only || args.only === 'main') plan.push(['account', main, small], ['flip', main], ['return', main]);
+  const runs = { account: accountRun, flip: flipRun, return: returnRun, dates: datesRun, expired: expiredRun, active: activeRun };
+  const kinds = args.kind ? String(args.kind).split(',') : Object.keys(runs);
+  if (kinds.some((k) => !runs[k])) throw new Error('--kind= takes ' + Object.keys(runs).join(', '));
+  if (!args.only || args.only === 'small') kinds.forEach((k) => plan.push([k, small, main]));
+  if (!args.only || args.only === 'main') kinds.forEach((k) => plan.push([k, main, small]));
   for (const [kind, fx, other] of plan) {
-    try { if (kind === 'account') await accountRun(browser, trees, fx, other); else if (kind === 'flip') await flipRun(browser, trees, fx); else await returnRun(browser, trees, fx); }
+    try { await runs[kind](browser, trees, fx, other); }
     catch (e) { check(false, fx.name + (kind === 'account' ? '' : ' ' + kind) + ': the run stopped', String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ')); }
   }
   await browser.close();

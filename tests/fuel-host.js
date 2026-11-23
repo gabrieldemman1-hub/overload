@@ -13,7 +13,9 @@
  *   - every save sends overload:save, every closed sheet overload:sheetclose;
  *   - safetyCopy('cloud') keeps "Before cloud sign-in";
  *   - at Welcome: signing in opens the diary, and data arriving from the account ends Welcome by itself;
- *   - leaving the unreadable-data screen asks the module to sync again; Reset says the account is erased too.
+ *   - leaving the unreadable-data screen asks the module to sync again; Reset says the account is erased too;
+ *   - before the module has loaded, a note of cloud sync that names an account counts as signed in: Reset and
+ *     Restore say the account changes too and keep the note (review finding sync#2); one marked signed out does not.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -73,7 +75,7 @@ const marked = (page) => page.evaluate(() => !!document.querySelector('#app').fi
       await lib.openTab(page, 'settings');
       need(await page.evaluate(() => window.__overloadSync === undefined), 'a sync module is in the page: this test needs to put its own stand-in there');
       const t = await F.text(page, '#cloud-card');
-      need(/Cloud sync is loading/.test(t) && (await F.count(page, '#cloud-form')) === 0, 'the card reads ' + t);
+      need(/Cloud sync is not available right now/.test(t) && (await F.count(page, '#cloud-form')) === 0, 'the card reads ' + t);
       need((await F.count(page, '.sync-pill')) === 0, 'a sync pill shows');
       return t.slice(0, 60);
     });
@@ -212,7 +214,7 @@ const marked = (page) => page.evaluate(() => !!document.querySelector('#app').fi
     await w('Sign in to cloud sync opens the form in a sheet; signing in opens the diary', async () => {
       const pg = await F.open(p2, server);
       await pg.click('[data-action="fuel-signin"]');
-      need(/Cloud sync is loading/.test(await F.text(pg, '#sheet-panel')), 'without the module the sheet reads ' + await F.text(pg, '#sheet-panel'));
+      need(/Cloud sync is not available right now/.test(await F.text(pg, '#sheet-panel')), 'without the module the sheet reads ' + await F.text(pg, '#sheet-panel'));
       await standIn(pg);
       await pg.waitForSelector('#sheet #cloud-form');
       need(Object.keys(await lib.readStorage(pg)).length === 0, 'something was stored at Welcome');
@@ -246,6 +248,54 @@ const marked = (page) => page.evaluate(() => !!document.querySelector('#app').fi
       return day.kcalLine;
     });
     await p3.close();
+
+    // ---------------------------------------------------------------- before the module has loaded
+    // Its files can be slow to come, or a start without signal has none: the remembered sign-in is still there, and
+    // the next link sends what the note says changed. sync.js keeps the account's email in the note, and marks the
+    // note when he signs out.
+    const p5 = await newPhone(browser);
+    await run.step('before the module has loaded', 'a note that names an account counts as signed in: Reset and Restore say the account changes too and keep the note; marked signed out, they do not', async () => {
+      const pg = await F.open(p5, server);
+      await pg.click('[data-action="fuel-fresh"]');
+      await pg.waitForSelector('.f-meal');
+      await F.quickAdd(pg, 0, 'Porridge', 300, 10, 50, 6);
+      need(await pg.evaluate(() => window.__overloadSync === undefined), 'a sync module is in the page: this check needs none');
+      const note = { uid: 'u1', email: 'alex@example.com', core: 'h1', days: {} };
+      const setNote = (n) => pg.evaluate((t) => localStorage.setItem('fuel.sync.v1', t), JSON.stringify(n));
+      const quiet = () => pg.evaluate(() => { document.querySelector('#toast').hidden = true; });   // the next toast is the next action's
+      await setNote(note);
+      await lib.openTab(pg, 'settings');
+      let asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      let qs = pg.dialogs.slice(asked);
+      need(qs.length === 2 && /You are signed in to cloud sync, so the food log in your account \(alex@example\.com\) is erased too\. Another phone signed in to this account does the same/.test(qs[0]) && /Export a backup first/.test(qs[1]), 'the questions: ' + qs.join(' / '));
+      need((await lib.readStorageText(pg, 'fuel.sync.v1')) === JSON.stringify(note), 'the note was removed or changed: the next link would take the account\'s copy back');
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('#safety-copies [data-action="restore-copy"][data-id="before-reset"]', { timeout: 8000 });
+      await F.toast(pg, /Copy restored/);
+      qs = pg.dialogs.slice(asked);
+      need(qs.length === 1 && /the food log in your account \(alex@example\.com\) is replaced too\./.test(qs[0]), 'the question: ' + qs.join(' / '));
+      need((await lib.readStorageText(pg, 'fuel.sync.v1')) === JSON.stringify(note), 'the note was removed or changed over a restore');
+      need((await F.stored(pg)).diary[TODAY].length === 1, 'the copy was not restored');
+      // A note without the address (an older one): the question still says so, without it.
+      await setNote({ uid: 'u1', core: 'h1', days: {} });
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      need(/so the food log in your account is erased too\./.test(pg.dialogs[asked]), 'the question: ' + pg.dialogs[asked]);
+      need((await lib.readStorage(pg, 'fuel.sync.v1')) !== null, 'the note was removed');
+      // Signed out: the note says so, and a reset forgets it.
+      await setNote(Object.assign({ signedOut: true }, note));
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      need(!/account/.test(pg.dialogs.slice(asked).join(' / ')), 'signed out, the question still talks about the account');
+      need((await lib.readStorage(pg, 'fuel.sync.v1')) === null, 'signed out, the note was kept over a reset');
+      F.assertClean(p5, 'before the module');
+      return qs[0].split('\n').pop().slice(0, 90) + '…';
+    });
+    await p5.close();
 
     // ---------------------------------------------------------------- unreadable data and cloud sync
     const p4 = await newPhone(browser);

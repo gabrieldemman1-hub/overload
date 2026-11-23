@@ -53,7 +53,7 @@ change of the app's files, like the real thing, and the app's own storage stays 
 | `cloud.idle()` | Resolves when nothing is in flight: every call answered, every page told about every change, no page with anything left to ask. Does not wait for timers inside the app. |
 | `cloud.log` | Everything in order: sign-ins, reads, writes. |
 | `cloud.mark()` | The current position in the log, for `{ from }`. |
-| `cloud.writes(filter)` | Every `set` and `delete` that was **issued**: `{ n, who, app, uid, type, path, json, batch, state, rev, error }`. `state` is `applied`, `queued` (issued offline, not sent yet) or `rejected`. `app` is the Firebase app name (`[DEFAULT]`, `fuel`). `json` is the document's JSON text for a `set`. filter: `{ who, app, from, path: RegExp }`. |
+| `cloud.writes(filter)` | Every `set` and `delete` that was **issued**: `{ n, who, app, uid, type, path, json, batch, state, rev, error }`. `state` is `applied`, `queued` (issued offline, not sent yet), `rejected` or `lost` (queued, then gone with the offline store: `device.loseOfflineStore`). `app` is the Firebase app name (`[DEFAULT]`, `fuel`). `json` is the document's JSON text for a `set`. filter: `{ who, app, from, path: RegExp }`. |
 | `cloud.reads(filter)` | Reads: `get` (one document from the server), `list` (a collection from the server), each with `via: 'get'` (asked once) or `'listen'` (a listener reading); and `listen` (a listener was started on that path). |
 | `cloud.get(path)`, `cloud.text(path)` | A document, parsed, or its JSON text exactly as written. `undefined` when it does not exist. |
 | `cloud.paths(prefix)`, `cloud.snapshot(prefix)` | The document paths below a prefix; `{ path: JSON text }` of them. Compare two snapshots (`JSON.stringify`) to prove that nothing below a path changed, byte for byte. |
@@ -70,6 +70,7 @@ Accounts get the uids `U1`, `U2`, … in the order they are created.
 | `device.blockSdk(flag)` | The three SDK addresses are refused: the app's sync module does not load, as on a start without signal before the SDK was stored. |
 | `device.rejectNext(code, n)` | The next `n` batches from this device are refused with `code` (default `'permission-denied'`, once). |
 | `device.clearCache(app)` | Forget what the SDK had cached on this device (one Firebase app name, or all). |
+| `device.loseOfflineStore(app)` | The SDK's whole offline store is lost (iOS cleared it, or the SDK ran on its memory cache and the app was closed): the cache **and** the writes queued offline are gone. Those writes are never sent; the log shows them with `state: 'lost'`. Close the device's pages first. |
 | `device.user(app)` | Who is signed in for that Firebase app name (default `'[DEFAULT]'`), or `null`. |
 | `device.apps` | The Firebase app names this device has used. |
 | `device.queued(app)` | The writes waiting for the network: `[{ type, path }]`. |

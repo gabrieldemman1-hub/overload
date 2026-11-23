@@ -17,11 +17,15 @@
  *   - when the phone refuses to store (setItem throws) the banner shows, the app keeps running on what is in
  *     memory, Export still works, and the banner goes when saving works again;
  *   - Reset, Restore and an import wait for their automatic copy: when it cannot be stored (IndexedDB does not
- *     answer, or refuses it) nothing is erased, replaced or added, and a sheet says so and offers Export;
+ *     answer, or refuses it) nothing is erased, replaced or added, and a sheet says so and offers Export; a
+ *     transaction that never finishes is given up after 5 s the same way, and Reset and an import work again
+ *     afterwards in the same session (review finding data#2);
  *   - a lost connection to the copies is opened again by the next copy, in the same session;
  *   - the storage meter and Today's warning count a log that cloud sync brought down (setState);
  *   - Export through the share sheet is noted only when the share went through (a double tap, a cancel, a
- *     share the phone refuses).
+ *     share the phone refuses, a share that fails another way: that one offers the download); a sheet that never
+ *     answers blocks a second tap for a minute only (review finding code#1);
+ *   - Reset's question names everything it erases, the body weight, units and theme included (look#5).
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -147,10 +151,13 @@ async function download(page, click) {
       await page.click('[data-action="reset"]');
       await F.toast(page, /Reset/);
       const qs = page.dialogs.slice(asked);
-      need(qs.length === 2 && /Erase the food diary, saved foods, saved meals and targets in Fuel/.test(qs[0]) && /110 food days/.test(qs[0]) && /Really erase everything in Fuel/.test(qs[1]), 'the questions: ' + qs.join(' / '));
+      // It names everything it erases: the body weight, units and theme too (review finding look#5).
+      need(qs.length === 2 && qs[0].startsWith('confirm: Erase the food diary, saved foods, saved meals, targets and settings in Fuel on this phone, body weight, units and theme included?\n\n')
+        && /110 food days/.test(qs[0]) && /Really erase everything in Fuel/.test(qs[1]), 'the questions: ' + qs.join(' / '));
       need(!qs.some((q) => /workout|exercise|program/i.test(q)), 'a question talks about training: ' + qs.join(' / '));
       const st = await F.stored(page);
       need(Object.keys(st.diary).length === 0 && Object.keys(st.food.foods).length === 0 && st.food.targets.kcal === null && st.moved === null, 'the state after Reset: ' + JSON.stringify(st).slice(0, 200));
+      need(before.bodyweight.length === 1 && !st.bodyweight.length && st.settings.units === 'lb' && st.settings.theme === 'system', 'the body weight, units or theme after Reset: ' + JSON.stringify([before.bodyweight, st.bodyweight, st.settings]));
       const c = await F.copy(page, 'before-reset');
       same(JSON.parse(c.text), before, 'the copy "Before reset"');
       return qs[0].split('\n')[0].replace('confirm: ', '');
@@ -250,6 +257,20 @@ async function download(page, click) {
         return t;
       });
       await p.close();
+      // Before the sync module has loaded (here it never does: its files are not reachable), cloud sync's note
+      // decides: one that names an account counts as on, one marked signed out does not.
+      for (const [out, want] of [[false, null], [true, /No backup yet, and cloud sync is off\./]]) {
+        p = await withInfo({ since: now - 20 * DAY }, { 'fuel.sync.v1': JSON.stringify(Object.assign({ uid: 'U1', email: 'owner@example.com', core: null, days: {} }, out ? { signedOut: true } : {})) });
+        await note('no export for two weeks, the sync module not loaded, its note ' + (out ? 'marked signed out: the reminder shows' : 'naming an account: no reminder'), async () => {
+          const pg = await F.open(p, server);
+          await lib.sleep(300);
+          need(await pg.evaluate(() => window.__overloadSync === undefined), 'a sync module is in the page');
+          const t = await notice(pg);
+          need(want ? want.test(t || '') : t === null, 'Today says ' + t);
+          return t || 'no reminder';
+        });
+        await p.close();
+      }
       p = await withInfo({ since: now - 60 * DAY, lastExport: now - 30 * DAY });
       await note('an old export: Today says how old; Export from there ends the reminder', async () => {
         const pg = await F.open(p, server);
@@ -429,6 +450,64 @@ async function download(page, click) {
         return t;
       });
       await q.close();
+
+      // A transaction of the copy store that never finishes (review finding data#2): the open is answered, but the
+      // transaction neither completes nor fails. backup.js gives up after 5 s and lets the connection go: nothing is
+      // erased or added, the sheet says why, and Reset and an import work again in the same session.
+      const r = await phoneWith(browser, HELD_TEXT);
+      await r.context.addInitScript(() => {
+        const real = IDBDatabase.prototype.transaction;
+        window.__txHang = false;
+        IDBDatabase.prototype.transaction = function () {
+          if (!window.__txHang) return real.apply(this, arguments);
+          const req = () => ({}), store = { put: req, get: req, getAll: req, delete: req };
+          return { objectStore: () => store, abort() {} };   // never calls oncomplete, onerror or onabort
+        };
+      });
+      const hang = (on) => pg.evaluate((v) => { window.__txHang = v; }, on);
+      await nocopy('Reset while a transaction of the copy store never finishes: nothing is erased; the sheet says why', async () => {
+        pg = await F.open(r, server);
+        need(await F.copy(pg, 'day-' + TODAY), 'no copy at start');
+        await lib.openTab(pg, 'settings');
+        await hang(true);
+        const asked = pg.dialogs.length, t0 = Date.now();
+        await pg.click('[data-action="reset"]');
+        await pg.waitForSelector('#sheet:not([hidden]) .banner.warn', { timeout: 12000 });
+        const msg = await sheetMsg(), took = (Date.now() - t0) / 1000;
+        need(pg.dialogs.length - asked === 2, 'the questions: ' + pg.dialogs.slice(asked).join(' / '));
+        need(msg === 'The automatic copy could not be stored, so nothing was erased. Export a backup first, then try again.', 'the sheet says: ' + msg);
+        need((await F.storedText(pg)) === HELD_TEXT, 'the stored data changed');
+        await F.closeSheet(pg);
+        return msg + ' (after ' + took.toFixed(1) + ' s)';
+      });
+      await nocopy('once the store answers again, Reset asks again, keeps its copy and erases', async () => {
+        await hang(false);
+        const asked = pg.dialogs.length;
+        await pg.click('[data-action="reset"]');
+        await F.toast(pg, /Reset: the food diary is empty/);
+        need(pg.dialogs.length - asked === 2, 'questions asked: ' + (pg.dialogs.length - asked));
+        const c = await F.copy(pg, 'before-reset');
+        need(c && c.text === HELD_TEXT, 'the copy "Before reset" is ' + (c ? 'not the data that was here' : 'missing'));
+        return 'before-reset holds ' + c.days + ' food days';
+      });
+      await nocopy('an import while a transaction never finishes: nothing is added, the sheet says why; with the store back, the same file comes in', async () => {
+        const file = tmp.file('fuel-backup-held.json', HELD_TEXT);
+        const now = await F.storedText(pg);
+        await hang(true);
+        await F.chooseFile(pg, '.backup-btns [data-action="import"]', file);
+        await pg.waitForSelector('#sheet:not([hidden]) #fuel-import-msg', { timeout: 12000 });
+        const msg = await F.text(pg, '#fuel-import-msg');
+        need(msg === 'The automatic copy could not be stored, so nothing was brought in. Export a backup first, then try again.', 'the sheet says: ' + msg);
+        need((await F.storedText(pg)) === now, 'something was added');
+        await F.closeSheet(pg);
+        await hang(false);
+        await F.chooseFile(pg, '.backup-btns [data-action="import"]', file);
+        const t = await F.toast(pg, /Brought in/);
+        need(Object.keys((await F.stored(pg)).diary).length === COUNTS.foodDays, 'the file did not come in');
+        F.assertClean(r, 'a transaction that never finishes');
+        return msg + ' | then: ' + t;
+      });
+      await r.close();
     }
 
     // ---------------------------------------------------------------- the connection to the copies is lost (U6)
@@ -508,10 +587,13 @@ async function download(page, click) {
       const p = await phoneWith(browser, HELD_TEXT);
       await p.context.addInitScript(() => {
         let open = null;
-        window.__shares = []; window.__refuse = false;
+        window.__shares = []; window.__refuse = false; window.__hang = false; window.__fails = false;
         navigator.canShare = () => true;
         navigator.share = (data) => {
           if (window.__refuse) { window.__shares.push('refused: NotAllowedError'); return Promise.reject(new DOMException('Not allowed', 'NotAllowedError')); }
+          // A sheet that never answers (review finding code#1), and one that fails in a way the standard does not name.
+          if (window.__hang) { window.__shares.push('never answers'); return new Promise(() => {}); }
+          if (window.__fails) { window.__shares.push('failed: TypeError'); return Promise.reject(new TypeError('share failed')); }
           if (open) { window.__shares.push('second: InvalidStateError'); return Promise.reject(new DOMException('An earlier share has not yet completed.', 'InvalidStateError')); }
           window.__shares.push('sheet open: ' + data.files[0].name);
           return new Promise((resolve, reject) => { open = { resolve, reject }; });
@@ -541,6 +623,40 @@ async function download(page, click) {
         await pg.evaluate(() => { window.__refuse = false; });
         need(downloads.length === 0 && (await lastExport()) === null, 'downloads: ' + downloads.length + ', last export: ' + await lastExport());
         return (await pg.evaluate(() => window.__shares)).slice(-1)[0];
+      });
+      // Any other failure of the sheet: the file is offered as a download, but not counted as saved, so the
+      // export reminder stays true (as in Overload).
+      await share('a share that fails another way (TypeError): the download is offered, nothing is noted', async () => {
+        await pg.evaluate(() => { window.__fails = true; });
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(400);
+        await pg.evaluate(() => { window.__fails = false; });
+        need(downloads.length === 1 && /^fuel-backup-\d{4}-\d{2}-\d{2}\.json$/.test(downloads[0]), 'downloads: ' + downloads.join(', '));
+        need((await lastExport()) === null && /No export from this phone yet/.test(await F.text(pg, '#last-export')), 'the export is noted: ' + await F.text(pg, '#last-export'));
+        downloads.length = 0;
+        return (await pg.evaluate(() => window.__shares)).slice(-1)[0] + '; one download, not noted';
+      });
+      // A sheet that never answers: a tap within the minute after it opened does nothing (a second share would be
+      // refused); after that a tap is let through, so Export is not dead for the rest of the session.
+      await share('a share sheet that never answers: a tap within the minute does nothing, ten minutes later Export opens the sheet again', async () => {
+        await pg.evaluate(() => { window.__hang = true; });
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(200);
+        await pg.evaluate(() => { window.__hang = false; });
+        await pg.clock.fastForward(20 * 1000);
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(200);
+        const soon = (await pg.evaluate(() => window.__shares)).slice(-2);
+        need(soon[1] === 'never answers', 'a tap 20 s later reached the share sheet: ' + soon.join(', '));
+        await pg.clock.fastForward(10 * 60 * 1000);
+        await pg.click('.backup-btns [data-action="export"]');
+        await lib.sleep(200);
+        const later = (await pg.evaluate(() => window.__shares)).slice(-1)[0];
+        need(/^sheet open: fuel-backup-/.test(later), 'ten minutes later the tap did not reach the share sheet: ' + (await pg.evaluate(() => window.__shares)).join(', '));
+        need(await pg.evaluate(() => window.__endShare('cancel')), 'no share sheet was open');
+        await lib.sleep(200);
+        need(downloads.length === 0 && (await lastExport()) === null, 'downloads: ' + downloads.length + ', last export: ' + await lastExport());
+        return 'share calls: ' + (await pg.evaluate(() => window.__shares)).slice(-2).join(', ');
       });
       await share('a share that goes through is noted', async () => {
         await pg.click('.backup-btns [data-action="export"]');

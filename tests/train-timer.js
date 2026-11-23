@@ -82,9 +82,21 @@ async function rest(browser, server) {
     await reload(page);
     need(!(await dock(page)).shown, 'a timer with no workout in progress');
   });
+  await step('Reset all data while a rest timer runs: the timer stops and nothing is kept', async () => {
+    await page.evaluate((t) => localStorage.setItem('overload.state.v1', t), fx.text);   // the workout in progress again
+    await reload(page);
+    await page.click(TICK);
+    need((await dock(page)).shown, 'no rest timer');
+    await lib.openTab(page, 'settings');
+    await page.click('[data-action="reset"]');
+    await T.toast(page, /Reset to defaults/);
+    const d = await dock(page);
+    need(!d.shown && d.kept === null, 'after the reset: ' + JSON.stringify(d));
+  });
   const p = phone.problems(); run.say(!p.length, name, 'no page errors, no console errors', p.join(' | ').slice(0, 400));
   await phone.close();
 }
+const c0min = (f) => f.state.workouts.find((w) => w.id === f.state.active).cardio.min;
 
 async function cardioTimer(browser, server) {
   const name = 'cardio timer', step = (title, fn) => run.step(name, title, fn);
@@ -115,6 +127,20 @@ async function cardioTimer(browser, server) {
     need((await cardio(page)).done === true, 'the cardio was not logged at start');
     need(!(await dock(page)).shown, 'a timer is running');
     return (await T.text(page, '#toast'));
+  });
+  // Reset erases the workout the timer runs for: the timer stops with it (review round 3, not-checked list).
+  await step('Reset all data while a cardio timer runs: the timer stops, nothing is kept, and no "Cardio done" follows', async () => {
+    await page.click('[data-action="cardio-undo"]');
+    await page.click('[data-action="cardio-timer"]');
+    need((await dock(page)).shown, 'no cardio timer');
+    await lib.openTab(page, 'settings');
+    await page.click('[data-action="reset"]');
+    await T.toast(page, /Reset to defaults/);
+    const d = await dock(page);
+    need(!d.shown && d.kept === null, 'after the reset: ' + JSON.stringify(d));
+    await page.clock.runFor(c0min(fx) * 60000 + 2000);
+    const t = await T.text(page, '#toast');
+    need(!/Cardio done|Rest over/.test(t), 'the timer went on: ' + t);
   });
   const p = phone.problems(); run.say(!p.length, name, 'no page errors, no console errors', p.join(' | ').slice(0, 400));
   await phone.close();

@@ -86,6 +86,71 @@ async function lostConnection(browser, server) {
   errors(name, p); await p.close();
 }
 
+// Review finding data#2: a transaction that neither completes nor fails (stand-in: its requests never answer) is
+// given up after backup.js's time limit (5 s): take() resolves false, list() and get() reject, and the next call
+// works. So Remove and Reset say so instead of waiting for ever, and work again in the same session.
+const HANG = () => {
+  const real = IDBDatabase.prototype.transaction;
+  IDBDatabase.prototype.transaction = function () {
+    if (!window.__hang) return real.apply(this, arguments);
+    window.__hung = (window.__hung || 0) + 1;
+    const req = () => ({ onsuccess: null, onerror: null, result: undefined });
+    const store = { put: req, get: req, getAll: req, delete: req };
+    return { objectStore: () => store, abort() {}, oncomplete: null, onerror: null, onabort: null };
+  };
+};
+async function hung(browser, server) {
+  const name = 'a copy store that does not answer', step = (title, fn) => run.step(name, title, fn);
+  const { p, page } = await phone(browser, server);
+  await B(page, HANG);
+  const hang = (on) => B(page, (v) => { window.__hang = v; }, on);
+  await step('take() resolves false, list() and get() reject, after the time limit; then each works again', async () => {
+    await hang(true);
+    const pending = page.evaluate(async () => {
+      const B = window.__overloadBackup, settle = (pr) => pr.then((v) => (v && v.length !== undefined ? 'listed' : v), () => 'rejected');
+      return [await B.take('import', '{"v":1,"exercises":[],"workouts":[]}'), await settle(B.list()), await settle(B.get('before-split'))];
+    });
+    for (let i = 0; i < 4; i++) { await lib.sleep(100); await page.clock.runFor(5100); }
+    same(await Promise.race([pending, lib.sleep(10000).then(() => 'no answer after 20 s of the page\'s clock')]), [false, 'rejected', 'rejected'], 'take(), list() and get() with a transaction that never answers');
+    await hang(false);
+    need(await B(page, () => window.__overloadBackup.take('import', '{"v":1,"exercises":[],"workouts":[]}')) === true, 'take() afterwards failed');
+    need(await B(page, () => window.__overloadBackup.get('before-split').then((c) => !!(c && c.text), () => false)), 'get() afterwards failed');
+  });
+  await step('Remove the old food log: says the copies could not be read, removes nothing; then works in the same session', async () => {
+    await lib.openTab(page, 'settings');
+    await page.click('[data-action="handover-copy"]'); await T.toast(page, /Food log copied/);
+    await hang(true);
+    page.dialogs.length = 0;
+    await page.click('[data-action="handover-remove"]');
+    await lib.sleep(100); await page.clock.runFor(5100);
+    const t = await T.toast(page, /removed|could not|changed/);
+    same(t, 'The automatic copies could not be read, so nothing was removed. Try again.', 'the toast');
+    need(!page.dialogs.length && Object.keys(JSON.parse(await lib.readStorageText(page, lib.STATE_KEY)).diary).length > 0, 'a question was asked or the log removed');
+    await hang(false);
+    await B(page, () => { document.querySelector('#toast').hidden = true; });
+    await page.click('[data-action="handover-remove"]');
+    same(await T.toast(page, /removed from|could not|changed/), 'Old food log removed from Overload', 'the second try');
+    return t;
+  });
+  await step('Reset: a sheet says the automatic copy could not be stored, nothing is erased; then Reset works in the same session', async () => {
+    const before = await lib.readStorageText(page, lib.STATE_KEY);
+    await hang(true);
+    page.dialogs.length = 0;
+    await lib.openTab(page, 'settings');
+    await page.click('[data-action="reset"]');
+    await lib.sleep(100); await page.clock.runFor(5100);
+    await page.waitForFunction(() => !document.querySelector('#sheet').hidden, null, { timeout: 8000 });
+    same(await T.text(page, '#sheet .banner'), 'The automatic copy could not be stored, so nothing was erased. Export a backup first, then try again.', 'the sheet');
+    need((await lib.readStorageText(page, lib.STATE_KEY)) === before, 'the data changed');
+    await hang(false);
+    await T.closeSheet(page);
+    await page.click('[data-action="reset"]');
+    await T.toast(page, /Reset to defaults/);
+    need((await B(page, () => window.__overload.state.workouts.length)) === 0, 'not reset');
+  });
+  errors(name, p); await p.close();
+}
+
 async function pruning(browser, server) {
   const name = 'how many copies', step = (title, fn) => run.step(name, title, fn);
   const { p, page } = await phone(browser, server);
@@ -155,6 +220,7 @@ async function v28WithThisFile(browser) {
   const browser = await lib.launch();
   try {
     await lostConnection(browser, server);
+    await hung(browser, server);
     await pruning(browser, server);
     await v28WithThisFile(browser);
   } finally { await browser.close(); await server.stop(); }

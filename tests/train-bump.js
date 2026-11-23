@@ -15,7 +15,13 @@
  *     the release in sync.js, and moves overload-vN and fuel-vN on by one; --check passes afterwards;
  *   - --check fails when app.js, styles.css or food.js is at the root (names v2.8's page asks for), when
  *     sync.js's release differs from VERSION, or when the words a worker's install reads the release by
- *     (const VERSION = ' in both main scripts, release: ' in sync.js) are there more than once.
+ *     (const VERSION = ' in both main scripts, release: ' in sync.js) are there more than once;
+ *   - every other file with ?v= in an install list (scripts and stylesheets of both apps and shared/) carries the
+ *     first line  /* release <number> ... * /  : a taken number sets it, and --check fails when it names another
+ *     release, is there twice or is missing (final review, upgrade#1: the workers refuse such a file);
+ *   - --check fails when sw.js or fuel/sw.js differs from the published one (origin/main) but keeps its cache
+ *     name, and passes once sh bump.sh moved it on; a worker new since then, and a tree without git, are not
+ *     compared (final review, upgrade#3). Those checks run in throw-away git repositories made here.
  *   --tree=DIR   the tree to copy. Default: the repo this file is in.
  * No server, no browser: --port is accepted and ignored, like the other tests' runner passes it.
  * Prints one PASS or FAIL line per check; exit code 1 when a check failed.
@@ -59,6 +65,23 @@ const read = (dir, rel) => fs.readFileSync(path.join(dir, rel), 'utf8');
 // The training app's main script: the script of the page that holds  const VERSION = '…'  (overload.js since 3.0).
 const MAIN = [...read(TREE, 'index.html').matchAll(/src="\.\/([^"?]+)\?v=/g)].map((x) => x[1]).find((f) => /const VERSION = '/.test(read(TREE, f))) || 'overload.js';
 const SHELLS = [['sh'], ['dash'], ['bash', '--posix']].filter((s) => spawnSync('sh', ['-c', 'command -v ' + s[0]]).status === 0);
+// The files that carry the first line  /* release <number> ... * /: every address with ?v= in the two install lists
+// (as a path from the root), but the main scripts and sync.js, which carry their own marks.
+const assetsIn = (rel) => ((/const ASSETS = \[([\s\S]*?)\n\];/.exec(read(TREE, rel)) || [])[1] || '').split('\n').map((l) => /^\s*'([^']+)'/.exec(l)).filter(Boolean).map((m) => m[1]);
+const MARKED = [...new Set(assetsIn('sw.js').filter((a) => a.includes('?v=')).map((a) => path.posix.normalize(a.split('?')[0]))
+  .concat(assetsIn('fuel/sw.js').filter((a) => a.includes('?v=')).map((a) => path.posix.normalize('fuel/' + a.split('?')[0]))))]
+  .filter((f) => !['overload.js', 'sync.js', 'fuel/fuel.js'].includes(f)).sort();
+// A throw-away git repository of a copy, with refs/remotes/origin/main at its first commit: "the published release".
+function gitCopy(publish) {
+  const dir = copy();
+  const git = (...a) => { const r = spawnSync('git', ['-c', 'user.email=test@example.invalid', '-c', 'user.name=test', '-c', 'commit.gpgsign=false'].concat(a), { cwd: dir, encoding: 'utf8' }); if (r.status !== 0) throw new Error('git ' + a.join(' ') + ': ' + r.stderr); return r.stdout; };
+  git('init', '-q');
+  if (publish) publish(dir);
+  git('add', '-A'); git('commit', '-q', '-m', 'published');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  return { dir, git };
+}
+const HAVE_GIT = spawnSync('git', ['--version']).status === 0;
 function bump(shell, dir, words) {
   const r = spawnSync(shell[0], shell.slice(1).concat(['bump.sh'], words), { cwd: dir, encoding: 'utf8' });
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
@@ -71,10 +94,11 @@ function releaseOf(dir) {
     version: (/const VERSION = '([^']*)'/.exec(read(dir, MAIN)) || [])[1],
     fuel: (/const VERSION = '([^']*)'/.exec(read(dir, 'fuel/fuel.js')) || [])[1],
     sync: (/^\s*release: '([^']*)'/m.exec(read(dir, 'sync.js')) || [])[1],
-    caches: [(/const CACHE = '([^']+)'/.exec(read(dir, 'sw.js')) || [])[1], (/const CACHE = '([^']+)'/.exec(read(dir, 'fuel/sw.js')) || [])[1]]
+    caches: [(/const CACHE = '([^']+)'/.exec(read(dir, 'sw.js')) || [])[1], (/const CACHE = '([^']+)'/.exec(read(dir, 'fuel/sw.js')) || [])[1]],
+    marks: MARKED.map((f) => f + ':' + ((/^\/\* release (\S+) /m.exec(read(dir, f)) || [])[1] || '') + 'x' + (read(dir, f).split('/* release ').length - 1))
   };
 }
-const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', 'fuel/sw.js'].map((f) => f + ':' + v), version: v, fuel: v, sync: v, caches });
+const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', 'fuel/sw.js'].map((f) => f + ':' + v), version: v, fuel: v, sync: v, caches, marks: MARKED.map((f) => f + ':' + v + 'x1') });
 
 (async () => {
   console.log('# tree: ' + TREE + (TREE === lib.REPO ? ' (the working tree)' : ' (a copy)') + '; main script ' + MAIN + '; shells: ' + SHELLS.map((s) => s.join(' ')).join(', '));
@@ -176,6 +200,62 @@ const at = (v, caches) => ({ pages: ['index.html', 'sw.js', 'fuel/index.html', '
         out.push(f);
       }
       return out.join(', ') + ' each refused';
+    });
+
+    await step('--check fails when the first line /* release ... */ of a versioned file names another release, is there twice or is missing', async () => {
+      const out = [];
+      for (const [f, change, why, bumpTakes] of [
+        ['fuel/food.js', (t) => t.replace('/* release 3.0 ', '/* release 2.9 '), /fuel\/food\.js says release '2\.9'/, true],   // a new number sets it again
+        ['programs.js', (t) => t + '\n/* release 3.0 (an example in a comment) */\n', /programs\.js has "\/\* release " 2 times/, false],
+        ['shared/ui.css', (t) => t.replace(/^\/\* release [^\n]*\n/, ''), /shared\/ui\.css has "\/\* release " 0 times/, false]
+      ]) {
+        const dir = copy();
+        fs.writeFileSync(path.join(dir, f), change(read(dir, f)));
+        const r = bump(shell, dir, ['--check']);
+        need(r.code === 1 && why.test(r.out), f + ': exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-3).join(' / '));
+        const b = bump(shell, dir, ['3.1']);
+        need((b.code === 0) === bumpTakes, f + ': sh bump.sh 3.1 ended with exit ' + b.code + ' ' + b.out.trim().split('\n').pop());
+        if (bumpTakes) same(releaseOf(dir), at('3.1', cachesAfter(1)), 'the release after the bump');
+        out.push(f);
+      }
+      return out.join(', ') + ' each refused by --check';
+    });
+
+    await step('--check fails when a worker differs from the published one (origin/main) under the same cache name; sh bump.sh with the next release mends it', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      const { dir, git } = gitCopy();
+      let r = bump(shell, dir, ['--check']);
+      need(r.code === 0 && !/not compared/.test(r.out), 'the published tree itself: exit ' + r.code + ' ' + r.out.trim().split('\n').pop());
+      // The food list rebuilt the old way (README before the final review): ?db= moved by hand, no new release.
+      for (const f of ['fuel/food.js', 'fuel/sw.js']) fs.writeFileSync(path.join(dir, f), read(dir, f).split('foods.json?db=5').join('foods.json?db=6'));
+      const FUEL = /fuel\/sw\.js differs from the published one \(origin\/main\), but its cache is still fuel-v1/;
+      r = bump(shell, dir, ['--check']);
+      need(r.code === 1 && FUEL.test(r.out), 'fuel/sw.js changed, not committed: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-2).join(' / '));
+      git('commit', '-q', '-am', 'the food list, ?db=6');
+      r = bump(shell, dir, ['--check']);
+      need(r.code === 1 && FUEL.test(r.out), 'fuel/sw.js changed and committed, not published: exit ' + r.code);
+      r = bump(shell, dir, ['3.1']);
+      need(r.code === 0, 'sh bump.sh 3.1: exit ' + r.code + ' ' + r.out.trim().split('\n').pop());
+      // sw.js changed alone
+      const other = gitCopy();
+      fs.writeFileSync(path.join(other.dir, 'sw.js'), read(other.dir, 'sw.js').replace('const NET_WAIT = 3000;', 'const NET_WAIT = 2500;'));
+      r = bump(shell, other.dir, ['--check']);
+      need(r.code === 1 && /sw\.js differs from the published one \(origin\/main\), but its cache is still overload-v24/.test(r.out), 'sw.js changed: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-2).join(' / '));
+      return 'fuel/sw.js (?db=6) and sw.js (NET_WAIT) refused; after sh bump.sh 3.1 the check passes';
+    });
+
+    await step('--check does not compare a worker that is new since the published release, nor a tree without git', async () => {
+      if (!HAVE_GIT) return 'skipped: no git here';
+      let saved = null;
+      const { dir } = gitCopy((d) => { saved = read(d, 'fuel/sw.js'); fs.rmSync(path.join(d, 'fuel/sw.js')); });
+      fs.writeFileSync(path.join(dir, 'fuel/sw.js'), saved.split('foods.json?db=5').join('foods.json?db=6'));
+      fs.writeFileSync(path.join(dir, 'fuel/food.js'), read(dir, 'fuel/food.js').split('foods.json?db=5').join('foods.json?db=6'));
+      let r = bump(shell, dir, ['--check']);
+      need(r.code === 0, 'fuel/sw.js new since the published release: exit ' + r.code + ' ' + r.out.trim().split('\n').slice(-2).join(' / '));
+      const plain = copy();
+      r = bump(shell, plain, ['--check']);
+      need(r.code === 0 && /not compared with the published workers/.test(r.out), 'no git: exit ' + r.code + ' ' + r.out.trim());
+      return 'both pass; without git it says it did not compare';
     });
 
     await step('--check fails when sync.js says another release than VERSION', async () => {

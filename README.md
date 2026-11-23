@@ -146,6 +146,11 @@ card comes back to Today when the food log on the phone changes.
    training data, no connector key).
 3. In Fuel: **Paste from Overload**, or Choose a file.
 
+Fuel adds only what it does not have yet, with the favorite stars and the
+numbers you corrected; nothing else there is replaced or removed. A star you
+took off in Fuel, or a correction you deleted there, stays that way when the
+log is brought in again (`fuel/README.md`).
+
 With cloud sync, signing in to Fuel with the same email may bring some of the
 food log across, but not always all of it: since 3.0 Overload no longer sends
 the food log to the account, so the account can hold less than the phone. Copy
@@ -159,8 +164,9 @@ space once Fuel shows the log. It is offered only when the log was copied or
 saved as it is now, asks twice, and empties the food days only; saved foods and
 targets stay. Each removal first keeps a copy of everything ("Before removing
 the old food log" in Automatic copies), and nothing is removed if that copy
-cannot be stored. The copies of the last 3 removals are kept; the question says
-when an older one is let go. Signed in to cloud sync while an update has only
+cannot be stored, or if the list of copies cannot be read. The copies of the
+last 3 removals are kept; the question says when an older one is let go, by its
+date (and its time when another removal copy is from the same day). Signed in to cloud sync while an update has only
 half arrived, it asks you to finish the update first (open Overload once with
 good signal).
 
@@ -249,7 +255,7 @@ Overload, at the root:
 
 | File                   | Purpose                                      |
 | ---------------------- | -------------------------------------------- |
-| `index.html`           | The page: top bar, tab bar, rest timer, sheet. Also the start-up rescue, which starts the previous release's stored files (same first number) when this release's did not arrive |
+| `index.html`           | The page: top bar, tab bar, rest timer, sheet (a dialog: while it is open the page behind is inert, and Escape closes it), toast (read out by VoiceOver). Also the start-up rescue, which starts the previous release's stored files (same first number) when this release's did not arrive |
 | `overload.js`          | State, progression algorithm, all screens, the hand-over of the food log to Fuel (`app.js` until 2.8: see Releases) |
 | `connector.js`         | WHOOP sync and reminders in the app (talks to the connector) |
 | `programs.js`          | Built-in program library (CBum, FST-7, arm programs) |
@@ -312,23 +318,29 @@ food log across on the spot. On an iPhone they do not: see Two apps.
 The tests need Node and Playwright (Chromium). Each takes `--port=`: most start
 a local server on that port, and the cloud tests answer the app's files inside
 the browser instead. They never reach the internet: every request that is not
-to 127.0.0.1 is stopped. Run them one at a time.
+to 127.0.0.1 is stopped. The worker tests use a sealed browser (`tests/lib.js`)
+that stops every other host itself, so their phones need no request routing,
+which would make Chromium install the same worker again at every start. Run
+them one at a time.
 
 Overload:
 
 ```bash
 node tests/train-upgrade.js    # 2.8 data opened by 3.0: nothing lost, every screen draws
 node tests/train-handover.js   # the card "Food has moved to Fuel": copy, file, the short card, remove
-node tests/train-replace.js    # Import, Restore and Reset keep the old food log
+node tests/train-replace.js    # Import, Restore and Reset keep the old food log, and their copy comes first
 node tests/train-rollback.js   # 2.8 running again on data 3.0 has used
 node tests/train-backup.js     # the automatic copies, also as 2.8 uses them (takes --port and the next one)
+node tests/train-settings.js   # what Settings says about the copies, storage used and cloud sync
 node tests/train-timer.js      # the rest and cardio timers across a reload
+node tests/train-look.js       # the cloud status at 320 px, sheets as dialogs, field names, focus clear of the bars
 node tests/train-rescue.js     # the start-up rescue in index.html
 node tests/train-connector.js  # what is sent to the connector
 node tests/train-sw.js         # the offline worker, with real service workers
 node tests/train-mixed.js      # a release on weak signal: the page that runs is one release, never a mix
+node tests/train-release.js    # stale server copies, an install cut off, the next releases: what the phone keeps
 node tests/train-sync.js       # cloud sync against a stand-in for Firebase (--base=v28: beside 2.8's files)
-node tests/train-cloud.js      # cloud sync with two phones: Reset and Restore, and saved data gone missing
+node tests/train-cloud.js      # cloud sync with two phones: Reset, Import and Restore (also before cloud sync loads), signing out, saved data gone missing
 node tests/train-bump.js       # bump.sh: which release numbers it takes and what it changes
 ```
 
@@ -339,13 +351,16 @@ node tests/fuel-shell.js       # first start, a day of use, reload, the saved st
 node tests/fuel-import.js      # every way in from Overload, second imports, malformed input
 node tests/fuel-guard.js       # Safari tab, inside Overload, Home Screen app, a computer
 node tests/fuel-backup.js      # export and import, automatic copies, restore, unreadable data, storage full
+node tests/fuel-records.js     # a star taken off and a correction deleted in Fuel stay so
+node tests/fuel-words.js       # what Welcome, the import, Backup, Cloud sync and sign-out say, against what happens
 node tests/fuel-trends.js      # Trends left open over midnight follows the date
-node tests/fuel-look.js        # Today's three macro cells at 320, 390 and 430 px
+node tests/fuel-look.js        # Today's three macro cells at 320, 390 and 430 px; the frame as train-look.js checks it
 node tests/fuel-host.js        # what the shell gives cloud sync
 node tests/fuel-update.js      # how the page takes a new offline worker
 node tests/fuel-rescue.js      # the start-up rescue in fuel/index.html
 node tests/fuel-sync.js        # cloud sync against a stand-in for Firebase, next to Overload
 node tests/fuel-sw.js          # the offline worker with real service workers, alone and beside Overload's
+node tests/fuel-release.js     # stale server copies, an install cut off, the next releases: what the phone keeps
 ```
 
 And the tools under them:
@@ -394,23 +409,34 @@ nothing to fall back to.
 
 A new number changes the `?v=` on every file address in `index.html`, `sw.js`,
 `fuel/index.html` and `fuel/sw.js`, `VERSION` in `overload.js` and `fuel/fuel.js`,
-`release` in `sync.js`, and moves both offline cache names on by one
-(`overload-vN`, `fuel-vN`), also when only one app changed. Commit the result
-and push; a phone picks the release up the next time the app is opened with a
-connection.
+`release` in `sync.js`, the first line `/* release 3.0 … */` of every other
+script and stylesheet the workers store (both apps and `shared/`), and moves
+both offline cache names on by one (`overload-vN`, `fuel-vN`), also when only
+one app changed. Commit the result and push; a phone picks the release up the
+next time the app is opened with a connection.
 
-Every change to a file the workers store needs a new number. A worker answers
-an address with `?v=` from the copy it stored when it installed, for the whole
-release, and never asks the server for it again: GitHub Pages ignores `?v=`, so
-once the next release is published it would answer the old addresses with the
-new files, and the old page would run them. So a change pushed without a new
-number does not reach a phone that already has the release. The install refuses
-a main script (and Overload's `sync.js`) that does not name the release being
-installed. A main script or `sync.js` that the server hands out later and that
-names another release is not run or stored either. Without its main script the
-page's start-up rescue starts the release the phone has stored, or says the app
-did not finish starting; without `sync.js` the app runs without cloud sync until
-the update has arrived.
+Every change to a file the workers store, and to `sw.js` or `fuel/sw.js`
+themselves, needs a new number. A worker answers an address with `?v=` from the
+copy it stored when it installed, for the whole release, and never asks the
+server for it again: GitHub Pages ignores `?v=`, so once the next release is
+published it would answer the old addresses with the new files, and the old page
+would run them. So a change pushed without a new number does not reach a phone
+that already has the release. A changed worker that keeps its cache name would
+install into the cache the phone runs from.
+
+Every file with `?v=` names its release, and the workers check it. The install
+refuses a file that does not name the release being installed (a server can
+still hand out the previous release's copy for a few minutes), stores nothing
+until every file has arrived and passed, and then writes an entry `installed`
+that names the release; when it is refused, the phone stays on the release it
+has and tries again at the next start. A file that the server hands out later
+and that names another release is not run or stored either. Without its main
+script the page's start-up rescue starts the stored release whose install
+finished, or says the app did not finish starting. Without another script or a
+stylesheet the app starts without it, and a line at the top says "Part of
+Overload did not load" (or Fuel). Without `sync.js` the app runs without cloud
+sync until the update has arrived. A page of an older release that the server
+hands out is answered with the stored page of the release the phone has.
 
 The names `app.js`, `styles.css` and `food.js` at the root stay unused. Phones
 that still have 2.8 ask for them, and with nothing there 2.8's worker falls back
@@ -423,16 +449,23 @@ The check fails, with exit code 1, when:
 - `const VERSION = '` in `overload.js` or `fuel/fuel.js`, or `release: '` in
   `sync.js`, is there more than once (a comment counts too): the worker's
   install reads the release from it and would refuse the file;
+- the first line `/* release … */` of another script or stylesheet with `?v=`
+  in an install list names another release, or `/* release ` is in that file
+  more than once or not at all: the workers would refuse the file;
 - `app.js`, `styles.css` or `food.js` is at the root;
 - a file in a worker's install list (`ASSETS` in `sw.js` and `fuel/sw.js`) is
   not on disk: that install would fail on every phone;
 - a page loads a versioned file its worker's list does not name: the app would
   start without it when there is no signal;
-- the food list's `?db=` differs between `fuel/food.js` and `fuel/sw.js`.
+- the food list's `?db=` differs between `fuel/food.js` and `fuel/sw.js`;
+- `sw.js` or `fuel/sw.js` differs from the published one (`origin/main`, which
+  GitHub Pages serves) but kept its cache name. This is not compared without
+  git or `origin/main`, nor for a worker that is new since then.
 
 So a new script or stylesheet goes into the page and into `ASSETS` of the same
-app's worker, written the same way, one address per line. Run the check before
-every push that touches those files.
+app's worker, written the same way, one address per line, and its first line is
+`/* release <number> (bump.sh sets this line; …) */`. Run the check before every
+push that touches those files.
 
 ## Cloud sync (optional)
 
@@ -444,18 +477,36 @@ app works exactly the same signed out; it just stays on one phone.
 Fuel has the same card and uses the same account. Each app syncs its own data
 and nothing else: since 3.0 Overload syncs the training data only.
 
+In Fuel two phones never undo each other's changes: entries, saved foods and
+meals, targets, theme and units merge one by one, and a change made without
+signal waits on the phone and goes up once the account's latest copy is in.
+Reset and Restore in Fuel, signed in, change the food log in the account too;
+another phone signed in follows, except for what was logged or changed on it
+since it last synced. The questions say so (`fuel/README.md`).
+
 The first sign-in on a phone reads the account from the server before sending
 anything. If that read fails (no signal, rules), nothing is uploaded and it
 retries, so a bad connection cannot overwrite the cloud copy.
 
 Reset, Import and Restore say so when you are signed in, because they erase or
 replace the training data in the account too; the food log in the account is
-not changed by them. Another phone signed in to the same account sends back its
-own weigh-ins and nights (after an Import or Restore, for the dates the file or
-copy does not have), and after an Import or Restore it also deletes again any
-workout, weigh-in or night deleted in the last 90 days. To keep that phone out
-of it, sign out on it first and reset it before it signs in again. The
-questions say this too.
+not changed by them. Another phone signed in to the same account does the
+same, except for what was logged or changed on it since it last synced, and a
+workout in progress there: those come back. After an Import or Restore it also
+deletes again any workout, weigh-in or night deleted in the last 90 days. A
+phone still on 2.8 sends back all of its weigh-ins and nights (after an Import
+or Restore, for the dates the file or copy does not have) and loses a workout
+in progress. To keep that phone out of it, sign out on it first and reset it
+before it signs in again. The questions say this too. On a start where cloud
+sync has not loaded yet (no signal before its files were stored), a phone that
+was signed in counts as signed in for these three: the question says the
+account changes too, and the change goes up once cloud sync runs.
+
+Signing out keeps everything on the phone and in the account. What you log
+while signed out is sent when you sign back in. A Reset, Import or Restore done
+while signed out is not: signing in again brings back what the account holds.
+The sign-out question says so. (In Fuel an import only adds, so what it brings
+is sent too; Fuel's question names its Reset and Restore.)
 
 Data layout in Firestore:
 
@@ -570,7 +621,8 @@ Without cloud sync, data lives only in that browser's storage. Settings →
 Backup → Export JSON opens the share sheet (Save to Files, AirDrop, Mail) with
 a file you can re-import later; Import shows what the file holds next to what
 is on the phone before replacing anything. Import, Restore and Reset replace
-the training data only. An old food log still on the phone is carried over as
+the training data only (Reset also erases the settings, the WHOOP link
+included; the question says so). An old food log still on the phone is carried over as
 it is: the log, and the saved foods with the targets, each stay as they are,
 and the file's are used only for a part the phone has none of. Restoring the
 copy taken at the split or before a removal while the phone holds food days
@@ -581,12 +633,17 @@ for a home-screen app if you delete the app, so export now and then. The Backup 
 says when you last exported, and with cloud sync off Today reminds you after
 14 days without one.
 
-- **Automatic copies.** The app keeps its own copies on the phone (IndexedDB):
-  one a day for the last 7 days; the copy taken before the latest import,
-  reset, restore and first cloud sign-in (one of each); the one from the first
-  start of 3.0 ("Before the split into two apps"), which is never replaced; and
-  one before each removal of the old food log, of which the last 3 are kept.
-  Settings → Backup lists them with Restore.
+- **Automatic copies.** The app keeps its own copies on the phone (IndexedDB),
+  as Settings → Backup says: one a day for the last 7 days; one each from
+  before the last import, reset, restore and cloud sign-in; the copy from the
+  split into two apps (the first start of 3.0), which is never replaced; and
+  the copies from before the last 3 removals of the old food log. Settings →
+  Backup lists them with Restore. Import, Restore and Reset wait for their copy:
+  when it cannot be stored, nothing is replaced or erased, and a sheet offers
+  Export ("The automatic copy could not be stored, so nothing was replaced.
+  Export a backup first, then try again."). A second tap while one of them is
+  under way does nothing. A copy store that does not answer is given up after a
+  few seconds, so these never wait for ever.
   They live in the same browser storage, so they do not replace an export.
 - **Storage used.** The Backup card shows how much of the app's storage is in
   use; Today warns from 70%. If saving ever fails, messages say "Not saved on
@@ -594,7 +651,8 @@ says when you last exported, and with cloud sync off Today reminds you after
   again; a restart does not take that unsaved work out of the cloud copy.
 - **Unreadable data.** If the saved data cannot be read at start, the app does
   not save over it: a screen offers Export (the exact stored text), Try again,
-  Restore a copy and Start fresh.
+  Restore a copy and Start fresh. After Start fresh, signed in to cloud sync,
+  the training data comes back from the account, but not the old food log.
 
 ## Rebuilding the food list
 
@@ -603,10 +661,13 @@ The food list is Fuel's. `data/foods.json` is generated, not edited by hand. Pus
 `food-data` branch and the "Build food list" GitHub Action downloads USDA's SR
 Legacy and Foundation Foods, adds the packaged products, rebuilds the file and
 commits it to that branch; merge it into `main`. When the file changes, bump
-`?db=` in both `fuel/food.js` (`DB_URL`) and `fuel/sw.js`: Fuel's worker stores
-the list under that address, and `sh bump.sh --check` fails when the two
-numbers differ. (`bump.sh` never changes `?db=` itself. Overload's `sw.js` no
-longer stores the food list.)
+`?db=` in both `fuel/food.js` (`DB_URL`) and `fuel/sw.js`, then run `sh bump.sh`
+with the next release (for example `sh bump.sh 3.1`) before you push. Fuel's
+worker stores the list under that address, and the changed `fuel/sw.js` must
+install under a new cache name: under the old one it would install into the
+cache the phone runs from. `sh bump.sh --check` fails when the two numbers
+differ, and when `fuel/sw.js` changed but its cache name did not. (`bump.sh`
+never changes `?db=` itself. Overload's `sw.js` no longer stores the food list.)
 
 Packaged foods:
 

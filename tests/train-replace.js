@@ -75,8 +75,8 @@ async function reset(browser, server) {
     await T.toast(page, /Reset to defaults|Not saved/);
     const q = page.dialogs.map(plain);
     same(q.length, 2, 'the number of questions');
-    need(q[0] === 'confirm: Erase all exercises, program and history on this phone?\n\nThe old food log (' + DAYS + ' days) is not erased. It stays on this phone until you remove it in Settings > Food.', 'the first question reads: ' + q[0]);
-    need(q[1] === 'confirm: Really erase all training data?', 'the second question reads: ' + q[1]);
+    need(q[0] === 'confirm: Erase all exercises, program, history and settings on this phone?\n\nThe old food log (' + DAYS + ' days) is not erased. It stays on this phone until you remove it in Settings > Food.', 'the first question reads: ' + q[0]);
+    need(q[1] === 'confirm: Really erase all training data and settings?', 'the second question reads: ' + q[1]);
     need(!q.some((t) => /and food log|erase everything/i.test(t)), 'a question still claims the food log is erased');
     const now = JSON.parse(await text(page));
     need(now.workouts.length === 0 && now.bodyweight.length === 0 && now.sleep.length === 0 && now.templates.length === 0 && Object.keys(now.presc).length === 0, 'the training data was not reset');
@@ -122,7 +122,17 @@ async function importIntoEmpty(browser, server) {
   await run.step(name, 'Reset on a phone without food says nothing about food', async () => {
     answer.yes = false;
     await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]');
-    same(page.dialogs.map(plain), ['confirm: Erase all exercises, program and history on this phone?'], 'the question');
+    same(page.dialogs.map(plain), ['confirm: Erase all exercises, program, history and settings on this phone?'], 'the question');
+    answer.yes = true; page.dialogs.length = 0;
+  });
+  // Review finding look#5: Reset erases the settings too, the WHOOP connector link among them, as in every version
+  // before. The question names them; the link only when the phone has one.
+  await run.step(name, 'Reset on a phone linked to a WHOOP connector says the link is erased too', async () => {
+    answer.yes = false;
+    await page.evaluate(() => { const s = window.__overload.state.settings; s.connUrl = 'https://connector.example'; s.connKey = 'k1'; window.__overload.save(); });
+    await lib.openTab(page, 'today'); await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]');
+    same(page.dialogs.map(plain), ['confirm: Erase all exercises, program, history and settings on this phone, the WHOOP link included?'], 'the question');
+    await page.evaluate(() => { const s = window.__overload.state.settings; delete s.connUrl; delete s.connKey; window.__overload.save(); });
     answer.yes = true; page.dialogs.length = 0;
   });
   const file = T.writeFile(tmp, 'overload-backup-main.json', JSON.stringify(fx.state, null, 2));
@@ -176,7 +186,8 @@ async function restoreAfterRemove(browser, server) {
     await restore(page, (await removalCopy(page)).id);
     await T.toast(page, /Copy restored|Not saved|cannot be read/);
     const q = plain(page.dialogs[0]).split('\n');
-    need(q[0] === 'confirm: Replace everything on this phone with the copy "Before removing the old food log"?', 'the question starts: ' + q[0]);
+    // Review finding code#6: after Remove the saved foods and targets stay on the phone, so not "everything" is replaced.
+    need(q[0] === 'confirm: Replace the training data on this phone with the copy "Before removing the old food log"?', 'the question starts: ' + q[0]);
     need(q[5] === 'The food log in the copy (' + DAYS + ' days) comes with it.', 'the food line reads: ' + q[5]);
     need((await text(page)) === fx.text, 'the stored text is not what it was before the removal');
     await foodIsTheFixtures(page, 'after restoring the removal copy');
@@ -219,6 +230,7 @@ async function partsFromFile(browser, server) {
       await importFile(page, T.writeFile(tmp, 'overload-backup-small-3.json', small.text));
       await T.toast(page, /Backup restored|Not saved|not an Overload/);
       const q = plain(page.dialogs[0]).split('\n');
+      need(q[0] === 'confirm: Replace the training data on this phone with the backup?', 'the question starts: ' + q[0]);   // code#6
       need(q[5] === 'The food log in the backup (4 days) comes with it. The saved foods, saved meals and targets on this phone stay as they are; those in the backup are not used.', 'the food line reads: ' + q[5]);
       const now = JSON.parse(await text(page));
       need(JSON.stringify(now.food) === JSON.stringify(fx.state.food), 'the saved foods are not the phone\'s');
@@ -339,6 +351,147 @@ async function fuelFiles(browser, server) {
   errors(name, phone); await phone.close();
 }
 
+// Review findings data#1 and code#3: Restore, Import and Reset wait for the copy of what is here. When it cannot be
+// stored (stand-in: the copy store refuses that one write, as a full store does with QuotaExceededError), nothing is
+// replaced or erased, and a sheet says so, with Export. With the store working again the same session goes on.
+async function copyNotKept(browser, server) {
+  const name = 'copy not kept', { phone, page } = await phoneWith(browser, server);
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (v) { if (v && window.__refuse && v.id === window.__refuse) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); return put.apply(this, arguments); };
+  });
+  need(await page.evaluate((t) => window.__overloadBackup.take('import', t), small.text), 'could not plant a copy');
+  const file = T.writeFile(tmp, 'overload-backup-small-4.json', small.text);
+  const cases = [
+    ['Restore', 'before-restore', 'replaced', 'Restore a copy', () => restore(page, 'before-import')],
+    ['Import', 'before-import', 'replaced', 'Import JSON', () => importFile(page, file)],
+    ['Reset', 'before-reset', 'erased', 'Reset all data', async () => { await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]'); }]
+  ];
+  for (const [what, id, did, title, act] of cases) {
+    await run.step(name, what + ': its copy cannot be stored, so nothing is ' + did + '; a sheet says so and Export saves a backup', async () => {
+      await T.closeSheet(page);
+      await page.evaluate((i) => { window.__refuse = i; }, id);
+      page.dialogs.length = 0;
+      await act();
+      await page.waitForFunction(() => !document.querySelector('#sheet').hidden, null, { timeout: 8000 });
+      const msg = await T.text(page, '#sheet .banner');
+      need(msg === 'The automatic copy could not be stored, so nothing was ' + did + '. Export a backup first, then try again.', 'the sheet says: ' + msg);
+      same(await T.text(page, '#sheet .sheet-title h2'), title, 'the sheet\'s title');
+      need(page.dialogs.length >= 1, 'no question was asked first');
+      need((await text(page)) === fx.text, 'the stored data changed');
+      need(await page.evaluate((n) => window.__overload.state.workouts.length === n && window.__overload.state.settings.restSec !== undefined, fx.state.workouts.length), 'the data in memory changed');
+      const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 8000 }), page.click('#sheet [data-action="export"]')]);
+      need(/^overload-backup-\d{4}-\d{2}-\d{2}\.json$/.test(dl.suggestedFilename()), 'Export saved ' + dl.suggestedFilename());
+      await page.evaluate(() => { window.__refuse = null; });
+      return msg;
+    });
+  }
+  await run.step(name, 'with the copy store working again, Reset works in the same session (nothing is left waiting)', async () => {
+    await T.closeSheet(page);
+    page.dialogs.length = 0;
+    await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]');
+    await T.toast(page, /Reset to defaults/);
+    const c = await T.copy(page, 'before-reset');
+    need(c && c.text === fx.text, 'the copy "Before reset" does not hold the data as it was');
+    need((await page.evaluate(() => window.__overload.state.workouts.length)) === 0, 'not reset');
+  });
+  errors(name, phone); await phone.close();
+}
+
+// The data changes while its copy is being stored (cloud sync brings some, through setState): the copy would not
+// hold that, so nothing is replaced or erased, and the toast says so.
+async function changedMeanwhile(browser, server) {
+  const name = 'data changed during the copy', { phone, page } = await phoneWith(browser, server);
+  need(await page.evaluate((t) => window.__overloadBackup.take('import', t), small.text), 'could not plant a copy');
+  await page.evaluate(() => {
+    const B = window.__overloadBackup, real = B.take;
+    B.take = function () {
+      if (window.__bring) { window.__bring = false; const st = JSON.parse(JSON.stringify(window.__overload.state)); st.settings.restSec += 1; window.__overload.setState(st); }
+      return real.apply(this, arguments);
+    };
+  });
+  const file = T.writeFile(tmp, 'overload-backup-small-5.json', small.text);
+  const cases = [
+    ['Restore', 'replaced', () => restore(page, 'before-import')],
+    ['Import', 'replaced', () => importFile(page, file)],
+    ['Reset', 'erased', async () => { await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]'); }]
+  ];
+  for (const [what, did, act] of cases) {
+    await run.step(name, what + ': the data changed while its copy was stored, so nothing is ' + did + ', and the toast says so', async () => {
+      const rest = await page.evaluate(() => window.__overload.state.settings.restSec);
+      await page.evaluate(() => { window.__bring = true; document.querySelector('#toast').hidden = true; });
+      await act();
+      const t = await T.toast(page, /./);
+      need(t === 'The training data changed just now. Nothing was ' + did + '.', 'the app said: ' + t);
+      const now = JSON.parse(await text(page));
+      need(now.settings.restSec === rest + 1 && now.workouts.length === fx.state.workouts.length, 'the data is not what cloud sync brought: restSec ' + now.settings.restSec + ', ' + now.workouts.length + ' workouts');
+      return t;
+    });
+  }
+  errors(name, phone); await phone.close();
+}
+
+// Review finding code#2: a second tap while a Restore, Import or Reset is under way does nothing. Before, a double
+// tap on Restore asked twice, and the second Restore stored the restored data as "Before restore".
+async function doubleTaps(browser, server) {
+  const name = 'second tap';
+  {
+    const { phone, page } = await phoneWith(browser, server);
+    await run.step(name, 'a double tap on Restore asks once, and "Before restore" holds what was on the phone', async () => {
+      need(await page.evaluate((t) => window.__overloadBackup.take('import', t), small.text), 'could not plant a copy');
+      await page.evaluate(() => { const s = window.__overload.state; s.settings.restSec = 999; s.program.days[0].name = 'Changed after the copy'; window.__overload.save(); });
+      const mine = await text(page);
+      await lib.openTab(page, 'settings');
+      await page.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+      page.dialogs.length = 0;
+      await page.dblclick('[data-action="restore-copy"][data-id="before-import"]');
+      await T.toast(page, /Copy restored|Not saved|cannot be read|could not/);
+      await lib.sleep(1500);
+      same(page.dialogs.length, 1, 'the number of questions');
+      const c = await T.copy(page, 'before-restore');
+      need(c && c.text === mine, '"Before restore" does not hold what was on the phone: restSec ' + (c && JSON.parse(c.text).settings.restSec));
+      trainingIs(JSON.parse(await text(page)), small.state, 'after the restore');
+      return '1 question; "Before restore" holds restSec 999';
+    });
+    errors(name, phone); await phone.close();
+  }
+  {
+    const { phone, page } = await phoneWith(browser, server);
+    // The copy store takes its time: each take() waits until the test lets it go.
+    await page.evaluate(() => { const B = window.__overloadBackup, real = B.take; window.__held = []; B.take = function () { const a = arguments; return new Promise((r) => { window.__held.push(() => r(real.apply(B, a))); }); }; });
+    const release = () => page.evaluate(() => { const l = window.__held.splice(0); l.forEach((f) => f()); return l.length; });
+    await run.step(name, 'Reset tapped again while its copy is being stored: no more questions, one reset', async () => {
+      await lib.openTab(page, 'settings');
+      page.dialogs.length = 0;
+      await page.click('[data-action="reset"]');
+      await page.waitForFunction(() => window.__held.length === 1, null, { timeout: 5000 });
+      await page.click('[data-action="reset"]');
+      await lib.sleep(300);
+      same(page.dialogs.length, 2, 'the number of questions');
+      need((await page.evaluate(() => window.__overload.state.workouts.length)) === fx.state.workouts.length, 'erased before its copy was stored');
+      same(await release(), 1, 'copies asked for');
+      await T.toast(page, /Reset to defaults/);
+      need((await page.evaluate(() => window.__overload.state.workouts.length)) === 0, 'not reset');
+      const c = await T.copy(page, 'before-reset');
+      need(c && c.text === fx.text, 'the copy "Before reset" does not hold the data as it was');
+    });
+    await run.step(name, 'a second Import while the first one\'s copy is being stored: no question, one import', async () => {
+      const file = T.writeFile(tmp, 'overload-backup-main-6.json', fx.text);
+      await page.evaluate(() => { document.querySelector('#toast').hidden = true; });
+      page.dialogs.length = 0;
+      await importFile(page, file);
+      await page.waitForFunction(() => window.__held.length === 1, null, { timeout: 5000 });
+      await importFile(page, T.writeFile(tmp, 'overload-backup-small-6.json', small.text));
+      await lib.sleep(500);
+      same(page.dialogs.length, 1, 'the number of questions');
+      same(await release(), 1, 'copies asked for');
+      await T.toast(page, /Backup restored/);
+      trainingIs(JSON.parse(await text(page)), fx.state, 'after the import');
+    });
+    errors(name, phone); await phone.close();
+  }
+}
+
 async function signedIn(browser, server) {
   const name = 'signed in to cloud sync', { phone, page, answer } = await phoneWith(browser, server);
   const file = T.writeFile(tmp, 'overload-backup-small-2.json', small.text);
@@ -354,10 +507,7 @@ async function signedIn(browser, server) {
     await lib.sleep(300);
     const q = page.dialogs.map(plain);
     same(q.length, 3, 'the number of questions');
-    const tail = (verb, what) => '\n\nYou are signed in to cloud sync, so the training data in your account (me@example.com) is ' + verb + ' too.'
-      + (verb === 'erased' ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.'
-        : ' Weigh-ins and nights on another phone signed in to it come back from that phone for dates ' + what + ' does not have. That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.')
-      + ' The food log in your account is not changed.';
+    const tail = (verb, what) => T.cloudTail(verb, what, 'me@example.com');
     need(q[0].endsWith('It stays on this phone until you remove it in Settings > Food.' + tail('erased')), 'Reset asks: ' + q[0]);
     need(q[1].endsWith('Food in the backup is not used.' + tail('replaced', 'the backup')), 'Import asks: ' + q[1]);
     need(q[2].endsWith('A copy of what is on the phone now is kept first.' + tail('replaced', 'the copy')), 'Restore asks: ' + q[2]);
@@ -380,6 +530,9 @@ async function signedIn(browser, server) {
     await partsFromFile(browser, server);
     await mergeRestore(browser, server);
     await fuelFiles(browser, server);
+    await copyNotKept(browser, server);
+    await changedMeanwhile(browser, server);
+    await doubleTaps(browser, server);
     await signedIn(browser, server);
   } finally { await browser.close(); await server.stop(); T.removeDir(tmp); }
   run.done();

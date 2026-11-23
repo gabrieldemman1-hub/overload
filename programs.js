@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload — built-in program library, shown on the Program tab.
  * Each program: days (name, exercises as [name, sets, reps, note]) and a Mon..Sun schedule of day indexes.
  * Exercise names match the app's library where one fits; any other name is added on first use with the

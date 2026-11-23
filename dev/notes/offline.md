@@ -5,8 +5,9 @@ What this note covers: how the offline copy and the update work in v2.8, and wha
 and the GitHub workflows. Line references are to v2.8 (`3b17963`).
 
 This note was written before 3.0 was built. Section 10 ("Since the fixes") says how 3.0 works as released,
-after the review (`review-findings.md` U1, U2, O1, O4, T2). Where section 10 and the earlier sections disagree
-about 3.0, section 10 and the code are right. The main script of 3.0 is `overload.js`; `app.js` below is v2.8's.
+after the review (`review-findings.md` U1, U2, O1, O4, T2), and section 11 what the final review changed in the
+release mechanics (upgrade#1 to #5). Where they and the earlier sections disagree about 3.0, the later section
+and the code are right. The main script of 3.0 is `overload.js`; `app.js` below is v2.8's.
 
 Three kinds of statement are kept apart:
 
@@ -757,7 +758,8 @@ release it has.
 marker names another release (or more than one), the worker answers `409 Another release` instead, and stores
 nothing. A page whose main script got the 409 does not start it: the start-up rescue takes over. A `sync.js`
 that got it is not run, and the app runs without cloud sync until the update has arrived. A file without a
-marker (v2.8's `sync.js`) is accepted, so a roll-back to v2.8 is not affected.
+marker (v2.8's `sync.js`) is accepted, so a roll-back to v2.8 is not affected. (Changed since: every versioned
+file now has a marker, and one without is refused too; a roll-back still works, see section 11.)
 
 **Start-up rescue.** The main script is found by its full path (`./overload.js`; Fuel: `./fuel.js`), only
 caches of the app's own prefix are read, and only an older release with the same first number is used (3.0 for
@@ -788,4 +790,74 @@ the rescue runs the stored 3.0 whole; an install whose main script or sync modul
 
 Not covered here, as before: Safari and iOS, and how GitHub Pages' CDN behaves. A stale edge that serves one
 file without a marker (a stylesheet, `programs.js`) under a new `?v=` during an install would be kept for the
-whole release.
+whole release. (Fixed since: section 11.)
+
+## 11. Since the final review (release mechanics)
+
+Findings upgrade#1 to #5 of the final review and one item of the code review's list. Read from `sw.js`,
+`fuel/sw.js`, `index.html`, `fuel/index.html` and `bump.sh`, and run by `tests/train-release.js` and
+`tests/fuel-release.js` (a sealed browser, real workers, a server that ignores the query), `tests/train-sw.js`,
+`tests/fuel-sw.js`, `tests/train-mixed.js` and `tests/train-bump.js`.
+
+**Every versioned file names its release.** Besides `VERSION` (both main scripts) and `release:` (Overload's
+`sync.js`), every other script and stylesheet with `?v=` in an install list starts with the line
+`/* release 3.0 (bump.sh sets this line; …) */`: `programs.js`, `backup.js`, `connector.js`, `train.css`,
+`shared/ui.css`, `shared/icons.js`, `fuel/food.js`, `fuel/sync.js`, `fuel/backup.js`, `fuel/fuel.css`. The workers
+read the release after `/* release ` and want it exactly once. The install refuses every versioned file whose
+mark is not the release of its address, so v2.8's `backup.js` and `connector.js` (no mark) from a stale edge
+fail the 3.0 install: the phone stays on v2.8 and the next start tries again (upgrade#1: a second "Remove the old
+food log" no longer writes over the first one's safety copy). At run time (no stored entry, the network asked)
+such a file, or one without a mark, gets `409 Another release` and is not stored, whatever its kind.
+
+**A page that lost a file.** Without its main script the rescue takes over, as before. A page whose main script
+ran but which lost a classic script or a stylesheet (refused, or not arrived) starts without it, and its start-up
+script puts a line above everything: "Part of Overload did not load, so it looks plain." for a stylesheet, "…,
+so some of it may not work." for a script, then "Everything you logged is still on this phone." (when there is
+data) and "Close the app and open it again where there is signal or Wi-Fi." Fuel's page says "Part of Fuel …".
+Module scripts are left out (`sync.js` cannot load offline when the Firebase files are not stored).
+
+**Install: delete unfinished caches, download and check everything, then store.** At the start of each install
+the app's caches that are not `CACHE` and lack the entry `installed` are deleted (`overload-vN` above 23, since
+2.8's `overload-v23` never has the entry and may belong to the running worker; `fuel-vN`). Then every file of
+the list is fetched whole and checked (page fits, marks), and only then are they put into `CACHE`, with
+`installed` (its text is the release) last. An install that fails or is stopped while downloading changes no
+cache at all (upgrade#4: no half-filled cache from a worker stopped in the background). One that fails while
+storing deletes `CACHE` only if it was not there before (`caches.has`), since it may be the cache the running
+worker serves from (upgrade#3: a changed worker under the same cache name).
+
+**Lookups in the worker's own cache only.** `cached()` of both workers opens `CACHE`; nothing searches every
+cache of the origin. (Fuel's `keepSdk` still copies the Firebase files from its previous caches at activate.)
+
+**Pages from the network.** One that asks for this release's files is stored and shown, as before. One whose
+every `?v=` is newer than the worker's release is shown but not stored (an update on its way). Any other (an
+older release from an edge that has not caught up, or a page with no `?v=`) is answered with the stored page
+when there is one (upgrade#2: after an update, an old page no longer ends in "did not finish starting").
+Releases compare as two whole numbers, as in the rescue. A roll-back to v2.8 still works: until v2.8's worker
+has installed and taken over, the phone shows its stored 3.0 page (reviewer's `s3-rollback.js`, rerun).
+
+**Start-up rescue.** It uses only caches that hold `installed`: of those whose release is older than the page's
+and has the same first number, the newest, and it takes every file from that one cache (a main script missing
+there: the note). A module script that loaded is not run a second time from the stored copy: at a 3.0 -> 3.1
+update where `overload.js?v=3.1` failed but `sync.js?v=3.1` ran, 3.0's `sync.js` would have been a second sync
+module on the same Firebase app.
+
+**bump.sh.** It sets the first-line marks with every new number, and `--check` fails when one names another
+release or is not there exactly once. `--check` also fails when `sw.js` or `fuel/sw.js` differs from the published
+one while its cache name is the same. "Published" is `origin/main` (GitHub Pages serves `main`), not `HEAD`: a
+change committed but not pushed is still caught, and an unpublished release under development is compared with
+what phones have. The comparison is skipped without git, without `origin/main`, outside the repository's own
+root, and for a worker that is new since then (`fuel/sw.js` against 2.8's `main`). README "Rebuilding the food
+list" now says to run `sh bump.sh` with the next release after moving `?db=`.
+
+**Tests see what a phone keeps** (upgrade#5). `tests/lib.js` has a sealed mode: `launch({ sealed: true })` makes
+every host but 127.0.0.1 unresolvable and sends every other request to a proxy in the test process that refuses
+it; `newPhone({ sealed: true })` has no routing. Under Playwright routing Chromium installed the same `sw.js`
+again at every start (14 times for one phone of `train-sw.js` with routed phones). `lib.watchWorkers` counts
+worker versions over CDP, and the worker tests fail when the same worker file finished installing twice.
+`lib.coldPage` opens a page whose requests skip the browser's memory and HTTP caches, as a Home Screen app's cold
+start does; without routing a reload otherwise takes scripts from memory and the worker never sees them. Tests
+that need the stand-in Firebase files (routing) keep routed phones: `train-mixed.js` before 3.0, `fuel-sw.js`
+phones 1, 3, 5 and 6, `train-sync.js`, `fuel-sync.js` and the other cloud tests.
+
+Not covered, as before: WebKit on an iPhone (whether it stops a worker mid-install, its caches), and how long
+GitHub Pages' edges hand out old files.

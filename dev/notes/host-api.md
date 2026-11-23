@@ -119,6 +119,8 @@ food.js asks whether a sheet is open by reading `#sheet`'s `hidden` property (`f
 
 Focus: the host does nothing about focus for food. The tapped button keeps it when a sheet opens. Closing a sheet removes its boxes from the page; on a phone that should also close the keyboard (not checked on an iPhone).
 
+In 3.0 (both apps, review finding look#6) the sheet is a dialog: `#sheet-panel` has `role="dialog"`, `aria-modal="true"` and `aria-labelledby="sheet-heading"`, and `openSheet` gives the title (`.sheet-title h2`) that id. A fresh sheet takes focus on its title (or, with keys, on a box marked `autofocus`); the top bar, `#save-warning`, `#app`, `#rest-timer` and the tab bar are `inert` until `closeSheet`, which gives focus back to what opened it (found again by tag and `data-…` attributes when a save drew it again). Escape closes the sheet, through `closeSheet`; Tab goes round inside it. After a touch none of this shows: no ring (`data-quiet-focus`), no scrolling, and no text box is focused. A redraw of the open sheet moves focus only when keys are in use and the focus went with the old content; food.js needs nothing new.
+
 ---
 
 ## 2. What the host calls on `window.__overloadFood`
@@ -382,11 +384,11 @@ The shell script must be a classic script that has run before food.js is evaluat
 | `save()` → boolean | Synchronous. Write `JSON.stringify(state)` to `fuel.state.v1`; never write while the stored data is unreadable; on failure keep a banner up until a save works and show the "Not saved" toast after the caller's own toast (a microtask); tell the sync module (an event). |
 | `render()` | Synchronous. Mark the active tab; for `'food'` set `#app.innerHTML = window.__overloadFood ? window.__overloadFood.render() : placeholder`; for Settings include `window.__overloadFood.settingsCard()`. Catch a throw and show an "Export" card instead of a blank screen. Never close or change the sheet, never move focus, never scroll. Must not be called for a redraw of Settings while one of its boxes has the keyboard (sync status changes must patch their own elements only, as `setSyncStatus` does at `app.js:2430-2436`). |
 | `lib.$`, `lib.esc`, `lib.uid`, `lib.num`, `lib.todayKey`, `lib.addDays`, `lib.fmtDate` | As in `app.js:129-153` (copy them). |
-| `lib.openSheet(html, key)` | As `app.js:1547-1556`: fill `#sheet-panel`, unhide `#sheet` (the `hidden` attribute), lock page scroll, reset the panel's scroll only for a different sheet. No event, no focus change. |
+| `lib.openSheet(html, key)` | As `app.js:1547-1556`: fill `#sheet-panel`, unhide `#sheet` (the `hidden` attribute), lock page scroll, reset the panel's scroll only for a different sheet. No event. (3.0 also makes it a dialog and moves focus into it: see the end of 1.5.) |
 | `lib.closeSheet()` | As `app.js:1557`: hide, empty, unlock, **then** dispatch `overload:sheetclose` on `document`, synchronously. Every way of closing a sheet goes through it. |
 | `lib.sheetHeader(title, extra)` | As `app.js:1558`: `.sheet-title` containing an `h2` with the title (HTML, not escaped) and a `data-action="sheet-close"` button. |
 | `lib.toast(msg)` | As `app.js:1955-1959`: `textContent`, replaces the one showing, cannot be tapped. |
-| `lib.markDeleted(kind, id)` | `state.deleted[kind][id] = Date.now()`. |
+| `lib.markDeleted(kind, id)` | `state.deleted[kind][id] = Date.now()`, making the map first for `fav` and `custom` (which exist only once there is a record: Fuel's `food.js` writes them when he takes a star off and when he deletes a food of his own; review findings data#3, data#4). |
 
 **For `fuel/sync.js`** (as built in 3.0; `sync.md` section 5 gives each contract). `fuel/sync.js` also reads `state`, `saveFailed` and `render` (when `syncChanged` is missing), and needs:
 
@@ -399,6 +401,8 @@ The shell script must be a classic script that has run before food.js is evaluat
 | `get startedWithData()` | Whether the page started on saved data, as `load()` found it before anything could be tapped. Sync believes its note only then. `load()` itself removes the note (`fuel.sync.v1`) when nothing is stored or the stored data cannot be read. |
 
 So Fuel's `window.__overload` has twelve members: the six for `food.js` and these six. `tests/fuel-shell.js` checks that list.
+
+The other way, `fuel/fuel.js` reads three fields of the module's note (`fuel.sync.v1`) while the module has not loaded yet: `uid`, `email` and `signedOut`. A note that names an account and is not marked signed out counts as signed in for Reset and Restore (their questions, and the note is kept), as `syncOn` counts any note (review finding sync#2, `sync.md` 4.7).
 
 **Event routing** (bubbling listeners on `document`, as `app.js:2077-2083, 2240, 2251-2252, 2309-2311, 2316-2318`):
 

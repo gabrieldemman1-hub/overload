@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload + Fuel: the shared design system ("Instrument", production version).
  * Guide: dev/design/SYSTEM.md. Reference screens: dev/design/system/*.html.
  *
@@ -185,6 +186,13 @@
 *, *::before, *::after { box-sizing: border-box; }
 * { -webkit-tap-highlight-color: transparent; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* Keys in use (Tab, an external keyboard; the app's sheet code sets the class, and takes it off at the next touch):
+   a control reached by Tab is scrolled clear of the top bar (and the save warning), the rest dock and the tab bar.
+   Without the class nothing changes: scrolling by touch, and the app's own scrolling, are as they were. */
+html.keys {
+  scroll-padding-top: calc(var(--topbar-h) + var(--safe-top) + 8px + var(--save-warning-h, 0px));
+  scroll-padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--dock-h) + 8px);
+}
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
 body {
   font-family: var(--font); font-size: var(--t-body); line-height: 1.4;
@@ -208,6 +216,9 @@ a { color: var(--accent-ink); }
    In the light theme this strip keeps it readable. It is 0 px tall in a browser tab. */
 body::before { content: ""; position: fixed; z-index: 21; top: 0; left: 0; right: 0; height: var(--safe-top); background: var(--statusbar, transparent); pointer-events: none; }
 :focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+/* Focus the sheet code moves (into a sheet, back to what opened it) never draws a ring after a touch, and a sheet's
+   title, which takes focus when the sheet opens, is not a control: no ring there either. */
+[data-quiet-focus]:focus-visible, .sheet-title h2:focus { outline: none; }
 /* Controls that fill a box with overflow: hidden (a folded exercise, joined answer keys, stepper keys): the ring goes inside. */
 .ex-fold:focus-visible, .choice:focus-visible, .stepper button:focus-visible, .seg button:focus-visible, .cal-cell:focus-visible, .tab:focus-visible { outline-offset: -2px; }
 input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -731,6 +742,7 @@ body.has-save-warning .screen { padding-top: calc(var(--topbar-h) + var(--safe-t
 .cal-cell {
   position: relative; isolation: isolate; height: var(--tap); padding: 0; display: flex; align-items: center; justify-content: center;
   background: none; border: 0; color: var(--ink-2); font: inherit; font-size: var(--t-body); font-weight: 600;
+  font-variant-numeric: tabular-nums;   /* again after font: inherit, which resets it (section 1) */
 }
 .cal-cell::before { content: ""; position: absolute; z-index: -1; top: 3px; bottom: 3px; left: 50%; width: 38px; margin-left: -19px; border-radius: var(--r-3); }
 .cal-cell.empty { visibility: hidden; }
@@ -804,6 +816,9 @@ body.has-save-warning .screen { padding-top: calc(var(--topbar-h) + var(--safe-t
 #safety-copies .list-item:first-child { padding-top: 0; }
 #cloud-msg { color: var(--bad-ink); }
 #cloud-msg:empty { display: none; }
+/* The status can be a sentence ("Could not reach the cloud. Nothing was uploaded; retrying."): it wraps inside the
+   card instead of running off the screen. A short one stays on one line, beside "Signed in" or under it. */
+#cloud-status { white-space: normal; max-width: 100%; overflow-wrap: anywhere; text-align: start; }
 #cloud-status.synced { color: var(--ok-ink); border-color: transparent; background: var(--ok-wash); }
 #cloud-status.error { color: var(--bad-ink); border-color: transparent; background: var(--bad-wash); }
 #cloud-status.syncing, #cloud-status.offline { color: var(--warn-ink); border-color: transparent; background: var(--warn-wash); }

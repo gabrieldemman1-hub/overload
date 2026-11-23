@@ -438,8 +438,9 @@
   function refreshNotices() { const el = $('#today-notices'); if (el) el.innerHTML = noticesHtml(); }
   // Settings: the list of automatic copies is read from IndexedDB after the screen is drawn.
   const COPY_KINDS = { import: 'Before import', reset: 'Before reset', restore: 'Before restore', cloud: 'Before cloud sign-in', unreadable: 'Unreadable data', split: 'Before the split into two apps', foodremove: 'Before removing the old food log' };
+  const timeOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   function copyRow(m) {
-    const when = fmtDate(todayKey(new Date(m.at))) + (m.kind === 'day' ? '' : ', ' + new Date(m.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+    const when = fmtDate(todayKey(new Date(m.at))) + (m.kind === 'day' ? '' : ', ' + timeOf(m.at));
     const title = m.kind === 'day' ? when : (COPY_KINDS[m.kind] || 'Copy') + ' · ' + when;
     const sub = m.workouts == null ? 'As it was found. Export it if you might need it.' : plural(+m.workouts || 0, 'workout') + (m.first ? ' · ' + fmtRange(m.first, m.last || m.first) : '') + (m.foodDays ? ' · ' + plural(+m.foodDays, 'food day') : '');
     const btn = m.kind === 'unreadable' ? '<button class="btn small ghost" data-action="export-copy" data-id="' + esc(m.id) + '">Export</button>' : '<button class="btn small ghost" data-action="restore-copy" data-id="' + esc(m.id) + '">Restore</button>';
@@ -465,31 +466,45 @@
       + '<input type="file" accept="application/json,.json" id="import-file" hidden>'
       + '<div class="toggle-row"><div><div>Storage used</div><div class="small muted">' + used.toLocaleString() + ' of about ' + STORE_LIMIT.toLocaleString() + ' characters the app can safely use. Today warns at 70%.</div>'
       + '<span class="vol-bar store-bar"><span class="vol-fill ' + cls + '" style="width:' + Math.min(100, pct) + '%"></span></span></div><span class="vol-n ' + cls + '">' + pct + '%</span></div>'
-      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">Kept on this phone: one a day for the last ' + ((window.__overloadBackup && window.__overloadBackup.KEEP_DAYS) || 7) + ' days, and one taken before each import, reset, restore or cloud sign-in.</p>'
+      + '<div class="mt12"><b>Automatic copies</b></div><p class="small muted mb8">' + keptText() + '</p>'
       + '<div id="safety-copies">' + (ui.copiesHtml || '<p class="small muted">Looking for copies…</p>') + '</div></div>';
   }
+  // What Settings > Automatic copies keeps (backup.js): every kind it keeps, and how many of each.
+  function keptText() {
+    const B = window.__overloadBackup;
+    return 'Kept on this phone: one a day for the last ' + ((B && B.KEEP_DAYS) || 7) + ' days; one each from before the last import, reset, restore and cloud sign-in; '
+      + 'the copy from the split into two apps; and the copies from before the last ' + ((B && B.KEEP_REMOVALS) || 3) + ' removals of the old food log.';
+  }
+  // Restore, Import, Reset and Remove change or replace the data and wait for a copy on the way: while one of them
+  // is under way, another tap on any of them does nothing (review finding code#2: a second Restore wrote the
+  // restored data over "Before restore").
+  const busy = () => !!(ui.replacing || ui.removing);
   // Restore an automatic copy: confirm, keep a copy of what is here now, then replace.
   async function restoreCopy(id) {
-    const B = window.__overloadBackup; if (!B) return;
-    let rec = null, parsed = null;
-    try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
-    if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
-    if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) { toast('That copy cannot be read'); return; }
-    const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
-    // The copies taken at the split and before a removal are where the old food log was kept. Restored while the
-    // phone holds food days again (an older version of the app ran and logged food), the two logs are put together.
-    const merge = !ui.unreadable && (rec.kind === 'foodremove' || rec.kind === 'split') && foodFacts().days > 0 && fileFood(parsed).days > 0;
-    const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy', merge) + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced', 'the copy');
-    if (!confirm(replaceQuestion(what) + '\n\n' + dataSummary(parsed, 'The copy') + here)) return;
-    replaceState(parsed, 'restore', 'Copy restored', merge);
+    const B = window.__overloadBackup; if (!B || busy()) return;
+    ui.replacing = true;
+    try {
+      let rec = null, parsed = null;
+      try { rec = await B.get(id); parsed = rec && JSON.parse(rec.text, noProto); } catch (e) { parsed = null; }
+      if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
+      if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) { toast('That copy cannot be read'); return; }
+      const what = rec.kind === 'day' ? 'the copy from ' + fmtDate(todayKey(new Date(rec.at))) : 'the copy "' + (COPY_KINDS[rec.kind] || 'Copy') + '"';
+      // The copies taken at the split and before a removal are where the old food log was kept. Restored while the
+      // phone holds food days again (an older version of the app ran and logged food), the two logs are put together.
+      const merge = !ui.unreadable && (rec.kind === 'foodremove' || rec.kind === 'split') && foodFacts().days > 0 && fileFood(parsed).days > 0;
+      const here = ui.unreadable ? '' : '\n' + dataSummary(state, 'This phone now') + activeLine(parsed, 'the copy') + foodLine(parsed, 'the copy', merge) + '\n\nA copy of what is on the phone now is kept first.' + cloudNote('replaced', 'the copy');
+      if (!confirm(replaceQuestion(what) + '\n\n' + dataSummary(parsed, 'The copy') + here)) return;
+      await replaceState(parsed, 'restore', 'Copy restored', merge);
+    } finally { ui.replacing = false; }
   }
   // A file made by Fuel, or a food log saved for Fuel, is not a backup of this app and must never replace its data.
   const FUEL_FILE = 'This is a ' + FUEL + ' file. Open it in ' + FUEL + '.';
   const isFuelFile = (parsed) => isObj(parsed) && (parsed.app != null || parsed.kind != null);
-  // Import and Restore replace the training data. The food log this phone still holds is not theirs to drop
-  // (keepFoodCopy), so the question only says "everything" when that is true.
+  // Import and Restore replace the training data. The old food copy this phone still holds (its log, or after
+  // Remove its saved foods and targets) is not theirs to drop (keepFoodCopy), so the question only says
+  // "everything" when that is true: the phone holds no food at all, or its data could not be read.
   function replaceQuestion(what) {
-    return (!ui.unreadable && foodFacts().days ? 'Replace the training data on this phone with ' : 'Replace everything on this phone with ') + what + '?';
+    return (!ui.unreadable && foodFacts().any ? 'Replace the training data on this phone with ' : 'Replace everything on this phone with ') + what + '?';
   }
   // The parts of the saved foods a state, file or copy holds, in words: ['saved foods', 'saved meals', 'targets'].
   function foodParts(food) {
@@ -527,18 +542,39 @@
     const days = st.diary && typeof st.diary === 'object' ? Object.keys(st.diary).length : 0;
     return label + ': ' + plural(ws.length, 'workout') + (ws.length ? ' (' + fmtRange(ws[0], ws[ws.length - 1], true) + ')' : '') + (days ? ', ' + plural(days, 'food day') : '') + '.';
   }
-  // Import and Restore: keep a copy of what is here, then put the new data in place.
-  function replaceState(parsed, kind, done, merge) {
+  // Import and Restore: keep a copy of what is here, then put the new data in place. The caller holds ui.replacing.
+  // The copy is stored first, as Restore's question and Settings say: if it cannot be, nothing is replaced
+  // (review findings data#1, code#3; Fuel's copyFirst does the same). Data that could not be read has its own copy.
+  async function replaceState(parsed, kind, done, merge) {
+    if (!ui.unreadable) { const c = await copyFirst(kind); if (c !== 'kept') { notDone(c, kind === 'import' ? 'Import JSON' : 'Restore a copy', 'replaced'); return; } }
     // An older copy may hold an older WHOOP connector link: this phone keeps its own.
     if (kind === 'restore' && !ui.unreadable && isObj(parsed.settings)) ['connUrl', 'connKey'].forEach((k) => { if (state.settings[k]) parsed.settings[k] = state.settings[k]; });
-    if (!ui.unreadable) { safetyCopy(kind); keepFoodCopy(parsed, merge); }
+    if (!ui.unreadable) keepFoodCopy(parsed, merge);
+    const next = normalize(parsed);
     forgetCloudIfSignedOut();
-    state = normalize(parsed);
+    state = next;
     stopTimer();   // it was counting rest for a set of the data just replaced
     if (!activeWorkout()) state.active = null;
     ui.lastActive = state.active;
     if (ui.unreadable) { leaveUnreadable(); ui.screen = 'today'; }
     applyTheme(); const ok = save(); render(); toast(ok ? done : NOT_SAVED);
+  }
+  // The copy of what is here, taken before a reset, a restore or an import: 'kept' when it is stored and nothing
+  // changed meanwhile, 'failed' when it could not be stored (IndexedDB did not answer, or refused it, or backup.js
+  // is missing), 'changed' when the data changed while it was being stored (cloud sync brought some): the copy
+  // would not hold that.
+  async function copyFirst(kind) {
+    const text = JSON.stringify(state);
+    if (!(await safetyCopy(kind, false, text))) return 'failed';
+    return JSON.stringify(state) === text ? 'kept' : 'changed';
+  }
+  const copyFailedText = (did) => 'The automatic copy could not be stored, so nothing was ' + did + '. Export a backup first, then try again.';
+  // Nothing was done because the copy was not kept. Export is a button of its own in a sheet, so the share sheet
+  // opens from a tap of his (an iPhone opens it only from a tap).
+  function notDone(c, title, did) {
+    if (c !== 'failed') { toast('The training data changed just now. Nothing was ' + did + '.'); return; }
+    openSheet(sheetHeader(title) + '<div class="banner warn" role="alert">' + icon('warning') + '<span>' + copyFailedText(did) + '</span></div>'
+      + '<button class="btn block mt12" data-action="export">' + icon('export') + 'Export backup</button>', 'copy-failed');
   }
   // Reset, Import and Restore put new training data in place. The old food copy is not theirs to drop: what this
   // phone holds is carried into the new data as it is, and food from the file or copy is used only for a part this
@@ -589,7 +625,8 @@
     if (!next || next.v !== 1 || ui.unreadable) return;
     state = normalize(next);
     let ok = true;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+    // The storage meter counts the app's data from what was last stored (see storageUsed), here as in save().
+    try { const text = JSON.stringify(state); localStorage.setItem(STORAGE_KEY, text); ui.savedChars = text.length; } catch (e) { ok = false; }
     if (ok !== !ui.saveFailed) { ui.saveFailed = !ok; renderSaveWarning(); }
     // Keep state.active even if that workout is not here yet: cloud sync can deliver the settings
     // before the workout itself, and clearing it would end the workout on the other phone too.
@@ -863,11 +900,19 @@
         + '<div class="btn-row mt12"><button class="btn" data-action="export">' + icon('export') + 'Export backup</button></div></div>';
     }
   }
+  // The tab of the screen shown: lit, and named the current page for assistive tech. null: none (the unreadable screen).
+  function markTabs(active) {
+    document.querySelectorAll('.tab').forEach((t) => {
+      const on = t.dataset.screen === active;
+      t.classList.toggle('active', on);
+      if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+    });
+  }
   function renderScreen() {
     const app = $('#app');
     // Opened yesterday and still open: the selected day moves on with the date.
     if (ui.dayKey !== todayKey()) { ui.dayKey = todayKey(); ui.selectedDay = weekdayIndex(); ui.showOthers = false; }
-    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.screen === ui.screen));
+    markTabs(ui.screen);
     renderTopbar();
     switch (ui.screen) {
       case 'today': app.innerHTML = renderToday(); break;
@@ -999,11 +1044,11 @@
     const due = weighDue();
     const showWeight = s.weighEvery && (due || bwToday || ui.checkinEdit);
     const hm = (label, k, min, hint) => '<div class="toggle-row"><div><div>' + label + '</div>' + (hint ? '<div class="tiny muted">' + hint + '</div>' : '') + '</div><div class="row tight">'
-      + '<input class="input num n2" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '"><span class="muted">h</span>'
-      + '<input class="input num n2" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '"><span class="muted">m</span></div></div>';
+      + '<input class="input num n2" name="' + k + 'H" type="number" inputmode="numeric" min="0" max="16" placeholder="h" value="' + (min != null ? Math.floor(min / 60) : '') + '" aria-label="' + label + ', hours"><span class="muted">h</span>'
+      + '<input class="input num n2" name="' + k + 'M" type="number" inputmode="numeric" min="0" max="59" placeholder="m" value="' + (min != null ? Math.round(min % 60) : '') + '" aria-label="' + label + ', minutes"><span class="muted">m</span></div></div>';
     return '<div class="card" id="checkin-card"><div class="row between"><b>Morning check-in</b>' + (due ? '<span class="pill amber">Weigh-in due</span>' : '') + '</div>'
       + '<form id="bw-form" class="mt8">'
-      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row tight"><input class="input num" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '"><span class="muted">' + u + '</span></div></div>' : '')
+      + (showWeight ? '<div class="toggle-row"><div><div>Body weight</div><div class="tiny muted">' + (lastBw ? 'Last ' + fmtW(lastBw.weight) + ' ' + u + ' · ' + fmtDate(lastBw.date) : 'After the bathroom, before food') + '</div></div><div class="row tight"><input class="input num" name="weight" type="number" inputmode="decimal" step="any" min="0" placeholder="' + (lastBw ? fmtW(lastBw.weight) : u) + '" value="' + (bwToday ? fmtW(bwToday.weight) : '') + '" aria-label="Body weight"><span class="muted">' + u + '</span></div></div>' : '')
       + (!s.sleepOn ? '' : slToday && slToday.src === 'whoop' && !ui.checkinEdit
         ? '<div class="toggle-row"><div><div>Sleep <span class="tiny muted">from WHOOP</span></div><div class="small">' + esc(sleepLine(slToday)) + '</div></div>' + recPill(slToday.recovery) + '</div>'
         : hm('Time asleep', 'total', slToday ? slToday.total : null, 'From your watch or sleep app') + hm('REM', 'rem', slToday ? slToday.rem : null) + hm('Deep', 'deep', slToday ? slToday.deep : null))
@@ -1129,7 +1174,7 @@
     const c = ensureCardio(w); if (!c) return '';
     const running = timer.handle && timer.kind === 'cardio';
     const last = lastCardio();
-    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : esc(val)) + '" data-field="cardio" data-k="' + k + '"' + (c.done ? ' disabled' : '') + '></div>';
+    const field = (label, k, val, step) => '<div class="field"><label>' + label + '</label><input class="input" type="number" inputmode="decimal" step="' + step + '" min="0" value="' + (val == null ? '' : esc(val)) + '" data-field="cardio" data-k="' + k + '" aria-label="' + label + '"' + (c.done ? ' disabled' : '') + '></div>';
     // Done keeps the same layout, so nothing slides under the finger that tapped Done: Undo takes the timer
     // button's place and a disabled "Logged" sits where Done was. Done is a key (something to do); Logged is
     // solid (recorded).
@@ -1255,7 +1300,7 @@
         + '<div class="small muted">' + (names.join(', ') || 'No exercises') + '</div></div>';
     }).join('');
 
-    const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" data-field="schedule" data-i="' + i + '">'
+    const schedule = WEEKDAYS_LONG.map((d, i) => '<div class="toggle-row"><span>' + d + '</span><select class="select" data-field="schedule" data-i="' + i + '" aria-label="' + d + '">'
       + '<option value="">Rest</option>' + state.program.days.map((x) => '<option value="' + x.id + '" ' + (state.program.schedule[i] === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></div>').join('');
 
     const templates = state.templates.map((t) => '<div class="list-item"><div class="grow"><div class="title">' + esc(t.name).replace(/\//g, '/<wbr>') + '</div><div class="sub">' + plural(t.days.length, 'day') + ' · saved ' + fmtDate(t.savedAt) + '</div></div>'
@@ -1418,7 +1463,7 @@
     const stats = '<div class="stat-row mb8"><div class="stat"><div class="v">' + (st.streak ? icon('flame', 'm', '🔥 ') + st.streak : '0') + '</div><div class="k">Day streak</div></div><div class="stat"><div class="v">' + thisMonth + '</div><div class="k">This month</div></div><div class="stat"><div class="v">' + done.length + '</div><div class="k">Workouts</div></div></div>';
 
     const tracked = state.exercises.filter((e) => lastEntryFor(e.id));
-    const chartSel = tracked.length ? '<div class="card"><div class="field"><label>Progress</label><select class="select" data-field="chart-ex"><option value="">Pick an exercise…</option>'
+    const chartSel = tracked.length ? '<div class="card"><div class="field"><label>Progress</label><select class="select" data-field="chart-ex" aria-label="Progress"><option value="">Pick an exercise…</option>'
       + tracked.map((e) => '<option value="' + e.id + '" ' + (ui.chartEx === e.id ? 'selected' : '') + '>' + esc(e.name) + '</option>').join('') + '</select></div>'
       + (ui.chartEx ? renderChart(ui.chartEx) : '') + '</div>' : '';
 
@@ -1650,24 +1695,24 @@
     return '<div class="screen-title"><h1>Settings</h1></div>'
       + '<div class="card">'
       + '<div class="toggle-row"><div><div>Appearance</div><div class="small muted">System follows your phone</div></div><div class="seg">' + ['system', 'dark', 'light'].map((t) => '<button class="' + ((s.theme || 'system') === t ? 'on' : '') + '" data-action="set-theme" data-v="' + t + '">' + t[0].toUpperCase() + t.slice(1) + '</button>').join('') + '</div></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: barbell</div><div class="small muted">Also cable-free moves and anything else. Per exercise override in Exercises</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: dumbbell</div><div class="small muted">Per hand. Most racks go up in 5s</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incDumbbell + '" data-field="setting" data-k="incDumbbell"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: machine</div><div class="small muted">Stack pin or plate-loaded</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incMachine + '" data-field="setting" data-k="incMachine"></div>'
-      + '<div class="toggle-row"><div><div>Weight jump: cable</div><div class="small muted">Cable stack</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incCable + '" data-field="setting" data-k="incCable"></div>'
-      + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax"></div></div>'
-      + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec"></div>'
-      + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets"></div>'
-      + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: barbell</div><div class="small muted">Also cable-free moves and anything else. Per exercise override in Exercises</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.increment + '" data-field="setting" data-k="increment" aria-label="Weight jump: barbell"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: dumbbell</div><div class="small muted">Per hand. Most racks go up in 5s</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incDumbbell + '" data-field="setting" data-k="incDumbbell" aria-label="Weight jump: dumbbell"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: machine</div><div class="small muted">Stack pin or plate-loaded</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incMachine + '" data-field="setting" data-k="incMachine" aria-label="Weight jump: machine"></div>'
+      + '<div class="toggle-row"><div><div>Weight jump: cable</div><div class="small muted">Cable stack</div></div><input class="input num" type="number" inputmode="decimal" step="any" min="0" value="' + s.incCable + '" data-field="setting" data-k="incCable" aria-label="Weight jump: cable"></div>'
+      + '<div class="toggle-row"><div><div>Rep range</div><div class="small muted">Hit the top on every set → weight goes up</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMin + '" data-field="setting" data-k="repMin" aria-label="Rep range, lowest"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="1" value="' + s.repMax + '" data-field="setting" data-k="repMax" aria-label="Rep range, highest"></div></div>'
+      + '<div class="toggle-row"><div><div>Rest timer</div><div class="small muted">Seconds, starts when you check a set</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.restSec + '" data-field="setting" data-k="restSec" aria-label="Rest timer"></div>'
+      + '<div class="toggle-row"><div><div>Starting sets</div><div class="small muted">For new exercises</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.defaultSets + '" data-field="setting" data-k="defaultSets" aria-label="Starting sets"></div>'
+      + '<div class="toggle-row"><div><div>Max sets</div><div class="small muted">Feedback never pushes past this</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.maxSets + '" data-field="setting" data-k="maxSets" aria-label="Max sets"></div>'
       + '<div class="toggle-row"><div><div>Reps in reserve</div><div class="small muted">After you tick a set, tap how many reps you had left (3+, 2, 1, 0). 3+ on every set moves weight up early</div></div><div class="seg"><button class="' + (s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="1">On</button><button class="' + (!s.trackRir ? 'on' : '') + '" data-action="set-rir" data-v="0">Off</button></div></div>'
-      + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest"></div>'
-      + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax"></div></div>'
-      + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" data-field="setting" data-k="weighEvery">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
+      + '<div class="toggle-row"><div><div>Warm-up rest</div><div class="small muted">Seconds between warm-up sets</div></div><input class="input num" type="number" inputmode="numeric" min="0" value="' + s.warmupRest + '" data-field="setting" data-k="warmupRest" aria-label="Warm-up rest"></div>'
+      + '<div class="toggle-row"><div><div>Weekly sets target</div><div class="small muted">Per muscle, for the volume chart</div></div><div class="row tight"><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMin + '" data-field="setting" data-k="volumeMin" aria-label="Weekly sets target, lowest"><span class="muted">–</span><input class="input num n2" type="number" inputmode="numeric" min="0" value="' + s.volumeMax + '" data-field="setting" data-k="volumeMax" aria-label="Weekly sets target, highest"></div></div>'
+      + '<div class="toggle-row"><div><div>Weigh-in reminder</div><div class="small muted">How often the Today screen asks for your body weight</div></div><select class="select" data-field="setting" data-k="weighEvery" aria-label="Weigh-in reminder">' + [[0, 'Off'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Weekly'], [14, 'Every 2 weeks']].map(([v, l]) => '<option value="' + v + '" ' + (s.weighEvery === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div>'
       + '<div class="toggle-row"><div><div>Sleep</div><div class="small muted">Time asleep, REM and deep in the morning check-in</div></div><div class="seg"><button class="' + (s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="1">On</button><button class="' + (!s.sleepOn ? 'on' : '') + '" data-action="set-sleep" data-v="0">Off</button></div></div>'
       + '</div>'
       + '<div class="group-title">Cardio</div><div class="card">'
       + '<div class="toggle-row"><div><div>Cardio after lifting</div><div class="small muted">Adds a cardio card with a timer to the end of every workout</div></div><div class="seg"><button class="' + (s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="1">On</button><button class="' + (!s.cardioOn ? 'on' : '') + '" data-action="set-cardio" data-v="0">Off</button></div></div>'
-      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" value="' + esc(s.cardioName) + '" data-field="cardio-name"></div>'
-        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin"></div>' : '')
+      + (s.cardioOn ? '<div class="toggle-row"><div><div>What</div></div><input class="input" value="' + esc(s.cardioName) + '" data-field="cardio-name" aria-label="What cardio"></div>'
+        + '<div class="toggle-row"><div><div>Minutes</div></div><input class="input num" type="number" inputmode="numeric" min="1" value="' + s.cardioMin + '" data-field="setting" data-k="cardioMin" aria-label="Cardio minutes"></div>' : '')
       + '</div>'
       + (window.__overloadConn ? window.__overloadConn.settingsCard() : '')
       + '<div id="handover" data-where="settings">' + handoverHtml('settings') + '</div>'
@@ -1681,7 +1726,7 @@
     const sync = window.__overloadSync;
     let body;
     if (!sync) {
-      body = '<p class="small muted">Cloud sync is loading. If this never changes, the sync module could not load (offline, or sync.js is missing).</p>';
+      body = '<p class="small muted">Cloud sync is not available right now. It starts when the app opens with signal. Your data stays on this phone.</p>';
     } else if (sync.user) {
       const st = ui.sync;
       body = '<div class="toggle-row"><div><div>Signed in</div><div class="small muted">' + esc(sync.user.email) + '</div></div><span class="pill ' + st.status + '" id="cloud-status">' + esc(st.msg || 'Connected') + '</span></div>'
@@ -1689,8 +1734,8 @@
         + '<div class="btn-row mt12"><button class="btn ghost" data-action="cloud-push">' + icon('sync') + 'Sync now</button><button class="btn subtle" data-action="cloud-signout">Sign out</button></div>';
     } else {
       body = '<p class="small muted mb8">Sign in to keep your data in the cloud so it survives clearing this phone and follows you to a new one. First time here? Enter an email and password and tap Create account.</p>'
-        + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required></div>'
-        + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required></div>'
+        + '<form id="cloud-form"><div class="field"><label>Email</label><input class="input" name="email" type="email" autocomplete="username" inputmode="email" required aria-label="Email"></div>'
+        + '<div class="field"><label>Password</label><input class="input" name="password" type="password" autocomplete="current-password" required aria-label="Password"></div>'
         + '<div id="cloud-msg" class="small mb8"></div>'
         + '<div class="btn-row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-action="cloud-signup">Create account</button></div>'
         + '<button class="btn subtle block mt8" type="button" data-action="cloud-reset">Forgot password</button></form>';
@@ -1707,7 +1752,9 @@
       if (kind === 'signin') { if (!email || !password) return say('Enter your email and password.'); await sync.signIn(email, password); toast('Signed in'); }
       if (kind === 'signup') { if (!email || !password) return say('Enter an email and a password of at least 6 characters.'); await sync.createAccount(email, password); toast('Account created'); }
       if (kind === 'reset') { if (!email) return say('Enter your email first.'); await sync.resetPassword(email); say('Reset email sent. Check your inbox.'); }
-      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud. Changes you make while signed out are sent when you sign back in.')) { await sync.signOut(); toast('Signed out'); } }
+      // What a sign-in after this does: sync.js keeps its note, so what was logged meanwhile is sent; a Reset,
+      // Import or Restore meanwhile removes the note (forgetCloudIfSignedOut), so the account's data comes back.
+      if (kind === 'signout') { if (confirm('Sign out? Your data stays on this phone and in the cloud. What you log while signed out is sent when you sign back in. A Reset, Import or Restore done while signed out is not: signing in again brings back what the account holds.')) { await sync.signOut(); toast('Signed out'); } }
       if (kind === 'push') { await sync.pushNow(); toast('Sync requested'); }
     } catch (e) { say(e.message || 'Something went wrong.'); }
   }
@@ -1715,17 +1762,90 @@
   // ---------------------------------------------------------------------------
   // Sheets
   // ---------------------------------------------------------------------------
+  // A sheet is a dialog (#sheet-panel in index.html: role="dialog", aria-modal, named by the title, which gets the id
+  // sheet-heading). While one is open the page behind it is inert; focus moves to its title when it opens, Escape
+  // closes it, and closing gives focus back to what opened it (drawn again by then, often). Touch sees none of it: a
+  // focus moved here after a touch draws no ring (data-quiet-focus), scrolls nothing, and never goes to a text box
+  // (that would bring up the keyboard). Fuel's sheet code (fuel/fuel.js) is the same.
+  const sheetNav = { keys: false, tapped: null, opener: null };
+  const BEHIND = 'body > .topbar, body > #save-warning, body > #app, body > #rest-timer, body > .tabbar';
+  const typingBox = (el) => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    || (el.tagName === 'INPUT' && !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/i.test(el.type)));
+  // Keys or touch: keys are Tab, or a key pressed outside a text box (the phone's own keyboard types in boxes too).
+  // <html class="keys"> gives the page its scroll padding (shared/ui.css), so Tab never stops under a bar.
+  function usingKeys(on) {
+    if (sheetNav.keys === on) return;
+    sheetNav.keys = on; document.documentElement.classList.toggle('keys', on);
+    if (on) document.querySelectorAll('[data-quiet-focus]').forEach((el) => el.removeAttribute('data-quiet-focus'));
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' || (!typingBox(e.target) && !/^(Shift|Control|Alt|Meta|CapsLock|Fn)$/.test(e.key))) usingKeys(true);
+    if (e.key === 'Escape' && ui.sheet && !e.isComposing) { e.preventDefault(); closeSheet(); }
+    if (e.key === 'Tab' && ui.sheet) tabRound(e);
+  }, true);
+  // Tab goes round inside the open sheet: from its last control to its first, and with Shift from the first (or the
+  // title) to the last.
+  function tabRound(e) {
+    const panel = $('#sheet-panel'), a = document.activeElement;
+    const all = [...panel.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+    if (!all.length) return;
+    const i = all.indexOf(a), inside = panel.contains(a);
+    if (e.shiftKey ? !inside || i <= 0 : !inside || i === all.length - 1) { e.preventDefault(); (e.shiftKey ? all[all.length - 1] : all[0]).focus(); }
+  }
+  // A touch is a pointerdown (no touchstart listener: the page had none, and one can change how a tap looks on iOS).
+  ['pointerdown', 'mousedown'].forEach((type) => document.addEventListener(type, () => usingKeys(false), true));
+  // What was tapped last outside a sheet: on an iPhone a tapped button does not take focus, so this is what opened it.
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest && e.target.closest('button, a[href], input, select, textarea, [tabindex], [data-action]');
+    if (t && !t.closest('#sheet')) sheetNav.tapped = t;
+  }, true);
+  function quietFocus(el) {
+    if (!sheetNav.keys) { el.setAttribute('data-quiet-focus', ''); el.addEventListener('blur', () => el.removeAttribute('data-quiet-focus'), { once: true }); }
+    el.focus({ preventScroll: !sheetNav.keys });
+  }
+  // The control in the opener's place after a redraw: the same tag with the same data-… attributes.
+  function drawnAgain(el) {
+    const keys = Object.keys(el.dataset).filter((k) => k !== 'quietFocus'); if (!keys.length) return null;
+    return document.querySelector(el.tagName.toLowerCase() + keys.map((k) => '[data-' + k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()) + '="' + CSS.escape(el.dataset[k]) + '"]').join(''));
+  }
+  function focusBack(el) {
+    const a = document.activeElement;
+    if (ui.sheet || (a && a !== document.body && !a.closest('#sheet'))) return;   // a sheet again, or focus went somewhere on purpose
+    if (!el.isConnected) el = drawnAgain(el);
+    if (!el || !el.getClientRects().length || el.closest('[inert]') || (!sheetNav.keys && typingBox(el))) return;
+    quietFocus(el);
+  }
   function openSheet(html, key) {
     // key names what the sheet shows (for example 'day:' + id); without one the title does.
     const panel = $('#sheet-panel'), fresh = $('#sheet').hidden, was = panel.dataset.sheet;
+    const hadFocus = !fresh && panel.contains(document.activeElement);
+    if (fresh) {
+      const a = document.activeElement, t = sheetNav.tapped;
+      sheetNav.opener = a && a !== document.body && !panel.contains(a) && (sheetNav.keys || !typingBox(a)) ? a : t && t.isConnected ? t : null;
+    }
     ui.sheet = true; panel.innerHTML = html; $('#sheet').hidden = false; document.body.style.overflow = 'hidden';
     const h = panel.querySelector('.sheet-title h2'), now = key != null ? 'k:' + key : 't:' + (h ? h.textContent : '');
     panel.dataset.sheet = now;
     // A new sheet starts at its top, also when it replaces another one (Edit sets from a workout,
     // Duplicate day); redrawing the open one (a renamed meal, a moved exercise) keeps its place.
     if (fresh || was !== now) panel.scrollTop = 0;
+    if (h) { h.id = 'sheet-heading'; h.tabIndex = -1; }
+    // Into the sheet when it opens; after a redraw only when keys are in use and the focus went with the old content.
+    // A box marked autofocus (the exercise picker's search) is where keys go; after a touch the browser handles it as
+    // it always did, so focus is not moved for it.
+    const auto = panel.querySelector('[autofocus]');
+    if (fresh || (hadFocus && sheetNav.keys && !panel.contains(document.activeElement))) {
+      if (auto) { if (sheetNav.keys) quietFocus(auto); } else if (h) quietFocus(h);
+    }
+    if (fresh) document.querySelectorAll(BEHIND).forEach((el) => { el.inert = true; });
   }
-  function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = ''; document.dispatchEvent(new CustomEvent('overload:sheetclose')); }
+  function closeSheet() {
+    ui.sheet = null; $('#sheet').hidden = true; $('#sheet-panel').innerHTML = ''; document.body.style.overflow = '';
+    document.querySelectorAll(BEHIND).forEach((el) => { el.inert = false; });
+    const opener = sheetNav.opener; sheetNav.opener = null;
+    if (opener) setTimeout(() => focusBack(opener), 0);   // after the redraw that usually follows (save, then render)
+    document.dispatchEvent(new CustomEvent('overload:sheetclose'));
+  }
   function sheetHeader(title, extra) { return '<div class="sheet-title"><h2>' + title + '</h2><div class="row">' + (extra || '') + '<button class="icon-btn" data-action="sheet-close" aria-label="Close">' + icon('close') + '</button></div></div>'; }
 
   function sheetExercise(exId) {
@@ -1734,14 +1854,14 @@
     const opt = (arr, v) => arr.map((o) => '<option ' + (o === v ? 'selected' : '') + '>' + o + '</option>').join('');
     openSheet(sheetHeader(exId ? 'Edit exercise' : 'New exercise')
       + '<form id="ex-form" data-ex="' + (ex.id || '') + '">'
-      + '<div class="field"><label>Name</label><input class="input" name="name" required value="' + esc(ex.name) + '" placeholder="e.g. Incline Dumbbell Press"></div>'
-      + '<div class="field-row"><div class="field"><label>Muscle</label><select class="select" name="muscle">' + opt(MUSCLES, ex.muscle) + '</select></div><div class="field"><label>Equipment</label><select class="select" name="equipment">' + opt(EQUIPMENT, ex.equipment) + '</select></div></div>'
-      + '<div class="field"><label>Notes</label><input class="input" name="notes" value="' + esc(ex.notes || '') + '" placeholder="Seat 4, handles high, pin at 7…"></div>'
+      + '<div class="field"><label>Name</label><input class="input" name="name" required value="' + esc(ex.name) + '" placeholder="e.g. Incline Dumbbell Press" aria-label="Name"></div>'
+      + '<div class="field-row"><div class="field"><label>Muscle</label><select class="select" name="muscle" aria-label="Muscle">' + opt(MUSCLES, ex.muscle) + '</select></div><div class="field"><label>Equipment</label><select class="select" name="equipment" aria-label="Equipment">' + opt(EQUIPMENT, ex.equipment) + '</select></div></div>'
+      + '<div class="field"><label>Notes</label><input class="input" name="notes" value="' + esc(ex.notes || '') + '" placeholder="Seat 4, handles high, pin at 7…" aria-label="Notes"></div>'
       + '<div class="group-title">Current prescription</div>'
-      + '<div class="field-row"><div class="field"><label>Weight (' + state.settings.units + ')</label><input class="input" name="weight" type="number" inputmode="decimal" step="any" min="0" value="' + (p.weight || '') + '"></div><div class="field"><label>Sets</label><input class="input" name="sets" type="number" inputmode="numeric" min="1" value="' + p.sets + '"></div><div class="field"><label>Goal reps</label><input class="input" name="targetReps" type="number" inputmode="numeric" min="1" value="' + p.targetReps + '"></div></div>'
+      + '<div class="field-row"><div class="field"><label>Weight (' + state.settings.units + ')</label><input class="input" name="weight" type="number" inputmode="decimal" step="any" min="0" value="' + (p.weight || '') + '" aria-label="Weight (' + state.settings.units + ')"></div><div class="field"><label>Sets</label><input class="input" name="sets" type="number" inputmode="numeric" min="1" value="' + p.sets + '" aria-label="Sets"></div><div class="field"><label>Goal reps</label><input class="input" name="targetReps" type="number" inputmode="numeric" min="1" value="' + p.targetReps + '" aria-label="Goal reps"></div></div>'
       + '<div class="group-title">Overrides <span class="muted">(blank = use settings)</span></div>'
-      + '<div class="field-row"><div class="field"><label>Weight jump</label><input class="input" name="increment" type="number" inputmode="decimal" step="any" min="0" placeholder="' + state.settings.increment + '" value="' + (ex.increment || '') + '"></div><div class="field"><label>Rep min</label><input class="input" name="repMin" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMin + '" value="' + (ex.repMin || '') + '"></div><div class="field"><label>Rep max</label><input class="input" name="repMax" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMax + '" value="' + (ex.repMax || '') + '"></div></div>'
-      + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '"></div><div class="field"><label>Fixed sets</label><input class="input" name="fixedSets" type="number" inputmode="numeric" min="1" placeholder="auto" value="' + (ex.fixedSets || '') + '"></div><div class="field"></div></div>'
+      + '<div class="field-row"><div class="field"><label>Weight jump</label><input class="input" name="increment" type="number" inputmode="decimal" step="any" min="0" placeholder="' + state.settings.increment + '" value="' + (ex.increment || '') + '" aria-label="Weight jump"></div><div class="field"><label>Rep min</label><input class="input" name="repMin" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMin + '" value="' + (ex.repMin || '') + '" aria-label="Rep min"></div><div class="field"><label>Rep max</label><input class="input" name="repMax" type="number" inputmode="numeric" min="1" placeholder="' + state.settings.repMax + '" value="' + (ex.repMax || '') + '" aria-label="Rep max"></div></div>'
+      + '<div class="field-row"><div class="field"><label>Rest (seconds)</label><input class="input" name="restSec" type="number" inputmode="numeric" min="0" placeholder="' + state.settings.restSec + '" value="' + (ex.restSec || '') + '" aria-label="Rest (seconds)"></div><div class="field"><label>Fixed sets</label><input class="input" name="fixedSets" type="number" inputmode="numeric" min="1" placeholder="auto" value="' + (ex.fixedSets || '') + '" aria-label="Fixed sets"></div><div class="field"></div></div>'
       + (exId ? '<button class="btn danger block mt8" type="button" data-action="delete-ex" data-ex="' + exId + '">' + icon('trash') + 'Delete exercise</button>' : '')
       // Save stays in reach at the bottom of the sheet while the form scrolls under it.
       + '<div class="sheet-foot"><button class="btn block" type="submit">Save</button></div>'
@@ -1756,7 +1876,7 @@
         + '<button class="icon-btn" data-action="day-move" data-day="' + dayId + '" data-i="' + i + '" data-d="1" ' + (i === d.exercises.length - 1 ? 'disabled' : '') + ' aria-label="Move down">' + icon('arrow-down') + '</button>'
         + '<button class="icon-btn danger" data-action="day-remove-ex" data-day="' + dayId + '" data-i="' + i + '" aria-label="Remove from this day">' + icon('close') + '</button></div>'; }).join('');
     openSheet(sheetHeader('Edit day')
-      + '<div class="field"><label>Name</label><input class="input" value="' + esc(d.name) + '" data-field="day-name" data-day="' + dayId + '"></div>'
+      + '<div class="field"><label>Name</label><input class="input" value="' + esc(d.name) + '" data-field="day-name" data-day="' + dayId + '" aria-label="Name"></div>'
       + '<div class="list">' + (items || '<div class="empty small">No exercises yet</div>') + '</div>'
       + '<button class="btn block mt12" data-action="pick-ex" data-day="' + dayId + '">' + icon('plus') + 'Add exercise</button>'
       + '<div class="btn-row mt8"><button class="btn subtle" data-action="dup-day" data-day="' + dayId + '">Duplicate day</button><button class="btn danger" data-action="delete-day" data-day="' + dayId + '">Delete day</button></div>', 'day:' + dayId);
@@ -2204,7 +2324,7 @@
   }
   // ---- Saved data that could not be read at start ----
   function renderUnreadable() {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    markTabs(null);
     renderTopbar();
     const raw = ui.unreadable.raw;
     $('#app').innerHTML = '<div class="screen-title"><h1>Your data</h1></div>'
@@ -2213,7 +2333,7 @@
       + '<div class="btn-row mt12">' + (raw ? '<button class="btn" data-action="unreadable-export">' + icon('export') + 'Export the unreadable copy</button>' : '')
       + '<button class="btn ghost" data-action="unreadable-retry">Try again</button></div></div>'
       + '<div id="restore-section" hidden><div class="group-title">Restore an automatic copy</div><div class="card"><div id="safety-copies"></div></div></div>'
-      + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty app with the default program. If you used cloud sync, your cloud copy comes back once you are signed in.</p>'
+      + '<div class="group-title">Start fresh</div><div class="card"><p class="small muted mb8">An empty app with the default program. If you used cloud sync, your training data comes back once you are signed in, but not the old food log.</p>'
       + '<button class="btn danger block" data-action="unreadable-fresh">' + icon('trash') + 'Start fresh</button></div>';
     fillCopies(true);
   }
@@ -2255,64 +2375,109 @@
     const el = $('#last-export'); if (el) el.textContent = lastExportText();
     refreshNotices();
   }
+  // Signed in to cloud sync, as far as Reset, Import and Restore go: { email } (email may be '') or null.
+  // Once the sync module has said who is signed in (syncChanged, at each sign-in and sign-out and once at every
+  // start), its word counts. Before that (its files have not arrived: a start without signal before they were
+  // stored; or Firebase has not answered yet), cloud sync's note counts: a note that names an account means signed
+  // in, unless the module's last word on this phone was that nobody is signed in to that account (noteSignIn).
+  // So a Reset, Import or Restore on such a start says that the account changes too, keeps the note, and the next
+  // link sends it, as when the module is there (review finding sync#2: the next start undid it). The note of this
+  // release's sync.js has no email; a note marked signedOut (as Fuel's sync.js marks its own) counts as signed out.
+  function cloudAccount() {
+    const sync = window.__overloadSync;
+    if (sync && sync.user) return { email: sync.user.email || '' };
+    if (sync && ui.authSeen) return null;
+    const note = syncNote();
+    return note ? { email: typeof note.email === 'string' ? note.email : '' } : null;
+  }
+  function syncNote() {
+    try {
+      const n = JSON.parse(localStorage.getItem(SYNC_KEY));
+      return isObj(n) && typeof n.uid === 'string' && n.uid && !n.signedOut && backupInfo().signedOut !== n.uid ? n : null;
+    } catch (e) { return null; }
+  }
+  // The module's word, kept for a start without it: overload.backup's signedOut names the account of the note
+  // while nobody is signed in to it, and goes once someone is signed in. sync.js keeps the note when he signs out
+  // (signing back in sends what was logged meanwhile), so the note alone cannot tell.
+  function noteSignIn() {
+    const sync = window.__overloadSync; if (!sync) return;
+    ui.authSeen = true;
+    const out = backupInfo().signedOut;
+    if (sync.user) { if (out) setBackupInfo({ signedOut: undefined }); return; }
+    let n = null; try { n = JSON.parse(localStorage.getItem(SYNC_KEY)); } catch (e) { n = null; }
+    const uid = isObj(n) && typeof n.uid === 'string' ? n.uid : '';
+    if (uid && out !== uid) setBackupInfo({ signedOut: uid });
+  }
   // Signed out, a reset or import must not keep the note of what the cloud holds: the next sign-in would treat
   // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
   function forgetCloudIfSignedOut() {
-    const sync = window.__overloadSync;
-    if (!(sync && sync.user)) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
+    if (!cloudAccount()) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
   }
   // Signed in, a reset or import syncs out and replaces the training data in the cloud too. Say so.
   // The food log in the account is never changed from this app any more (sync.js), so say that as well.
-  // A Reset writes no deletion records, so another phone signed in to the account keeps its weigh-ins and nights
-  // and sends them back (they are merged by date), and so does a phone signed out meanwhile that keeps its data
-  // and signs in again. The question says so, and how to erase them as well.
-  // Import and Restore (what: 'the backup' or 'the copy') the same, for the dates the file or copy has none for
-  // (for a date it has, its entry stays). That phone also sends back its deletion records (sync.js merges them),
-  // so a workout, weigh-in or night deleted in the last 90 days is deleted again although the file holds it.
-  // The advice is the same as Reset's; tests/train-cloud.js runs each part on the fake cloud.
+  // A Reset, Import or Restore writes no deletion records. Another phone signed in to the account on this release
+  // takes the new data date by date and key by key (sync.js mergeCore, mergeDated), except for what it logged or
+  // changed itself since it last synced, and its workout in progress: those it keeps and sends back. So does a
+  // phone signed out meanwhile that signs in again. After an Import or Restore (what: 'the backup' or 'the copy')
+  // it also sends back its deletion records (merged), so a workout, weigh-in or night deleted in the last 90 days
+  // is deleted again although the file holds it. A phone still on 2.8 merges its weigh-ins and nights back by date
+  // (for the dates the file or copy does not have) and loses its workout in progress (dev/notes/sync.md 1.5).
+  // The way out is the same for all; tests/train-cloud.js runs each part on the fake cloud, tests/train-sync.js the rest.
   function cloudNote(verb, what) {
-    const sync = window.__overloadSync;
-    if (!(sync && sync.user)) return '';
-    const other = verb === 'erased'
-      ? ' Weigh-ins and nights on another phone signed in to it come back from that phone. To erase those as well, sign out on that phone first and reset it before it signs in again.'
-      : ' Weigh-ins and nights on another phone signed in to it come back from that phone for dates ' + what + ' does not have. That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.';
-    return '\n\nYou are signed in to cloud sync, so the training data in your account (' + sync.user.email + ') is ' + verb + ' too.' + other
+    const acct = cloudAccount();
+    if (!acct) return '';
+    const other = ' Another phone signed in to it does the same, except for what was logged or changed on it since it last synced, and a workout in progress there: those come back.'
+      + (verb === 'erased'
+        ? ' A phone still on version 2.8 sends back all of its weigh-ins and nights, and loses a workout in progress. To be sure nothing comes back, sign out on that phone first and reset it before it signs in again.'
+        : ' That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. A phone still on version 2.8 sends back its weigh-ins and nights for the dates ' + what + ' does not have, and loses a workout in progress. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.');
+    return '\n\nYou are signed in to cloud sync, so the training data in your account' + (acct.email ? ' (' + acct.email + ')' : '') + ' is ' + verb + ' too.' + other
       + ' The food log in your account is not changed.';
   }
-  // Reset all data: the training data goes back to a new install. The old food log is not part of it: it leaves
-  // this phone only through "Remove the old food log" in Settings > Food, and the questions say so.
-  function resetAll() {
+  // Reset all data: the training data and the settings go back to a new install, the WHOOP link included (as in
+  // every version before; the copy "Before reset" holds them, and Restore of it brings the link back). The old
+  // food log is not part of it: it leaves this phone only through "Remove the old food log" in Settings > Food,
+  // and the questions say so. The copy "Before reset" is stored first: if it cannot be, nothing is erased.
+  async function resetAll() {
+    if (busy()) return;
     const days = foodFacts().days;
     const food = days ? '\n\nThe old food log (' + plural(days, 'day') + ') is not erased. It stays on this phone until you remove it in Settings > Food.' : '';
-    if (!confirm('Erase all exercises, program and history on this phone?' + food + cloudNote('erased'))) return;
-    if (!confirm('Really erase all training data?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) return;
-    safetyCopy('reset'); forgetCloudIfSignedOut();
-    const fresh = seedState(); keepFoodCopy(fresh);
-    state = fresh; save(); render(); toast('Reset to defaults');
+    const link = state.settings.connUrl || state.settings.connKey ? ', the WHOOP link included' : '';
+    if (!confirm('Erase all exercises, program, history and settings on this phone' + link + '?' + food + cloudNote('erased'))) return;
+    if (!confirm('Really erase all training data and settings?' + (cloudNote('erased') ? ' Export a backup first if you might want it back.' : ''))) return;
+    ui.replacing = true;
+    try {
+      const c = await copyFirst('reset');
+      if (c !== 'kept') { notDone(c, 'Reset all data', 'erased'); return; }
+      forgetCloudIfSignedOut();
+      const fresh = seedState(); keepFoodCopy(fresh);
+      state = fresh;
+      stopTimer();   // a rest or cardio timer of the data just erased
+      applyTheme(); save(); render(); toast('Reset to defaults');
+    } finally { ui.replacing = false; }
   }
-  function importJson(file) {
-    const r = new FileReader();
-    r.onload = () => {
-      try {
-        const parsed = JSON.parse(r.result, noProto);
-        if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
-        if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
-        if (!confirm(replaceQuestion('the backup') + '\n\n' + dataSummary(parsed, 'The backup') + '\n' + dataSummary(state, 'This phone now')
-          + activeLine(parsed, 'the backup') + foodLine(parsed, 'the backup') + cloudNote('replaced', 'the backup'))) return;
-        // A backup carries the WHOOP connector link. Take it from the file only when he says so;
-        // a backup without one (made before pairing) keeps this phone's link.
-        const cur = state.settings, inc = isObj(parsed.settings) ? parsed.settings : (parsed.settings = {});
-        if (!inc.connUrl && !inc.connKey) ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; });
-        else if (inc.connUrl !== cur.connUrl || inc.connKey !== cur.connKey) {
-          const okUrl = typeof inc.connUrl === 'string' && /^https:\/\/[^/@\s"'<>]+$/.test(inc.connUrl);
-          if (!(okUrl && confirm('This backup is linked to a WHOOP connector at ' + inc.connUrl + '. Use that link on this phone?\n\nCancel keeps ' + (cur.connUrl ? 'this phone\'s own link.' : 'this phone without one.')))) {
-            ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; else delete inc[k]; });
-          }
+  const readText = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(r.error); r.readAsText(file); });
+  async function importJson(file) {
+    if (busy()) return;
+    ui.replacing = true;
+    try {
+      const parsed = JSON.parse(await readText(file), noProto);
+      if (isFuelFile(parsed)) { toast(FUEL_FILE); return; }
+      if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.exercises)) throw new Error('bad');
+      if (!confirm(replaceQuestion('the backup') + '\n\n' + dataSummary(parsed, 'The backup') + '\n' + dataSummary(state, 'This phone now')
+        + activeLine(parsed, 'the backup') + foodLine(parsed, 'the backup') + cloudNote('replaced', 'the backup'))) return;
+      // A backup carries the WHOOP connector link. Take it from the file only when he says so;
+      // a backup without one (made before pairing) keeps this phone's link.
+      const cur = state.settings, inc = isObj(parsed.settings) ? parsed.settings : (parsed.settings = {});
+      if (!inc.connUrl && !inc.connKey) ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; });
+      else if (inc.connUrl !== cur.connUrl || inc.connKey !== cur.connKey) {
+        const okUrl = typeof inc.connUrl === 'string' && /^https:\/\/[^/@\s"'<>]+$/.test(inc.connUrl);
+        if (!(okUrl && confirm('This backup is linked to a WHOOP connector at ' + inc.connUrl + '. Use that link on this phone?\n\nCancel keeps ' + (cur.connUrl ? 'this phone\'s own link.' : 'this phone without one.')))) {
+          ['connUrl', 'connKey'].forEach((k) => { if (cur[k]) inc[k] = cur[k]; else delete inc[k]; });
         }
-        replaceState(parsed, 'import', 'Backup restored');
-      } catch (e) { toast('That file is not an Overload backup'); }
-    };
-    r.readAsText(file);
+      }
+      await replaceState(parsed, 'import', 'Backup restored');
+    } catch (e) { toast('That file is not an Overload backup'); }
+    finally { ui.replacing = false; }
   }
 
   // ---------------------------------------------------------------------------
@@ -2538,17 +2703,22 @@
   const UPDATE_FIRST = 'Finish the update first: open Overload once with good signal, then try again.';
   async function removeFoodLog() {
     const h = handoverInfo(), f = h.f;
-    if (ui.unreadable || ui.removing || !f.days) return;   // removing: a second tap while the safety copy is being stored
+    if (ui.unreadable || busy() || !f.days) return;   // busy: a second tap while the safety copy is being stored, or a Restore, Import or Reset under way
     if (!h.current) { toast('Copy your food log or save it as a file first.'); return; }
     if (otherSync()) { toast(UPDATE_FIRST); return; }
     // Every removal keeps a safety copy of its own, and the newest few are kept (backup.js): when that lets an
-    // older one go, the question says so.
+    // older one go, the question says so. When the list cannot be read (backup.js gives up after a few seconds),
+    // nothing is removed: the question could not say which copy is let go.
     const B = window.__overloadBackup, keep = (B && B.KEEP_REMOVALS) || 3;
     ui.removing = true;
     let earlier = [];
-    try { earlier = B ? (await B.list()).filter((m) => m.kind === 'foodremove').sort((a, b) => a.at - b.at) : []; } catch (e) { earlier = []; }
+    try { earlier = B ? (await B.list()).filter((m) => m.kind === 'foodremove').sort((a, b) => a.at - b.at) : []; } catch (e) { earlier = null; }
     ui.removing = false;
-    const going = earlier.slice(0, Math.max(0, earlier.length + 1 - keep)).map((m) => fmtDate(todayKey(new Date(m.at))));
+    if (!earlier) { toast('The automatic copies could not be read, so nothing was removed. Try again.'); return; }
+    // Each by its date, as Settings lists it; with the time as well when two removal copies are from the same day.
+    const dayOf = (m) => todayKey(new Date(m.at));
+    const named = (m) => fmtDate(dayOf(m)) + (earlier.filter((x) => dayOf(x) === dayOf(m)).length > 1 ? ', ' + timeOf(m.at) : '');
+    const going = earlier.slice(0, Math.max(0, earlier.length + 1 - keep)).map(named);
     const sync = window.__overloadSync;   // signed in: this release's, which never changes the account's food log
     if (!confirm('Remove the old food log from Overload?\n\n' + plural(f.days, 'day') + ' of food (' + entriesText(f.entries) + ') leave this app. Do this only when ' + FUEL + ' shows your food log.'
       + '\n\nA safety copy is kept first, in Settings > Automatic copies. Your saved foods and targets stay.'
@@ -2951,6 +3121,7 @@
     },
     // Signed in or out: redraw the pill and the Cloud sync card only, not the screen.
     syncChanged() {
+      noteSignIn();   // for a start without the sync module (cloudAccount)
       renderTopbar();
       const card = $('#cloud-card');
       if (card) { const tmp = document.createElement('div'); tmp.innerHTML = renderCloudCard(); if (!card.isEqualNode(tmp.firstElementChild)) card.replaceWith(tmp.firstElementChild); }

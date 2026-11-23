@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload (training): the rules only this app needs. Load after shared/ui.css.
  * Guide: dev/design/SYSTEM.md. Install as the app's own stylesheet (for example ./train.css next to index.html).
  */

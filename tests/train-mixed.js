@@ -25,8 +25,11 @@
  *       script and stylesheet of it made different from 3.0's): with the page slow the stored 3.0 page runs
  *       only 3.0's files, also with no signal, and the stored 3.0 copies are not overwritten; with the page
  *       fast 3.1 runs whole; when 3.1's main script does not arrive the start-up rescue runs the stored 3.0
- *       whole; an install whose main script or sync module is not 3.1's is refused; then 3.1 takes over and
- *       starts with no signal.
+ *       whole; an install whose main script, sync module, stylesheet or backup.js is not 3.1's is refused (since
+ *       the final review every versioned file names its release: upgrade#1); then 3.1 takes over and starts with
+ *       no signal. This phone is sealed (tests/lib.js): no Playwright routing, which makes Chromium install the
+ *       same worker again at every update check; it never signs in, so it needs no stand-in Firebase. Each start
+ *       is a cold one (nothing in the browser's memory cache), and no worker file is installed twice.
  *   --tree=DIR   the folder to serve as 3.0. Default: the repo this file is in (the working tree).
  * Prints one PASS or FAIL line per check; exit code 1 when a check failed. No server is left running.
  */
@@ -181,16 +184,24 @@ const updateOutcome = (page) => page.evaluate(async () => {
 (async () => {
   const site = await startSite(PORT);
   const at = (rel) => site.url + BASE + rel;
-  const browser = await lib.launch();
+  const browser = await lib.launch({ sealed: true });
   const cloud = createCloud();
   const v28 = extractV28();
   const MAIN = mainOf(TREE);
   console.log('# 3.0 tree: ' + TREE + (TREE === lib.REPO ? ' (the working tree)' : ' (a copy)') + ', main script ' + MAIN + '; v2.8: git ' + T.V28);
   const phones = [];
+  // What the server hands out now under an address (noted for each worker version a sealed phone makes).
+  const served = (u) => {
+    const url = new URL(u); let rel = url.pathname.slice(BASE.length); if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+    const r = site.rules.find((x) => x.on !== false && x.test(rel, url));
+    return r && r.body != null ? String(r.body) : String(read(site.root, rel));
+  };
   // A phone: its own storage with service workers allowed, the fixture as v2.8 left it, the stand-in cloud.
+  // opts.sealed: no routing and no stand-in cloud (it never signs in); phone.workers counts its worker versions.
   async function makePhone(name, opts) {
     const phone = await lib.newPhone(browser, Object.assign({ serviceWorkers: 'allow', timezoneId: fx.meta.tz }, opts || {}));
-    phone.device = await cloud.attach(phone.context, name);
+    if (phone.sealed) phone.workers = await lib.watchWorkers(phone.context, served);
+    else phone.device = await cloud.attach(phone.context, name);
     await phone.context.grantPermissions(['clipboard-read', 'clipboard-write']);
     if (!(opts && opts.empty)) await lib.seedV28(phone.context, fx);
     // Before any script of a page: when the worker in control changed, and when the app registered its worker.
@@ -207,7 +218,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
   }
   // Opens the app (or anything that says something) and records what it ran.
   async function open(phone, rel, ready) {
-    const page = await phone.context.newPage();
+    const page = phone.sealed ? await lib.coldPage(phone.context) : await phone.context.newPage();
     page.dialogs = [];
     page.on('dialog', (d) => { page.dialogs.push(d.message()); d.accept().catch(() => {}); });
     page.loads = 0; page.on('load', () => { page.loads++; });
@@ -434,7 +445,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
       const slowPage = rule({ test: (rel) => rel === 'index.html', delay: 4000 });
       const noInstall = rule({ test: (rel) => rel === 'icon-512.png', status: 404 });
       const noMain = rule({ test: (rel, u) => rel === main && u.search === '?v=3.1', status: 503 });
-      const phone = await makePhone('P');
+      const phone = await makePhone('P', { sealed: true });
       site.root = base;
       let page = null;
       let ok = await step('set-up: 3.0 installed under its own worker (' + C30 + '); ' + said, async () => {
@@ -504,7 +515,8 @@ const updateOutcome = (page) => page.evaluate(async () => {
           await page.close();
           return v.files.length + ' files, all 3.1\'s';
         });
-        for (const [what, file, stale] of [['main script', main, () => read(base, main)], ['sync module', 'sync.js', () => read(base, 'sync.js')]]) {
+        for (const [what, file, stale] of [['main script', main, () => read(base, main)], ['sync module', 'sync.js', () => read(base, 'sync.js')],
+          ['stylesheet', 'train.css', () => read(base, 'train.css')], ['safety copies', 'backup.js', () => read(base, 'backup.js')]]) {
           await step('an install of 3.1 that gets 3.0\'s ' + what + ' (' + file + ') is refused; ' + C30 + ' stays as it was', async () => {
             const r = rule({ test: (rel) => rel === file, body: stale() });
             net(r);
@@ -555,6 +567,11 @@ const updateOutcome = (page) => page.evaluate(async () => {
         }
       }
       site.rules.length = 0; site.down = false;
+      await step('no worker file was installed twice (sealed phone, no routing)', async () => {
+        const twice = phone.workers.installedTwice();
+        need(!twice.length, 'installed more than once: ' + twice.map((x) => x.script.replace(site.url, '') + ' x' + x.times).join(', '));
+        return phone.workers.installed().length + ' installs finished, ' + phone.workers.count() + ' worker versions in all';
+      });
       await phone.close();
     }
   } catch (e) {

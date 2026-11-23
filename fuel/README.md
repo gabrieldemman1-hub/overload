@@ -12,13 +12,13 @@ under one number (`bump.sh` in the repo root sets it in both), but they are sepa
 
 | File | What |
 | --- | --- |
-| `index.html` | The page: top bar (Fuel's mark and the name of the screen), tab bar (Today, Trends, Settings), the sheet, the toast. `data-app="fuel"` on `<html>` gives the shared stylesheet Fuel's green. Applies the saved theme before first paint, and holds the start-up rescue (runs the previous release's stored files when this release's did not arrive). |
+| `index.html` | The page: top bar (Fuel's mark and the name of the screen), tab bar (Today, Trends, Settings), the sheet (a dialog: while it is open the page behind is inert, and Escape closes it), the toast (read out by VoiceOver). `data-app="fuel"` on `<html>` gives the shared stylesheet Fuel's green. Applies the saved theme before first paint, and holds the start-up rescue (runs the previous release's stored files when this release's did not arrive). |
 | `fuel.js` | The shell. Loads and saves the data, draws the frame, Welcome, Add to Home Screen, Trends and Settings, keeps the backups, brings the food log across from Overload, registers the offline worker. Offers `window.__overload` to `food.js` and `sync.js`. |
 | `food.js` | The diary itself (Today and its sheets), moved here from the repo root. It runs on `window.__overload` exactly as it did in Overload. |
 | `backup.js` | Automatic copies in IndexedDB (`fuel-copies`). Fuel's own copy of the training app's file. |
 | `fuel.css` | The rules only Fuel needs: the calorie gauge and the macros, meals and food rows, the Add and amount sheets, the scanner, Trends, Welcome and Add to Home Screen. Loaded after `../shared/ui.css`. |
 | `sync.js` | Cloud sync (optional). The app starts and works without it. Where its data is in the account: see below. |
-| `sw.js` | The offline worker (cache `fuel-vN`, scope `/overload/fuel/`). Its install list names every versioned file the page loads, written as the page writes it (`sh bump.sh --check` in the repo root compares them). Until Fuel's own worker is active, Settings > About says the app is getting ready, or not ready, to work offline; a first install that failed is tried again each time the app comes back to the front. |
+| `sw.js` | The offline worker (cache `fuel-vN`, scope `/overload/fuel/`). Its install list names every versioned file the page loads, written as the page writes it (`sh bump.sh --check` in the repo root compares them). Each of those files names its release in its first line (`fuel.js` in `VERSION`), and the worker stores and runs only a copy that names the release of its address (see Releases in the main README). Until Fuel's own worker is active, Settings > About says the app is getting ready, or not ready, to work offline; a first install that failed is tried again each time the app comes back to the front. |
 | `manifest.webmanifest`, `icon*.png`, `icon.svg` | What "Add to Home Screen" uses: a fork beside a plate with a leaf, on Fuel's green. `start_url` and `scope` must not change once the app is on a phone. |
 
 Shared with the training app, one folder up, and left where they are:
@@ -56,7 +56,8 @@ Everything is in `localStorage` on the device, under names of Fuel's own:
   settings: { units: 'lb' | 'kg', theme: 'system' | 'dark' | 'light' },
   food: { targets: { kcal, protein, carbs, fat }, foods: { id: food }, meals: { id: meal } },
   diary: { 'YYYY-MM-DD': [entry] },
-  deleted: { food: { entryId: ms }, foods: { foodId: ms }, meals: { mealId: ms } },
+  deleted: { food: { entryId: ms }, foods: { foodId: ms }, meals: { mealId: ms },
+             fav: { foodId: ms }, custom: { foodId: ms } },   // these two only once there is one
   bodyweight: [ { date, weight } ],     // at most one: the number the protein guide uses
   moved: { from, at, days, entries, madeAt } | null }   // the hand-over from Overload
 ```
@@ -69,17 +70,30 @@ Everything is in `localStorage` on the device, under names of Fuel's own:
   does not know.
 - Deletion records are kept for entries, saved foods and saved meals, and are never pruned. Overload keeps its
   old copy of the food log for good, so it can be imported again at any time, and nothing deleted in Fuel may
-  come back with it.
+  come back with it. Two more records, kept, exported and synced the same way, are made only once there is
+  one (a state without them is stored exactly as before): `fav`, a star he took off a saved food (also by
+  deleting the food), which goes when the food is starred again; and `custom`, a food of his own or his
+  correction of a listed product (src `custom`) that he deleted, which stays when the food list's copy of the
+  product is logged again (that copy's `foods` record goes then). An import takes neither that star nor that
+  correction from a copy (review findings data#3 and data#4).
 - A save that fails (storage full) shows a banner until a save works. Stored data that cannot be read is
   never written over: the app shows "Your data" and lets the owner export it, restore a copy or start fresh.
 - Automatic copies: one a day for the last 7 days (taken at start, brought up to date when the app goes to
   the background), and the latest one from before an import, a reset, a restore and a cloud sign-in (one of
   each kind: the next one of that kind replaces it). Settings lists them. Reset, Restore and an import wait
-  for their copy: when it cannot be stored (IndexedDB does not answer), nothing is erased, replaced or added,
-  and the app offers Export instead. A connection to the copies that the phone dropped is opened again by the
+  for their copy: when it cannot be stored (IndexedDB does not answer the open within 2 s, does not finish
+  the copy within 5 s, or refuses it), nothing is erased, replaced or added, and the app offers Export
+  instead. A connection to the copies that the phone dropped, or that was given up, is opened again by the
   next copy. The copy before a cloud sign-in is taken from the data as it was before the account's was merged
   in, and the sign-in does not wait for it.
-- Export JSON writes the state itself as `fuel-backup-YYYY-MM-DD.json`.
+- Export JSON writes the state itself as `fuel-backup-YYYY-MM-DD.json`, through the share sheet where there is
+  one. It counts as exported (Last export, and the 14-day reminder) only when the share went through, or,
+  with no share sheet, when the download started. A share sheet that fails in an unknown way still offers the
+  download, without counting it. A second tap while a sheet is open does nothing, for a minute: after that a
+  tap goes through, so a sheet that never answers cannot block exporting for the rest of the session (review
+  finding code#1; Overload does the same).
+- Reset erases everything in Fuel on this phone, settings included (body weight, units and theme), and its
+  question says so (review finding look#5; Overload's Reset names its settings and WHOOP link the same way).
 
 ## Cloud sync: where the data is in the account
 
@@ -88,15 +102,16 @@ one account holds both apps' data, in documents of their own:
 
 | In the account | Holds | Written by |
 | --- | --- | --- |
-| `users/{uid}/meta/fuel` | `{ core, updatedAt, v: 1 }`. `core` is one JSON text: units and theme, the food targets, saved foods, saved meals, the deletion records and the body weight. | Fuel |
-| `users/{uid}/fuelDays/{YYYY-MM-DD}` | `{ data, updatedAt, v: 1 }`: one document for each day of the food log. | Fuel |
+| `users/{uid}/meta/fuel` | `{ core, updatedAt, v: 1, base }`. `core` is one JSON text: units and theme, the food targets, saved foods, saved meals, the deletion records (with `fav` and `custom` once there is one) and the body weight. | Fuel |
+| `users/{uid}/fuelDays/{YYYY-MM-DD}` | `{ data, updatedAt, v: 1, base }`: one document for each day of the food log. | Fuel |
 | `users/{uid}/meta/state`, `users/{uid}/workouts/{id}` | Overload's training data. | Overload |
 | `users/{uid}/foodDays/{YYYY-MM-DD}` | The food log as Overload kept it up to 2.8. Overload 3.0 leaves it as it is. | Overload up to 2.8 |
 
 - Fuel writes and listens only under `meta/fuel` and `fuelDays`. It never writes, deletes or listens to
   Overload's documents, so nothing either app does can change what the other finds.
 - The first sign-in to an account that has no `meta/fuel` yet reads `meta/state` and `foodDays` once, to bring
-  the food log across: days, targets, saved foods and meals, the deletion records of entries, units, theme
+  the food log across: days, targets, saved foods and meals, the deletion records of entries (none when the
+  account holds no food days: they protect nothing there, and Copy my food log brings them), units, theme
   and the latest weigh-in. It is added by the rules of an import (below; `addFromOverload` in `sync.js`
   repeats `planImport` in `fuel.js`, and a change to one must be made to both), so signing in and Paste from
   Overload, in either order, end the same and the second finds nothing new. Units and theme are taken when
@@ -104,9 +119,19 @@ one account holds both apps' data, in documents of their own:
   Entries without an id, which v2.8 never uploads, are left out; they come with Copy my food log.
   Nothing is sent before those reads have worked. After that Overload's copy is never read again: food logged
   later in an old Overload comes with Copy my food log.
-- On the phone, `fuel.sync.v1` is sync's note of what the account holds of this phone's data (`{ uid, core,
-  days }`, as fingerprints). A day leaves a phone only through deletion records, never because its document
-  is missing in the account. `moved` is not part of `core`: it stays on each phone. A page that starts with no
+- On the phone, `fuel.sync.v1` is sync's note of what the account holds of this phone's data (`{ uid, email,
+  core, days, parts, own }`, fingerprints only; `signedOut: true` once signed out). `moved` is not part of
+  `core`: it stays on each phone.
+- Two phones never undo each other's changes (`../dev/notes/sync.md` 4.7). Each entry, saved food, saved meal
+  and target, the theme, and units with the body weight are merged one by one: a phone's own value stays only
+  for what it changed itself since the copy its note names (`parts`); for everything else the account's copy
+  stands, and so does its absence of something that copy held (removed on another phone). Deletion records
+  always win. The first upload of a document in a session, and again after the signal was lost, waits until
+  the account's copy of it has been taken in: a change made without signal stays on the phone and goes up
+  merged. Every document names the copy its writer had (`base`), so that copies written at the same moment,
+  or held up on the way and landing late, do not undo the changes they missed (`own`). The records of stars
+  taken off and corrections deleted are put together like the deletion records; a star's record goes on every
+  phone once the food is starred again (`fuel.js` drops it wherever the food has its star). A page that starts with no
   saved data removes the note (it would describe data that is gone, and the next upload would delete in the
   account what it lists), and sync believes a note only on a page that started on saved data
   (`window.__overload.startedWithData`, which `fuel.js` sets before anything can be tapped).
@@ -115,10 +140,15 @@ one account holds both apps' data, in documents of their own:
 - `../firestore.rules` needs nothing for this: its one rule covers everything under `users/{uid}`.
 - The three Firebase files are not in the worker's install list (a slow or blocked download must never keep
   the app from installing). The worker stores them once it is active, and whenever a page loads them.
-- Reset and Restore replace the food log in the account too when signed in. They write no deletion records,
-  so a second phone signed in that still holds the old log sends its days and saved foods back. Their
-  questions say so: sign out on that phone first, and reset it there before signing in again (its note is
-  then gone, and its next sign-in takes the account's copy).
+- Reset and Restore replace the food log in the account too when signed in, also on a start where the sync
+  module has not loaded yet (a note that names an account counts as signed in then). A second phone signed
+  in follows, except for what was logged or changed on it since it last synced: that comes back. Their
+  questions say so: to be sure nothing comes back, sign out on that phone first, and reset it there before
+  signing in again (its note is then gone, and its next sign-in takes the account's copy).
+- The sign-out question says what the next sign-in does: what was logged while signed out is sent; after a
+  Reset or Restore done while signed out, signing in brings back what the account holds (review finding
+  look#1). While the sync module has not loaded, Settings says "Cloud sync is not available right now. It
+  starts when the app opens with signal. Your food log stays on this phone." (look#11, Overload's words).
 
 ## Where it runs on an iPhone
 
@@ -159,10 +189,17 @@ An import never removes, and adds only what is missing here, with one exception 
 - Saved foods go by id. One Fuel already holds stays, and takes the copy's star when it has none. When the
   copy's is one he corrected or typed in (src `custom`) and Fuel's is the food list's own (src `usda` or
   `off`), the copy's whole food takes its place, with Fuel's last use, last amount and star kept. A food made
-  or corrected in Fuel keeps its numbers.
+  or corrected in Fuel keeps its numbers. Never the star of a food whose star he took off in Fuel (`fav`),
+  and never a correction of his that he deleted in Fuel (`custom`), also after he logged the food list's copy
+  again. A Fuel backup brings its `fav` and `custom` records along.
 - Saved meals go by id, and Fuel's stay. Targets and body weight are taken only when Fuel has none; units and
   theme only at Welcome. What was deleted in Fuel stays deleted, and the copy's deletion records come along
   for anything Fuel does not hold.
+
+Welcome, Settings > From Overload, the import sheet and Settings > Backup say it the same way: only what is
+missing is added, with the favorite stars and the numbers he corrected; nothing else is replaced or removed.
+Welcome promises one step for Paste and a file, not for signing in: like Overload's card, it says signing in
+may bring some of the log across, but not always all of it (review finding look#4).
 
 Before anything is added Fuel says what the copy holds, what is new and which saved foods are updated, keeps
 a safety copy (and waits for it: when it cannot be stored, nothing is added; at Welcome there is nothing to
@@ -178,13 +215,16 @@ node tests/fuel-shell.js     # first start, a day of use, reload, the saved stat
 node tests/fuel-import.js    # every way in from Overload, second imports, malformed input
 node tests/fuel-guard.js     # Safari tab (with and without Fuel data), inside Overload, Home Screen app, a computer
 node tests/fuel-backup.js    # export and import, automatic copies, restore, unreadable data, storage full, the share sheet
+node tests/fuel-records.js   # a star taken off and a correction deleted stay so: Paste, a Fuel backup, the first sign-in, two phones
+node tests/fuel-words.js     # Welcome, From Overload, the import sheet, Backup, Cloud sync and sign-out say what the app does
 node tests/fuel-trends.js    # Trends left open over midnight, or found in the morning, follows the date
-node tests/fuel-look.js      # Today's three macro cells at 320, 390 and 430 px
+node tests/fuel-look.js      # Today's three macro cells at 320, 390 and 430 px; the cloud status, sheets as dialogs, field names, focus clear of the bars
 node tests/fuel-host.js      # what the shell gives cloud sync, with a stand-in for sync.js
 node tests/fuel-update.js    # how the page takes a new offline worker, with stand-in workers
 node tests/fuel-rescue.js    # the start-up rescue in index.html, with stored copies put there by hand
 node tests/fuel-sync.js      # cloud sync against a stand-in for Firebase (tests/fake-firebase), next to Overload; sign-in against Paste
 node tests/fuel-sw.js        # the offline worker with real service workers, alone and beside Overload's
+node tests/fuel-release.js   # stale server copies, an install cut off, the next releases: what the phone keeps
 ```
 
 `tests/fuel-common.js` is their shared helper. It builds what Overload hands over from the v2.8 fixtures and

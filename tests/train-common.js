@@ -167,6 +167,19 @@ function extractV28() {
   if (!/const VERSION = '2\.8'/.test(fs.readFileSync(path.join(dir, 'app.js'), 'utf8'))) throw new Error('extractV28: the extracted app.js is not v2.8');
   return dir;
 }
+/**
+ * The end of the Reset ('erased'), Import and Restore ('replaced', what: 'the backup' | 'the copy') questions while
+ * signed in to cloud sync (cloudNote in overload.js), exactly. email: the account's, or '' when only the note of a
+ * sync module that has not loaded yet names the account.
+ */
+function cloudTail(verb, what, email) {
+  return '\n\nYou are signed in to cloud sync, so the training data in your account' + (email ? ' (' + email + ')' : '') + ' is ' + verb + ' too.'
+    + ' Another phone signed in to it does the same, except for what was logged or changed on it since it last synced, and a workout in progress there: those come back.'
+    + (verb === 'erased'
+      ? ' A phone still on version 2.8 sends back all of its weigh-ins and nights, and loses a workout in progress. To be sure nothing comes back, sign out on that phone first and reset it before it signs in again.'
+      : ' That phone also deletes again any workout, weigh-in or night deleted in the last 90 days. A phone still on version 2.8 sends back its weigh-ins and nights for the dates ' + what + ' does not have, and loses a workout in progress. To keep only what is in ' + what + ', sign out on that phone first and reset it before it signs in again.')
+    + ' The food log in your account is not changed.';
+}
 /** Writes `content` (text, or an object as JSON) to a file in `dir` and returns its path. */
 function writeFile(dir, name, content) {
   const file = path.join(dir, name);
@@ -177,5 +190,5 @@ function writeFile(dir, name, content) {
 module.exports = {
   V28, TABS, args, runner, text, count, sheetOpen, closeSheet, toast, stored, copy, copies,
   readToday, readActive, readExercises, readHistory, readChart, readFoodDay,
-  decodeFoodText, foodTexts, prunedDeletions, latestWeighIn, tempDir, removeDir, extractV28, writeFile
+  decodeFoodText, foodTexts, prunedDeletions, latestWeighIn, cloudTail, tempDir, removeDir, extractV28, writeFile
 };

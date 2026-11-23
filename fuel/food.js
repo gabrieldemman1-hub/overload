@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Fuel's food log: calories, protein, carbs and fat. (It was Overload's Food tab until 3.0.)
  *
  * Loaded after fuel.js and built on the helpers it exposes (window.__overload.lib: the names are the
@@ -14,6 +15,8 @@
  *   state.food.foods    { id: food }   every food logged, created or starred (fav), so recents work offline
  *   state.food.meals    { id: { id, name, items: [item] } }   saved meals; an item is an entry without id, meal, at
  *   state.diary         { 'YYYY-MM-DD': [entry] }
+ *   state.deleted       { food: { entryId: ms }, foods: { foodId: ms }, meals: { mealId: ms }, fav: { foodId: ms } (a star
+ *                       taken off), custom: { foodId: ms } (his own food or correction deleted) }   through markDeleted
  * A food holds n (per 100 g, or 100 ml for a drink), serving { label, g, n } from
  * the label, servings [[label, grams]] from USDA, and liquid for drinks (ml, fl oz). An entry keeps its own calories and macros, so
  * editing a food later never changes days already logged.
@@ -733,7 +736,10 @@
     const x = fu.fx; if (!x || x.food.src === 'entry') return;
     const st = S();
     const f = st.food.foods[x.food.id] || (st.food.foods[x.food.id] = storable(x.food));
-    f.fav = !f.fav; if (!f.fav) delete f.fav;
+    f.fav = !f.fav;
+    // A star taken off is remembered, so that a copy from Overload (or an older backup) in which this food is a
+    // favorite does not put it back (review finding data#3). Starred again, the record goes at the save.
+    if (!f.fav) { delete f.fav; markDeleted('fav', f.id); }
     O.save();
     const b = $('[data-action="food-fav"]');
     if (b) { b.innerHTML = icon(f.fav ? 'star-filled' : 'star'); b.classList.toggle('on', !!f.fav); b.setAttribute('aria-pressed', String(!!f.fav)); }
@@ -802,11 +808,11 @@
     const v = (k) => (entry && entry[k] ? esc(entry[k]) : '');
     fu.fx = entry ? { entryId: entry.id, meal: entry.meal, day: sheetDay() } : { meal: fu.meal, day: sheetDay() };
     openSheet(sheetHeader(entry ? 'Edit quick add' : 'Quick add' + dayTag(fu.fx.day))
-      + '<form id="food-quick-form"><div class="field"><label>Name (optional)</label><input class="input" name="name" value="' + (entry && entry.name !== 'Quick add' ? esc(entry.name) : '') + '" placeholder="Quick add"></div>'
-      + '<div class="field"><label>Calories</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" placeholder="from protein, carbs, fat" value="' + (entry && entry.kcal != null ? esc(entry.kcal) : '') + '"></div>'
-      + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v('p') + '"></div>'
-      + '<div class="field"><label>Carbs g</label><input class="input" name="c" type="number" inputmode="decimal" step="any" min="0" value="' + v('c') + '"></div>'
-      + '<div class="field"><label>Fat g</label><input class="input" name="f" type="number" inputmode="decimal" step="any" min="0" value="' + v('f') + '"></div></div>'
+      + '<form id="food-quick-form"><div class="field"><label>Name (optional)</label><input class="input" name="name" value="' + (entry && entry.name !== 'Quick add' ? esc(entry.name) : '') + '" placeholder="Quick add" aria-label="Name (optional)"></div>'
+      + '<div class="field"><label>Calories</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" placeholder="from protein, carbs, fat" value="' + (entry && entry.kcal != null ? esc(entry.kcal) : '') + '" aria-label="Calories"></div>'
+      + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v('p') + '" aria-label="Protein g"></div>'
+      + '<div class="field"><label>Carbs g</label><input class="input" name="c" type="number" inputmode="decimal" step="any" min="0" value="' + v('c') + '" aria-label="Carbs g"></div>'
+      + '<div class="field"><label>Fat g</label><input class="input" name="f" type="number" inputmode="decimal" step="any" min="0" value="' + v('f') + '" aria-label="Fat g"></div></div>'
       + '<div class="field"><label>Meal</label><div class="seg f-mealseg">' + MEALS.map((m, i) => '<button type="button" class="' + (i === fu.fx.meal ? 'on' : '') + '" data-action="food-meal" data-i="' + i + '">' + m + '</button>').join('') + '</div></div>'
       + '<button class="btn block" type="submit">' + (entry ? 'Save' : 'Add') + '</button>'
       + (entry ? '<button class="btn danger block mt8" type="button" data-action="food-delete">Remove</button>' : '') + '</form>');
@@ -841,17 +847,17 @@
     fu.form = { id: food && food.src === 'custom' ? food.id : null, orig: food && food.id, replace: opts.replace || null, code: canonCode(opts.barcode || f.barcode), day: opts.day, meal: opts.meal != null ? opts.meal : fu.meal, entryId: opts.entryId || null, qty: opts.qty, unit: opts.unit, liquid: !!(food && food.liquid) };
     openSheet(sheetHeader(food && food.src === 'custom' ? 'Edit food' : 'New food')
       + (opts.msg ? '<div class="banner warn">' + icon('warning') + '<span>' + esc(opts.msg) + '</span></div>' : '')
-      + '<form id="food-form"><div class="field"><label>Name</label><input class="input" name="name" required value="' + v(f.name) + '" placeholder="e.g. Protein bar, chocolate"></div>'
-      + '<div class="field-row f-brandrow"><div class="field"><label>Brand (optional)</label><input class="input" name="brand" value="' + v(f.brand) + '"></div>'
-      + '<div class="field"><label>Barcode (optional)</label><input class="input" name="barcode" inputmode="numeric" value="' + v(opts.barcode || f.barcode) + '"></div></div>'
+      + '<form id="food-form"><div class="field"><label>Name</label><input class="input" name="name" required value="' + v(f.name) + '" placeholder="e.g. Protein bar, chocolate" aria-label="Name"></div>'
+      + '<div class="field-row f-brandrow"><div class="field"><label>Brand (optional)</label><input class="input" name="brand" value="' + v(f.brand) + '" aria-label="Brand (optional)"></div>'
+      + '<div class="field"><label>Barcode (optional)</label><input class="input" name="barcode" inputmode="numeric" value="' + v(opts.barcode || f.barcode) + '" aria-label="Barcode (optional)"></div></div>'
       + '<div class="group-title first">Nutrition label</div>'
-      + '<div class="field-row"><div class="field"><label>Serving size</label><input class="input" name="slabel" value="' + v(sv ? sv.label : '1 serving') + '" placeholder="1 bar"></div>'
-      + '<div class="field"><label>Serving ' + (f.liquid ? 'ml' : 'weight g') + '</label><input class="input" name="sg" type="number" inputmode="decimal" step="any" min="0" value="' + v(sv && sv.g) + '" placeholder="optional"></div></div>'
+      + '<div class="field-row"><div class="field"><label>Serving size</label><input class="input" name="slabel" value="' + v(sv ? sv.label : '1 serving') + '" placeholder="1 bar" aria-label="Serving size"></div>'
+      + '<div class="field"><label>Serving ' + (f.liquid ? 'ml' : 'weight g') + '</label><input class="input" name="sg" type="number" inputmode="decimal" step="any" min="0" value="' + v(sv && sv.g) + '" placeholder="optional" aria-label="Serving ' + (f.liquid ? 'ml' : 'weight g') + '"></div></div>'
       + '<p class="tiny muted mb8">With the weight, you can also log this in grams or ounces.</p>'
-      + '<div class="field"><label>Calories per serving</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" required value="' + v(per && r2(per.kcal)) + '"></div>'
-      + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.p)) + '"></div>'
-      + '<div class="field"><label>Carbs g</label><input class="input" name="c" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.c)) + '"></div>'
-      + '<div class="field"><label>Fat g</label><input class="input" name="f" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.f)) + '"></div></div>'
+      + '<div class="field"><label>Calories per serving</label><input class="input" name="kcal" type="number" inputmode="decimal" step="any" min="0" required value="' + v(per && r2(per.kcal)) + '" aria-label="Calories per serving"></div>'
+      + '<div class="field-row"><div class="field"><label>Protein g</label><input class="input" name="p" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.p)) + '" aria-label="Protein g"></div>'
+      + '<div class="field"><label>Carbs g</label><input class="input" name="c" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.c)) + '" aria-label="Carbs g"></div>'
+      + '<div class="field"><label>Fat g</label><input class="input" name="f" type="number" inputmode="decimal" step="any" min="0" value="' + v(per && r2(per.f)) + '" aria-label="Fat g"></div></div>'
       + '<button class="btn block" type="submit">Save food</button>'
       + (food && food.src === 'custom' ? '<button class="btn danger block mt8" type="button" data-action="food-forget">Delete this food</button>' : '')
       + '</form>');
@@ -892,6 +898,11 @@
     const f = fu.form && fu.form.id && S().food.foods[fu.form.id]; if (!f) return;
     if (!confirm('Delete "' + f.name + '"? Days already logged keep their numbers.')) return;
     delete S().food.foods[f.id]; markDeleted('foods', f.id); fu.form = null;   // the record keeps a later import or cloud merge from bringing it back
+    // That record goes when the food list's copy of the same product is logged again. This one stays: a copy from
+    // Overload that holds his old correction of it then does not put the correction back (review finding data#4).
+    // Its star went with it: that copy does not put the star on the list's copy either (data#3).
+    if (f.src === 'custom') markDeleted('custom', f.id);
+    if (f.fav) markDeleted('fav', f.id);
     O.save(); closeSheet(); O.render(); toast('Food deleted');
   }
 
@@ -1014,7 +1025,7 @@
   // ---------------------------------------------------------------------------
   function targetRows() {
     const t = S().food.targets;
-    const row = (k, label, sub) => '<div class="toggle-row"><div><div>' + label + '</div><div class="small muted">' + sub + '</div></div><input class="input num" type="number" inputmode="numeric" min="0" placeholder="–" value="' + (t[k] > 0 ? t[k] : '') + '" data-field="food-target" data-k="' + k + '"></div>';
+    const row = (k, label, sub) => '<div class="toggle-row"><div><div>' + label + '</div><div class="small muted">' + sub + '</div></div><input class="input num" type="number" inputmode="numeric" min="0" placeholder="–" value="' + (t[k] > 0 ? t[k] : '') + '" data-field="food-target" data-k="' + k + '" aria-label="' + label + ', ' + sub + '"></div>';
     return row('kcal', 'Calories', 'kcal a day') + row('protein', 'Protein', 'grams a day') + row('carbs', 'Carbs', 'grams a day') + row('fat', 'Fat', 'grams a day') + '<div class="f-target-note">' + targetNote() + '</div>';
   }
   // What the macro targets come to in calories, against the calorie target; protein from the latest weigh-in.

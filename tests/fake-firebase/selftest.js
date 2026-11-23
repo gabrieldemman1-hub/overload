@@ -127,6 +127,24 @@ async function device(browser, cloud, name) {
     check(seen.length === 1 && seen[0].changes.join() === 'added 2026-01-03', 'and the other device gets it');
     check((await B.seen()).length === 0, 'the device that wrote it hears nothing more about it (only metadata changed)');
 
+    // ---- the offline store lost (iOS cleared it, or the SDK ran on its memory cache and the app was closed) ----
+    await B.device.setOffline(true);
+    mark = cloud.mark();
+    await B.ev(() => { window.put('fuel', 'users/U1/days/2026-01-04', { data: '[3]' }); });
+    await cloud.idle();
+    await B.page.close(); B.page = null;
+    B.device.loseOfflineStore();
+    check(B.device.queued('fuel').length === 0 && cloud.writes({ from: mark }).length === 1 && cloud.writes({ from: mark })[0].state === 'lost', 'the offline store lost: the write queued offline is gone, logged as lost');
+    await B.device.setOffline(false);
+    await B.open();
+    await B.ev(() => window.start('fuel'));
+    await B.ev(() => { window.watch('fuel', 'col', 'users/U1/days'); });
+    await cloud.idle();
+    seen = await B.seen();
+    check(!cloud.get('users/U1/days/2026-01-04') && seen.length === 1 && !seen[0].cache && seen[0].changes.join() === 'added 2026-01-01,added 2026-01-02,added 2026-01-03',
+      'online again the lost write never arrives, and with nothing cached the first snapshot is the server\'s', JSON.stringify(seen));
+    check((await A.seen()).length === 0, 'the other device hears nothing of it');
+
     // ---- a writer that is not a page, and a refused batch ----
     cloud.delete('users/U1/days/2026-01-01');
     await cloud.idle();

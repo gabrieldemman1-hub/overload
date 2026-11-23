@@ -1,3 +1,4 @@
+/* release 3.0 (bump.sh sets this line; the offline copy refuses the file when it names another release) */
 /* Overload + Fuel: the icon set. A classic script (no module, no build).
  *
  *   icon('check')            -> '<svg class="ic" viewBox="0 0 24 24" ...>...</svg>'

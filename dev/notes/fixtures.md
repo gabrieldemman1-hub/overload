@@ -56,7 +56,7 @@ phone.assertClean();                                            // throws on a p
   `serviceWorkers: 'allow'` the worker's gstatic fetches are aborted and the cache holds 18 local files only).
   The browser's "Failed to load resource" line for an aborted request is not counted as a console error.
 - **Cloud sync never loads in tests.** `sync.js` imports Firebase from gstatic (sync.js:14-21), which is
-  blocked, so `window.__overloadSync` does not exist. Settings then shows "Cloud sync is loading…"
+  blocked, so `window.__overloadSync` does not exist. Settings then shows "Cloud sync is loading…" (3.0: "Cloud sync is not available right now…")
   (app.js:1511) and `syncOn()` falls back to "is there an `overload.sync.v1` key" (app.js:374-378). Nothing
   about cloud sync can be tested until someone writes a local stand-in for the three Firebase modules
   (`context.route` + `route.fulfill`).

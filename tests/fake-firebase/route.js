@@ -188,6 +188,9 @@ function createCloud(options) {
    *   rejectNext(code, n)     the next n batches from this device are refused with `code` (default
    *                           'permission-denied', once), as rules or quota would
    *   clearCache(app)         forget what the SDK had cached on this device (for one Firebase app name, or all)
+   *   loseOfflineStore(app)   the SDK's whole offline store is lost (iOS cleared it, or the SDK ran on its memory
+   *                           cache and the app was closed): what was cached AND the writes queued offline are
+   *                           gone; those writes are never sent (logged with state 'lost'). Close the pages first.
    *   user(app)               who is signed in for that Firebase app name (default '[DEFAULT]'), or null
    *   apps                    the Firebase app names this device has used
    *   queued(app)             writes waiting for the network: [{ type, path }]
@@ -208,6 +211,13 @@ function createCloud(options) {
     device.blockSdk = (flag) => { device.sdkBlocked = !!flag; };
     device.rejectNext = (code, n) => { for (let i = 0; i < (n || 1); i++) device.rejects.push(code || 'permission-denied'); };
     device.clearCache = (app) => { if (app) delete device.caches[app]; else device.caches = {}; };
+    device.loseOfflineStore = (app) => {
+      (app ? [app] : Object.keys(device.queues)).forEach((a) => {
+        (device.queues[a] || []).forEach((b) => b.entries.forEach((e) => { e.state = 'lost'; }));
+        delete device.queues[a];
+      });
+      device.clearCache(app);
+    };
     device.user = (app) => device.users[app || '[DEFAULT]'] || null;
     device.queued = (app) => queueOf(device, app || '[DEFAULT]').reduce((all, b) => all.concat(b.ops.map((o) => ({ type: o.type, path: o.path }))), []);
     await context.exposeBinding('__fakeFirebase', (source, op, payload) => track(Promise.resolve().then(() => handle(device, source, op, payload || {}))));

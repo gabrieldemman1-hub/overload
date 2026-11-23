@@ -649,10 +649,12 @@ async function removals(browser, server) {
     need(!qs.some((q) => /let go/.test(q)), 'a question says a copy is let go: ' + qs.find((q) => /let go/.test(q)));
     return list.map((m) => m.id + ' ' + m.foodDays + ' days').join(', ');
   });
-  await step('the fourth removal says the oldest copy is let go, and only the last three are kept', async () => {
+  // All the removals are from one day, so the question names the copy let go by its date and time, as Settings lists
+  // it (review round 3, not-checked list: before, it said only the date, which three copies share).
+  await step('the fourth removal says which copy is let go (by date and time: the others are from the same day), and only the last three are kept', async () => {
     const oldest = (await removalCopies(page)).pop();
     const q = await removeOnce(3);
-    const when = await page.evaluate((at) => new Date(at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }), oldest.at);
+    const when = await page.evaluate((at) => new Date(at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ', ' + new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }), oldest.at);
     need(q.includes('\n\nSettings keeps the copies of the last 3 removals, so the copy from ' + when + ' is let go.'), 'the question reads: ' + q.replace(/\n/g, ' | '));
     const list = await removalCopies(page);
     need(list.length === 3 && !list.some((m) => m.id === oldest.id), 'removal copies: ' + JSON.stringify(list.map((m) => m.id)));
