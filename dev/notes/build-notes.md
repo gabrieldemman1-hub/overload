@@ -377,3 +377,30 @@ The two Fuel sections above are as the builders left them. After the review Fuel
 - look#13: `overflow-wrap: anywhere` on each place a name, an email, a search or a number he typed shows as one word: the signed-in email (`#cloud-card .toggle-row > :first-child`), a name beside its pill (`.row.between > b, > h3`, also `min-width: 0`), Edit sets, the foot of Today, a program day's exercises, the weekly review (`train.css`); Fuel's rows (`.f-row .title`, which then ends in … on its second line), the amount sheet's name and brand, "Search brands for …", the scan status (`fuel.css`). Not one rule on `body`: that also broke the set table's "SET" heading, which runs a little past its narrow column today.
 - look#14: tabular figures on History's workout rows (`.list-item[data-action="view-workout"] .sub`, the PR counts included), the whole set list (`.hist-set`, `.set-lbl`), and the recovery average (`<b class="num">`).
 - doc#2: `dev/design/SYSTEM.md` 7.4 (a sheet is a dialog; keys and their scroll padding), 8.1 (fields are named by `aria-label`) and 10.8 (the cloud status may wrap).
+
+## Release: review round 5 (pub#1, pub#2, split#1, pill#1, ask#1)
+
+`dev/notes/offline.md` section 13 says how each works; `tests/train-bump.js`, `tests/train-release.js` (v28), `tests/train-mixed.js` (sync28) and `tests/train-replace.js` ("automatic copies not available") check them, and each new check fails on the tree as it was before this work.
+
+- pub#1: `bump.sh` check 5 compares the pages, the `?v=` files and the workers under the same cache name with the newest commit on `origin/main`'s first-parent line whose `overload.js` carries the tree's release (`released_at`, one `git cat-file --batch-check` over the line), not only with its newest commit. After a roll-back to v2.8, the same 3.0 passes and a changed one fails.
+- pub#2: `bump.sh` fetches `origin main` first (about 20 s at most) when a remote `origin` exists and `BUMP_NO_FETCH` is not set, prints `published: origin/main at <commit>, release <N>`, and on a failed fetch warns with the date of the copy it used. Set `BUMP_NO_FETCH=1` whenever `bump.sh` runs in this repository or a copy whose origin is GitHub; the tests' copies have no `.git` or a local bare origin.
+- split#1: `keepSplitCopy` also stores the split copy through 2.8's `backup.js` (a module with `take` and `list` and no `release`), and only that copy.
+- pill#1: `setSyncStatus` keeps `ui.sync` at `off` beside a sync module of another release: no pill.
+- ask#1: `noCopies(did, title)` in `overload.js`: without a `backup.js` of this release, Remove the old food log (a toast), Reset and Import (their sheet with Export) refuse before their questions. Restore is offered only from the list of copies.
+
+## Training sync: review round 5 (relog#1, link#1 Overload side, v28#1)
+
+`dev/notes/sync.md` 1.3 and 1.5 say how each works; `tests/train-sync.js` run `relog` (parts 4b and 7), `tests/train-cloud.js` "first link not done" and `tests/train-mixed.js` sync28 check them, and each new check fails on the tree as it was before this work.
+
+- relog#1: `loggedAt(kind, date)` in `overload.js` gives the time (`at`) of a weigh-in or night the check-in adds or changes: `max(now, record + 1)` when this phone holds the date's deletion record, else `now` for 90 days after a Reset, Import or Restore here (`overload.backup`'s `replaced`), else none. `saveCheckin` keeps a night's time when it writes the night anew (the Edit case). The second rule goes past the lead's decision (a record held here): without it, a second phone closed during the replace still deleted the entry logged again (run `relog`, "with B closed", fails without it). `markLifted` in `sync.js` is unchanged.
+- link#1 (Overload): `overload.backup`'s `linking` (uid) is set at `syncChanged` while the module reports an account signed in that no note names, and removed when it reports nobody or a note names it (`noteLinking`). `linkPending()`: the mark stands and no note of that uid exists, so the mark needs no removal at the moment the first link saves its note. `cloudStillReading` refuses while it is pending and no module has said otherwise ("Cloud sync is not available right now. It starts when the app opens with signal." without the module; the existing "still reading" toast before Firebase answers). `cloudAccount` counts it as signed in.
+- v28#1: `cloudStillReading` also refuses beside a sync module of another release that reports an account no note names (the same "not available" toast).
+- `tests/train-replace.js` "signed in to cloud sync": its stand-in sync module now names this release (`window.__overloadBackup.release`) and `linked: true`; without a release it counts as 2.8's module, which v28#1 holds back.
+
+## Fuel sync: review round 5 (link#1, Fuel side)
+
+`dev/notes/sync.md` 4.7 ("On a later start, the account still not read") says how it works; `tests/fuel-sync.js` run "firstlink" (the starts without the module and before Firebase answers), `tests/fuel-host.js` ("a first link not done, on a later start", and leaving Welcome) and `tests/fuel-words.js` (both toasts, word for word with Overload's) check it, and each new check fails on the tree as it was before this work.
+
+- `fuel.backup`'s `linking` (uid), as Overload's: `noteLinking` at every `syncChanged` sets it while the module reports an account that no note (`uid`, signedOut too) names, and removes it when the module reports nobody or a note names it; `linkPending()` needs the mark and no note of that uid. Not set at Welcome or at the Add to Home Screen gate (nothing is stored there); `leaveWelcome` and `useItHere` set it.
+- `cloudStillReading`: while `linkPending()` and the module has not said who is signed in, no module gives "Cloud sync is not available right now. It starts when the app opens with signal.", a module Firebase has not answered for gives "Cloud sync is still reading your account. Try again once it says Synced." `cloudAccount` counts a pending link as signed in (email '').
+- `fuel/sync.js` is unchanged.

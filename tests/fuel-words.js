@@ -14,7 +14,8 @@
  *     while signed out is sent at the next sign-in; after a Reset done while signed out, signing in brings
  *     back what the account holds;
  *   - signed in while cloud sync has not read the account yet, the toast that says why Reset, Restore and the
- *     imports do not start is Overload's, word for word (review finding sync#6).
+ *     imports do not start is Overload's, word for word (review finding sync#6), and so is the one on a later start
+ *     without the sync module, the first two sentences of the Cloud sync card (link#1).
  * The fake Firebase of tests/fake-firebase; no other host is contacted. Prints one PASS/FAIL line per check and
  * exits 1 if anything failed.
  */
@@ -39,6 +40,7 @@ const SIGN_OUT = 'confirm: Sign out? Your food log stays on this phone and in th
   + 'A Reset or Restore done while signed out is not: signing in again brings back what the account holds.';
 const NO_MODULE = 'Cloud sync is not available right now. It starts when the app opens with signal. Your food log stays on this phone.';
 const STILL_READING = 'Cloud sync is still reading your account. Try again once it says Synced.';
+const NOT_NOW = 'Cloud sync is not available right now. It starts when the app opens with signal.';
 
 async function newPhone(browser, cloud, name) {
   const phone = await lib.newPhone(browser, { now: NOW, timezoneId: fx.meta.tz });
@@ -135,11 +137,20 @@ async function settle(cloud, pages) {
     // ---------------------------------------------------------------- the same words as Overload
     // Signed in while cloud sync has not read the account yet, Reset, Restore and the imports do not start, in both
     // apps, and the toast says why (review finding sync#6; tests/fuel-host.js and tests/fuel-sync.js run what it does).
-    await run.step('cloud sync', 'while it has not read the account yet, the toast is Overload\'s, word for word', async () => {
-      const said = (file) => { const m = /toast\('(Cloud sync is still reading[^']*)'\)/.exec(fs.readFileSync(path.join(lib.REPO, file), 'utf8')); return m ? m[1] : null; };
-      const fuel = said('fuel/fuel.js'), overload = said('overload.js');
-      need(fuel === STILL_READING && overload === STILL_READING, 'Fuel says ' + JSON.stringify(fuel) + ', Overload ' + JSON.stringify(overload));
-      return fuel;
+    // On a later start before cloud sync has said who is signed in, the same (link#1): with the module, the same toast;
+    // without it, the first two sentences of the Cloud sync card, in both apps.
+    await run.step('cloud sync', 'while it has not read the account yet, the toasts are Overload\'s, word for word, and the one without the module is the start of the Cloud sync card', async () => {
+      // Every 'Cloud sync is …' sentence in the app's cloudStillReading (the function that shows those toasts).
+      const said = (file) => {
+        const src = fs.readFileSync(path.join(lib.REPO, file), 'utf8'), at = src.indexOf('function cloudStillReading()');
+        if (at < 0) return null;
+        const body = src.slice(at, src.indexOf('\n  }\n', at));
+        return [...new Set((body.match(/'Cloud sync is [^']*'/g) || []).map((s) => s.slice(1, -1)))].sort();
+      };
+      const want = [NOT_NOW, STILL_READING].sort(), fuel = said('fuel/fuel.js'), overload = said('overload.js');
+      need(JSON.stringify(fuel) === JSON.stringify(want) && JSON.stringify(overload) === JSON.stringify(want), 'Fuel says ' + JSON.stringify(fuel) + ', Overload ' + JSON.stringify(overload));
+      need(NO_MODULE.startsWith(NOT_NOW + ' '), 'the card without the module reads ' + JSON.stringify(NO_MODULE));
+      return want.join(' / ');
     });
 
     // ---------------------------------------------------------------- the sign-out question, and what it says

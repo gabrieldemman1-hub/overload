@@ -21,7 +21,9 @@
  *          with its own copies, and two removals of the old food log keep two safety copies (U3 stays fixed).
  *          Round 4, rel#2: a start meanwhile, under v2.8's worker (which checks nothing), runs the 3.0 page with those
  *          stale files: overload.js uses neither (no automatic copies, no connector cards), Remove keeps the food log,
- *          the line at the top says part did not load; the split copy, taken once 3.0 runs whole, is v2.8's text.
+ *          the line at the top says part did not load. Round 5: Remove refuses before asking anything (ask#1); the
+ *          split copy is kept in that start by v2.8's backup.js, with v2.8's text although a setting is changed then,
+ *          and is still v2.8's text once 3.0 runs whole (split#1).
  *   page   (upgrade#2) 3.1 installed whole; a start that gets 3.0's page from a stale edge runs the stored 3.1 page;
  *          a 3.2 page that arrives before its worker is shown and not stored.
  *   cache  (upgrade#3) sw.js changed without a new cache name; its install fails on one file: overload-v24 stays,
@@ -274,7 +276,9 @@ const brief = (f) => (f ? JSON.stringify({ started: f.started, versions: f.versi
           return 'the 3.0 worker ended as ' + out + '; v2.8 from ' + C28 + ' with no signal';
         });
         // Round 4, rel#2: v2.8's worker checks nothing, so a start meanwhile runs the 3.0 page with the stale files.
-        ok = ok && await run.step(L, 'meanwhile a start under v2.8\'s worker gets the 3.0 page with v2.8\'s backup.js and connector.js: overload.js uses neither (no copies, no connector cards), Remove keeps the food log, and the line at the top says part did not load (rel#2)', async () => {
+        let early = null;   // round 5, split#1: the split copy as this start left it
+        // Not chained to ok (round 5): the steps below still show what the split copy holds once 3.0 runs whole.
+        if (ok) await run.step(L, 'meanwhile a start under v2.8\'s worker gets the 3.0 page with v2.8\'s backup.js and connector.js: overload.js uses neither (no copies, no connector cards), Remove refuses before asking anything (ask#1) and keeps the food log, and the line at the top says part did not load (rel#2)', async () => {
           const r = await start(phone);
           const page = r.page;
           try {
@@ -291,20 +295,36 @@ const brief = (f) => (f ? JSON.stringify({ started: f.started, versions: f.versi
             await page.waitForFunction(() => !/Looking for copies/.test((document.getElementById('safety-copies') || {}).textContent || ''), null, { timeout: 6000 }).catch(() => {});
             const settings = await page.evaluate(() => ({ copies: ((document.getElementById('safety-copies') || {}).textContent || '').trim(), conn: !!document.getElementById('conn-cards') }));
             need(settings.copies === 'Automatic copies are not available.' && !settings.conn, 'Settings shows: ' + JSON.stringify(settings));
+            // Round 5, split#1: a setting changed in this start (it saves); the split copy is checked in the next step.
+            await page.click('[data-action="set-rir"][data-v="0"]');
+            await sleep(300);
+            need(await page.evaluate(() => JSON.parse(localStorage.getItem('overload.state.v1')).settings.trackRir) === false, 'set-up: Reps in reserve is not off after the tap');
+            const text = await lib.until(() => page.evaluate(() => window.__overloadBackup.get('before-split').then((c) => c && c.text, () => null)), 6000);
+            early = { text, at: await page.evaluate(() => { try { return JSON.parse(localStorage.getItem('overload.backup')).split.at || null; } catch (e) { return null; } }) };
             await page.click('#handover [data-action="handover-copy"]');
             await page.waitForFunction(() => { try { return !!JSON.parse(localStorage.getItem('overload.backup')).split.copied; } catch (e) { return false; } }, null, { timeout: 8000 });
             await sleep(300);
+            page.dialogs.length = 0;
             await page.click('#handover [data-action="handover-remove"]');
             await page.waitForFunction(() => /nothing was removed/.test((document.getElementById('toast') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
             await sleep(500);
             const after = await page.evaluate(() => ({ days: Object.keys(window.__overload.state.diary).length, toast: ((document.getElementById('toast') || {}).textContent || '').trim() }));
             const stored = await page.evaluate(() => window.__overloadBackup.list().then((l) => l.map((m) => m.id), () => ['(the list could not be read)']));
             need(after.days === Object.keys(fx.state.diary).length, 'food days on the phone after Remove: ' + after.days + '; toast: ' + after.toast);
-            need(after.toast === 'The safety copy could not be stored, so nothing was removed. Try again.', 'the toast says: ' + after.toast);
-            need(!stored.filter((id) => !/^day-/.test(id)).length, 'copies v2.8\'s backup.js stored in this 3.0 page: ' + stored.join(', '));   // the day copy is v2.8's own, from its start
-            return 'v2.8\'s backup.js and connector.js ran and were not used; "' + after.toast + '"; ' + after.days + ' food days kept';
+            // Round 5, ask#1: no question first (they promise a safety copy that cannot be kept here), and no "Try again".
+            need(!page.dialogs.length, 'Remove asked first: ' + page.dialogs.map((d) => JSON.stringify(d.slice(0, 50))).join(', '));
+            need(after.toast === 'Automatic copies are not available right now, so nothing was removed. Close Overload and open it again with good signal.', 'the toast says: ' + after.toast);
+            need(stored.every((id) => /^day-/.test(id) || id === 'before-split'), 'copies v2.8\'s backup.js stored in this 3.0 page: ' + stored.join(', '));   // the day copy is v2.8's own, from its start; the split copy: next step
+            return 'v2.8\'s backup.js and connector.js ran and were not used; no question; "' + after.toast + '"; ' + after.days + ' food days kept';
           } finally { await page.close().catch(() => {}); }
         });
+        // Round 5, split#1.
+        if (early) {
+          await run.step(L, 'in that start, the copy "Before the split into two apps" is kept by v2.8\'s backup.js (the one use of another release\'s module), with v2.8\'s text, although a setting changed (split#1)', async () => {
+            need(early.text === fx.text && early.at, 'the split copy in that start: ' + (early.text == null ? 'none' : early.text === fx.text ? 'v2.8\'s text' : early.text.length + ' other characters') + '; split note: ' + early.at);
+            return 'v2.8\'s text, ' + fx.text.length + ' characters; split note ' + new Date(early.at).toISOString();
+          });
+        }
         site.rules.length = 0;
         let page = null;
         ok = ok && await run.step(L, 'the edge right again: 3.0 installs (' + C30 + ') with its own backup.js and connector.js', async () => {

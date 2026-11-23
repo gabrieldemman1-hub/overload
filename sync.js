@@ -276,6 +276,8 @@ function mergeDated(local, remote, noted, gone) {
 // was logged again (`at`), which settleDated lets win over an older record. Not when a Reset, Import or Restore was
 // done on this phone after that deletion (host().replacedAt, overload.backup's `replaced`): the record can then be
 // missing because the data was replaced, and the other phones delete such an entry again, as the questions say.
+// (The check-in of this release gives the time itself where he logs it, after a replace too: overload.js loggedAt,
+// review finding relog#1. This covers an entry logged again another way, such as 2.8's check-in on this phone.)
 // Only beside an app that says when it replaced its data (not v2.8's app.js), and only with the note's parts (which
 // hold the noted records; signed out, the stored note's). Run at every save of the app (so the time is when it was
 // logged again), and before a merge and a push (a start without this module logged it). Saves the app's data when it

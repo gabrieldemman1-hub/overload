@@ -1485,7 +1485,9 @@ async function earlyRun(browser, docs) {
 // 6b. Signed in, but the first link has not read the account yet (review finding sync#6, the verifier's a1): its read
 //     from the server fails ("Could not reach the cloud. Nothing was uploaded; retrying."). Reset, Restore and the
 //     imports do not start: no question, a toast says why, nothing changes (before, Reset went ahead and the link then
-//     merged the account's log back over it, the account unchanged). Once the read works they ask and reach the
+//     merged the account's log back over it, the account unchanged). The same on the next start after the app was
+//     closed before a read worked (link#1): without the sync module ("Cloud sync is not available right now. ..."),
+//     and with it before Firebase has answered ("still reading"). Once the read works they ask and reach the
 //     account. A phone that linked before (it has a note) is not held up, also when it starts without signal.
 // ---------------------------------------------------------------------------
 async function firstLinkRun(browser, docs) {
@@ -1501,9 +1503,9 @@ async function firstLinkRun(browser, docs) {
   // F2: a phone of its own with the same log on it, never signed in.
   const logText = await F.storedText(f1);
   const F2 = await makePhone(world, 'F2', TREE, { clipboard: true, seed: (ctx) => lib.seedStorage(ctx, { [F.KEY]: logText }) });
-  const f2 = await openFuel(F2);
+  let f2 = await openFuel(F2);
   // F2's reads from the server itself (getDocFromServer, getDocsFromServer) answer 'unavailable' while `on`; sign-in
-  // and the listeners are not touched.
+  // and the listeners are not touched. (On the page F2 shows now.)
   const failReads = (on) => f2.evaluate((x) => {
     if (!window.__origFake) {
       const orig = window.__origFake = window.__fakeFirebase;
@@ -1550,6 +1552,82 @@ async function firstLinkRun(browser, docs) {
     need(await f2.evaluate(() => window.__overloadSync.linked === false), 'sync.js does not say it has not read the account yet (linked)');
     return SAYS;
   });
+  // Review finding link#1 (the verifiers' b2-weak-first-signin.js --only=fuel and later-start.js fu-nosdk-reset,
+  // fu-auth-reset): F2 is closed before a read has worked. The next start has no sync module (its files did not come:
+  // no signal), or the module has loaded and Firebase has not answered yet. There is no note, so such a start took F2
+  // for signed out: Reset went ahead, and the next link merged the account's log back over it (110 days back on F2,
+  // the account unchanged). The first link still to be made is now kept across starts, in fuel.backup's `linking` (not
+  // in the note, which sync.js would take as an account it has read), as overload.backup's in Overload.
+  const NOT_NOW = 'Cloud sync is not available right now. It starts when the app opens with signal.';
+  const linkingOf = (pg) => pg.evaluate(() => (JSON.parse(localStorage.getItem('fuel.backup') || '{}')).linking);
+  const heldBack = async (says, where) => {
+    await lib.openTab(f2, 'settings');
+    await f2.waitForSelector('#safety-copies [data-action="restore-copy"]', { timeout: 5000 });
+    const before = await F.storedText(f2), mark = cloud.mark(), asked = f2.dialogs.length, said = [];
+    await f2.evaluate((t) => {
+      window.__clipboardReads = 0;
+      const read = navigator.clipboard.readText.bind(navigator.clipboard);
+      navigator.clipboard.readText = () => { window.__clipboardReads++; return read(); };
+      return navigator.clipboard.writeText(t);
+    }, F.foodText(F.payloadFrom(fx.state, NOW - 60000), true));
+    let choosers = 0; const onChooser = () => { choosers++; };
+    f2.on('filechooser', onChooser);
+    for (const [what, act] of [
+      ['Reset all data', () => f2.click('[data-action="reset"]')],
+      ['Restore', () => f2.click('#safety-copies [data-action="restore-copy"]')],
+      ['Import JSON', () => f2.click('[data-action="import"]')],
+      ['a file given to Import', () => f2.setInputFiles('#import-file', file)],
+      ['Paste from Overload', async () => { await f2.click('[data-action="fuel-import"]'); await f2.click('#sheet [data-action="fuel-paste"]'); }],
+      ['Choose a file', () => f2.click('#sheet [data-action="fuel-file"]')],
+      ['the paste box', async () => { await f2.click('#sheet [data-action="fuel-paste-box"]'); await f2.fill('#fuel-paste', F.foodText(F.payloadFrom(fx.state, NOW - 60000), true)); await f2.click('#fuel-paste-form button[type="submit"]'); }]
+    ]) {
+      await quiet(f2); await act();
+      said.push(what + ': ' + await F.toast(f2, /still reading|not available/).catch(() => 'no such toast'));
+      need(f2.dialogs.length === asked, where + ', ' + what + ': questions were asked: ' + f2.dialogs.slice(asked).join(' / ').replace(/\n+/g, ' | ').slice(0, 300));
+    }
+    await rest(world);
+    f2.off('filechooser', onChooser);
+    await F.closeSheet(f2);
+    need(said.every((t) => t.endsWith(': ' + says)), where + ', the toasts: ' + said.join(' | '));
+    need(!choosers && (await f2.evaluate(() => window.__clipboardReads)) === 0, where + ': the file picker opened ' + choosers + ' times, the clipboard was read ' + await f2.evaluate(() => window.__clipboardReads) + ' times');
+    need((await F.storedText(f2)) === before, where + ': F2\'s data changed');
+    need(cloud.writes({ who: 'F2', from: mark }).length === 0, where + ': F2 wrote to the account: ' + brief(cloud.writes({ who: 'F2', from: mark })));
+  };
+  if (ok) {
+    ok = await step('closed before a read worked; the next start has no sync module (no signal): Reset, Restore, Import JSON, Paste from Overload, Choose a file and the paste box ask nothing, change nothing and send nothing, and the toast says cloud sync is not available (link#1)', async () => {
+      await closeFuel(F2);
+      F2.device.blockSdk(true);
+      f2 = await lib.openApp(F2.context, ORIGIN + F.PAGE);
+      F2.pages.push(f2); F2.fuel = f2;
+      await f2.waitForFunction(() => !!window.__overloadFood, null, { timeout: 15000 });
+      await rest(world);
+      need(!(await f2.evaluate(() => !!window.__overloadSync)), 'the sync module ran');
+      need(!(await noteOf(f2)), 'F2 has a note');
+      await heldBack(NOT_NOW, 'no module');
+      const mark = await linkingOf(f2);
+      need(mark === 'U1', 'fuel.backup\'s linking is ' + mark);
+      return NOT_NOW + ' (fuel.backup\'s linking: ' + mark + ')';
+    });
+  }
+  if (ok) {
+    ok = await step('the next start, with the sync module but before Firebase has said who is signed in: the same, and the toast says it is still reading the account (link#1); once Firebase answers and the read still fails, they are held back as before', async () => {
+      await closeFuel(F2);
+      F2.device.blockSdk(false);
+      const auth = await holdAuth(F2);
+      try {
+        f2 = await openFuel(F2);
+        need((await f2.evaluate(() => window.__overloadSync.user)) === null, 'Firebase\'s first answer was not held back');
+        await heldBack(SAYS, 'Firebase not answered');
+        await failReads(true);
+      } finally { await auth.release(f2); }
+      await rest(world);
+      const st = await f2.evaluate((k) => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, error: window.__overloadSync.error, note: localStorage.getItem(k) }), NOTE);
+      need(st.user && st.linked === false && /Could not reach the cloud/.test(st.error) && !st.note, 'F2 once Firebase answered: ' + JSON.stringify(st));
+      await heldBack(SAYS, 'Firebase answered, the read failing');
+      need((await linkingOf(f2)) === 'U1', 'fuel.backup\'s linking is ' + await linkingOf(f2));
+      return SAYS;
+    });
+  }
   if (ok) {
     ok = await step('the read works (Sync now): F2 links, the card says Synced, and Choose a file then asks, adds and reaches the account and F1', async () => {
       await failReads(false);

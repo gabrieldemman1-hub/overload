@@ -439,8 +439,12 @@ that had 2.8, 2.8's worker hands out whatever the server has: the 3.0 page can
 run 2.8's `backup.js`, `connector.js` or `sync.js`. `overload.js` then uses
 none of them (each names its release, and 2.8's name none), and the line at the
 top says "Part of Overload did not load". Without `backup.js`, Automatic copies
-are not available, so Remove the old food log, Reset, Import and Restore
-refuse, as they do whenever no copy can be kept. Without `connector.js`, the
+are not available, so Remove the old food log, Reset and Import refuse before
+asking anything ("Automatic copies are not available right now, so nothing was
+removed. Close Overload and open it again with good signal."), and Restore is
+not offered. Only the copy from the split into two apps is kept with 2.8's
+`backup.js`, which stores it the same way: it holds what the phone had before
+3.0 ran, also when something is changed in that start. Without `connector.js`, the
 WHOOP and Reminders cards are not shown; 2.8's connector still syncs WHOOP
 nights and sends its reminder times to the connector until 3.0 has taken over.
 2.8's `sync.js` is given nothing: it neither reads the account nor sends
@@ -481,14 +485,24 @@ The check fails, with exit code 1, when:
 - the food list's `?db=` differs between `fuel/food.js` and `fuel/sw.js`;
 - `sw.js` or `fuel/sw.js` differs from the published one (`origin/main`, which
   GitHub Pages serves) but kept its cache name;
-- the release is the published one and a page, or a file with `?v=` in an
-  install list, differs from its published copy: phones that have the release
-  would run the new page with their old copies. Run `sh bump.sh` with the next
-  number. Two branches that each ran `sh bump.sh 3.1` merge without a conflict,
-  so this is not only a forgotten bump.
+- the release was published before and a page, a file with `?v=` in an install
+  list, or a worker under the same cache name differs from that published copy:
+  phones that have the release would run the new page with their old copies.
+  Run `sh bump.sh` with the next number. Two branches that each ran
+  `sh bump.sh 3.1` merge without a conflict, so this is not only a forgotten
+  bump. "Published before" is the newest commit of `origin/main`'s history that
+  carries the release, not only its newest commit: after a roll-back (an older
+  release published again), phones that had the newer one keep its files, so
+  publish it again only unchanged. A fix needs a number higher than any
+  published before.
 
 The last two are not compared without git or `origin/main`, nor for a worker
-that is new since then (or its files).
+that is new since then (or its files). Before them the check fetches
+`origin/main` (at most about 20 seconds), so a pull request merged on GitHub
+counts, and it names the published commit and release it compared with. When
+the fetch fails it says so, with the date of the copy it used: fetch and check
+again before you push. `BUMP_NO_FETCH=1 sh bump.sh --check` compares with the
+copy here without fetching.
 
 So a new script or stylesheet goes into the page and into `ASSETS` of the same
 app's worker, written the same way, one address per line, and its first line is
@@ -518,7 +532,11 @@ retries, so a bad connection cannot overwrite the cloud copy. Until that read
 has worked, Reset, Import and Restore do not start, in Overload and in Fuel
 (Fuel's Paste from Overload and Choose a file too): "Cloud sync is still
 reading your account. Try again once it says Synced." The read would bring the
-account's data back over them.
+account's data back over them. Both apps keep waiting for that read when they
+are closed and opened again: while cloud sync is not running (no signal, or an
+update that arrived only in part) they say "Cloud sync is not available right
+now. It starts when the app opens with signal.", and until cloud sync has said
+who is signed in, the message above.
 
 Reset, Import and Restore say so when you are signed in, because they erase or
 replace the training data in the account too; the food log in the account is
@@ -531,8 +549,9 @@ or Restore, for the dates the file or copy does not have) and loses a workout
 in progress. To keep that phone out of it, sign out on it first and reset it
 before it signs in again. The questions say this too. On a start where cloud
 sync has not loaded yet (no signal before its files were stored), a phone that
-was signed in counts as signed in for these three: the question says the
-account changes too, and the change goes up once cloud sync runs.
+was signed in and had read the account counts as signed in for these three:
+the question says the account changes too, and the change goes up once cloud
+sync runs.
 
 Signing out keeps everything on the phone and in the account. What you log
 while signed out is sent when you sign back in. A Reset, Import or Restore done
@@ -573,20 +592,23 @@ other date the account's entry stands, and a date the account no longer has
 goes from the phone too (deleted on another phone, even more than 90 days ago,
 or gone with a Reset, Import or Restore there). Deletions are recorded (kept 90
 days) so a merge never brings back something you deleted, and a weigh-in or
-night you log again after deleting it stays. A change not uploaded yet wins
-over the cloud's copy. A phone on 3.0 sends its settings, program, weigh-ins
-and nights only when it changed something in them itself, and the first time
-after it opens only once it has taken in the account's latest copy, so an old
-copy on one phone cannot undo what another phone changed. One case is left: a
-change made after the signal went, while the app stayed open, goes up as it
-was made when the signal is back, and the account takes that phone's copy. A
-phone still on 2.8 can undo changes, so update both; it also deletes again a
-weigh-in or night logged again after it had taken the deletion. A workout in
-progress on a phone on 3.0 stays in progress there when another phone resets,
-imports or restores, and goes back to the account; on a phone still on 2.8 it
-is lost. A workout finished on one phone is finished on every phone. On first
-sign-in a phone's own workouts, templates, weigh-ins and nights are kept, and
-its exercises are matched to the account's by name.
+night you log again after deleting it stays, also after a Reset, Import or
+Restore (logged again on a phone the deletion had reached). A change not
+uploaded yet wins over the cloud's copy. A phone on 3.0 sends its settings,
+program, weigh-ins and nights only when it changed something in them itself,
+and the first time after it opens only once it has taken in the account's
+latest copy, so an old copy on one phone cannot undo what another phone
+changed. One case is left: a change made after the signal went, while the app
+stayed open, goes up as it was made when the signal is back, and the account
+takes that phone's copy. A phone still on 2.8 can undo changes, so update both;
+it also deletes again a weigh-in or night logged again after it had taken the
+deletion, and a phone on 3.0 that had taken the deletion deletes again one
+logged again on 2.8. A workout in progress on a phone on 3.0 stays in progress
+there when another phone resets, imports or restores, and goes back to the
+account; on a phone still on 2.8 it is lost. A workout finished on one phone is
+finished on every phone. On first sign-in a phone's own workouts, templates,
+weigh-ins and nights are kept, and its exercises are matched to the account's
+by name.
 
 Firebase project setup (one time, in the Firebase console):
 
@@ -684,7 +706,11 @@ says when you last exported, and with cloud sync off Today reminds you after
   Backup lists them with Restore. Import, Restore and Reset wait for their copy:
   when it cannot be stored, nothing is replaced or erased, and a sheet offers
   Export ("The automatic copy could not be stored, so nothing was replaced.
-  Export a backup first, then try again."). A second tap while one of them is
+  Export a backup first, then try again."). When Settings says Automatic copies
+  are not available (an update that arrived only in part), Import, Reset and
+  Remove the old food log say so before asking anything, and that nothing was
+  replaced (erased, removed): close Overload and open it again with good
+  signal. A second tap while one of them is
   under way does nothing. A copy store that does not answer is given up after a
   few seconds, so these never wait for ever.
   They live in the same browser storage, so they do not replace an export.

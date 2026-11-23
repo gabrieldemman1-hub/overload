@@ -29,10 +29,14 @@
 #   - sw.js or fuel/sw.js differs from the published one (origin/main: GitHub Pages serves main) while its
 #     cache name is the same: phones would install the changed worker into the cache the running one serves
 #     from. Skipped where git or origin/main is not there, and for a worker that is new since then;
-#   - the release is the published one (VERSION in origin/main's overload.js) and a page or a file with ?v= in
-#     an install list differs from its published copy: a phone that has the release keeps its stored copies of
-#     the ?v= files for the whole release and runs them under the new page. Skipped like the check above, and
-#     for the page and files of a worker that is new since then (no phone stored them);
+#   - the release was published before (VERSION in overload.js of a commit on origin/main's own line, the
+#     newest such commit: after a roll-back to an older release, phones that had this one still keep it) and a
+#     page, a file with ?v= in an install list or a worker under the same cache name differs from that copy: a
+#     phone that has the release keeps its stored copies of the ?v= files for the whole release and runs them
+#     under the new page. Skipped like the check above, and for the page and files of a worker that is new
+#     since then (no phone stored them). Before these two it fetches origin/main (a pull request merged on
+#     GitHub is published too; BUMP_NO_FETCH=1 compares with the copy here as it is), and it names the
+#     published commit and release it compared with;
 #   - app.js, styles.css or food.js is at the root: v2.8's page asks the server for these names, and its
 #     worker would run (and store) whatever answers there in the v2.8 page;
 #   - a file in a worker's install list (ASSETS in sw.js and fuel/sw.js, one address per line) is not on
@@ -288,40 +292,87 @@ if have fuel/sw.js && [ "$HAVE_FOOD" = 1 ]; then
   fi
 fi
 
-# 5. A worker that changed since the published release has a new cache name. Otherwise a phone installs the
-# changed worker into the cache the running one serves from, and an install that fails there (one file not
-# arriving on a weak signal) leaves the app with nothing to start from offline. Published = origin/main (GitHub
-# Pages serves main); without git or origin/main this check is skipped, and so is a worker new since then.
+# 5. What is published: origin/main (GitHub Pages serves main). It is fetched first, so that a pull request merged
+# on GitHub counts; BUMP_NO_FETCH=1 leaves the copy here as it is (a copy of the repository that must not reach
+# GitHub, or a test). Without git or origin/main these checks are skipped.
 PUBLISHED=origin/main
-if command -v git >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] \
-    && git rev-parse -q --verify "$PUBLISHED^{commit}" >/dev/null 2>&1; then
+FETCH=""
+if [ "$IN_GIT" = 1 ] && git config --get remote.origin.url >/dev/null 2>&1; then
+  if [ -n "${BUMP_NO_FETCH:-}" ]; then FETCH=off
+  else
+    LIMIT=""; if command -v timeout >/dev/null 2>&1; then LIMIT="timeout 20"; fi
+    # No password prompt, and at most about 20 seconds (a stalled download ends too where there is no timeout).
+    if GIT_TERMINAL_PROMPT=0 $LIMIT git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q origin main >/dev/null 2>&1; then FETCH=done
+    else FETCH=failed; fi
+  fi
+fi
+# The release a commit's overload.js says, if any.
+release_at() { git show "$1:overload.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p"; }
+# The newest commit on origin/main's own line (its first parents: each of them was the published site for a while)
+# whose overload.js says  const VERSION = '$1', or nothing. Not only the newest commit: after a roll-back to an older
+# release, phones that had this one keep its stored files, and they get them again when it is published again.
+released_at() {
+  git rev-list --first-parent "$PUBLISHED" 2>/dev/null | sed 's|.*|&:overload.js &|' \
+    | git cat-file --batch-check='%(objectname) %(rest)' 2>/dev/null | {
+      last="" v=""
+      while read -r b c; do
+        if [ "$c" = missing ]; then last=""; continue; fi   # no overload.js in that commit (2.8 and before)
+        if [ "$b" != "$last" ]; then last=$b; v=$(git cat-file blob "$b" | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p"); fi
+        if [ "$v" = "$1" ]; then printf '%s\n' "$c"; break; fi
+      done
+    }
+}
+# A worker that changed since a published one has a new cache name. Otherwise a phone installs the changed worker
+# into the cache the running one serves from, and an install that fails there (one file not arriving on a weak
+# signal) leaves the app with nothing to start from offline. A worker new since then is not compared.
+# same_cache COMMIT WHAT
+same_cache() {
   for m in sw.js:overload fuel/sw.js:fuel; do
     f=${m%%:*} pre=${m#*:}
     [ -f "$f" ] || continue
-    git cat-file -e "$PUBLISHED:$f" 2>/dev/null || continue
-    if git show "$PUBLISHED:$f" | cmp -s - "$f"; then continue; fi
-    THEN=$(git show "$PUBLISHED:$f" | sed -n "s/.*const CACHE = '$pre-v\([0-9][0-9]*\)'.*/\1/p")
-    [ "$THEN" != "$(cache_of "$f" "$pre")" ] || fail "$f differs from the published one ($PUBLISHED), but its cache is still $pre-v$THEN: phones would install it into the cache the running worker serves from. Run sh bump.sh with the next release"
+    git cat-file -e "$1:$f" 2>/dev/null || continue
+    if git show "$1:$f" | cmp -s - "$f"; then continue; fi
+    THEN=$(git show "$1:$f" | sed -n "s/.*const CACHE = '$pre-v\([0-9][0-9]*\)'.*/\1/p")
+    [ "$THEN" != "$(cache_of "$f" "$pre")" ] || fail "$f differs from the published one ($2), but its cache is still $pre-v$THEN: phones would install it into the cache the running worker serves from. Run sh bump.sh with the next release"
   done
-  # Under the published release, every page and every file with ?v= the workers store must be the published copy.
-  # A phone that has the release answers the ?v= addresses from its stored copies for the whole release, but takes
-  # a changed page from the server: it would run the new page with the old scripts and stylesheets, also offline.
-  # (Two branches that each ran sh bump.sh with the same number merge cleanly, so this is not only a forgotten bump.)
-  PUBREL=$(git show "$PUBLISHED:overload.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p")
-  if [ "$PUBREL" = "$WANT" ] && is_release "$WANT"; then
+}
+if [ "$IN_GIT" = 1 ] && git rev-parse -q --verify "$PUBLISHED^{commit}" >/dev/null 2>&1; then
+  TIP=$(git rev-parse "$PUBLISHED")
+  WHEN=$(git log -1 --format=%cd --date=short "$PUBLISHED")
+  case "$FETCH" in
+    off) say "$PUBLISHED not fetched (BUMP_NO_FETCH is set): this is the copy here, from $WHEN (its last commit)" ;;
+    failed) say "warning: could not fetch $PUBLISHED: compared with the copy here, from $WHEN (its last commit). Fetch it and check again before you push." ;;
+  esac
+  TIPREL=$(release_at "$TIP")
+  # (2.8 and before had app.js; read only to name it here.)
+  [ -n "$TIPREL" ] || TIPREL=$(git show "$TIP:app.js" 2>/dev/null | sed -n "s/.*const VERSION = '\([^']*\)'.*/\1/p" | sed -n 1p)
+  say "published: $PUBLISHED at $(git rev-parse --short "$TIP"), release ${TIPREL:-unknown}"
+  same_cache "$TIP" "$PUBLISHED"
+  # Under a release that was published, every page and every file with ?v= the workers store must be its published
+  # copy, and so must a worker under the same cache name. A phone that has the release answers the ?v= addresses
+  # from its stored copies for the whole release, but takes a changed page from the server: it would run the new
+  # page with the old scripts and stylesheets, also offline. (Two branches that each ran sh bump.sh with the same
+  # number merge cleanly, so this is not only a forgotten bump.)
+  REL=""
+  if is_release "$WANT"; then REL=$(released_at "$WANT"); fi
+  if [ -n "$REL" ]; then
     NEXT="${WANT%%.*}.$((${WANT#*.} + 1))"
+    if [ "$REL" != "$TIP" ]; then
+      say "release $WANT was published before, last at $(git rev-parse --short "$REL"): phones may still have it, so this compares with that too"
+      same_cache "$REL" "$PUBLISHED at $(git rev-parse --short "$REL"), the last of release $WANT"
+    fi
     # Only a worker that was published stored anything on a phone: its page and its files with ?v=.
     LISTED=""
     for m in sw.js:.:index.html fuel/sw.js:fuel:fuel/index.html; do
       w=${m%%:*} rest=${m#*:}; dir=${rest%%:*} page=${rest#*:}
-      [ -f "$w" ] && git cat-file -e "$PUBLISHED:$w" 2>/dev/null || continue
+      [ -f "$w" ] && git cat-file -e "$REL:$w" 2>/dev/null || continue
       LISTED="$LISTED $page"
       for a in $(assets_of "$w"); do case "$a" in *'?v='*) LISTED="$LISTED $(in_tree "$dir" "$a")" ;; esac; done
     done
     for f in $(printf '%s\n' $LISTED | sort -u); do
       [ -f "$f" ] || continue
-      git cat-file -e "$PUBLISHED:$f" 2>/dev/null || continue   # new since then: its worker's install list changed too (above)
-      if git show "$PUBLISHED:$f" | cmp -s - "$f"; then continue; fi
+      git cat-file -e "$REL:$f" 2>/dev/null || continue   # new since then: its worker's install list changed too (above)
+      if git show "$REL:$f" | cmp -s - "$f"; then continue; fi
       case "$f" in
         index.html|fuel/index.html) fail "$f changed but the release is still $WANT: phones run it with their old copies of the other files. Run sh bump.sh $NEXT" ;;
         *) fail "$f changed but the release is still $WANT: phones keep the old copy. Run sh bump.sh $NEXT" ;;
@@ -329,6 +380,7 @@ if command -v git >/dev/null 2>&1 && [ "$(git rev-parse --show-toplevel 2>/dev/n
     done
   fi
 else
+  [ "$FETCH" != failed ] || say "warning: could not fetch $PUBLISHED"
   say "not compared with the published workers and files (no git repository here, or no $PUBLISHED)"
 fi
 [ -z "$UNCOMMITTED" ] || say "warning: not committed yet:$UNCOMMITTED. Commit them before you push."

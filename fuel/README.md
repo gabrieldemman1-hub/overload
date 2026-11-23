@@ -47,7 +47,7 @@ Everything is in `localStorage` on the device, under names of Fuel's own:
 | Key | Holds |
 | --- | --- |
 | `fuel.state.v1` | The whole state, one JSON document (below). |
-| `fuel.backup` | `{ since, lastExport, nagOff }`: this phone only. |
+| `fuel.backup` | `{ since, lastExport, nagOff }`, and `linking` (an account's uid) while a first cloud sign-in has not read the account yet: this phone only. |
 | `fuel.theme` | A mirror of the theme setting, read before first paint. |
 | `fuel.sync.v1` | Cloud sync's note of what the account holds. |
 
@@ -153,7 +153,12 @@ one account holds both apps' data, in documents of their own:
   failing), Reset, Restore and the imports (Import JSON, Paste from Overload, Choose a file) do not start, and
   say so as Overload does: "Cloud sync is still reading your account. Try again once it says Synced." The read
   would bring the account's log back over them (sync#6). A phone that signed in here before is not held up,
-  also without signal.
+  also without signal. Fuel keeps waiting for that read when it is closed and opened again, as Overload does
+  (link#1): while cloud sync has not loaded (no signal) they say "Cloud sync is not available right now. It
+  starts when the app opens with signal.", and until cloud sync has said who is signed in, the message above.
+  The account still to be read is kept in `fuel.backup` (this phone only), not in the note; it no longer counts
+  once the read has worked, and goes when cloud sync says nobody is signed in. At Welcome, where nothing is
+  stored yet, it is not kept: the phone holds nothing the read could undo.
 - The sign-out question says what the next sign-in does: what was logged while signed out is sent; after a
   Reset or Restore done while signed out, signing in brings back what the account holds (review finding
   look#1). While the sync module has not loaded, Settings says "Cloud sync is not available right now. It

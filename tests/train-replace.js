@@ -21,6 +21,8 @@
  * Signed in to cloud sync (stand-in), the questions say the training data in the account is replaced (Reset:
  * erased), what another phone signed in to it sends back and how to stop that, and that the account's food log
  * is not changed. (tests/train-cloud.js runs Reset and Restore with two phones on the fake cloud.)
+ * Round 5, ask#1: with v2.8's backup.js on the page (no automatic copies), Reset, Import and Remove the old food log
+ * refuse before any question ("Automatic copies are not available right now, …"), and nothing changes.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -44,6 +46,7 @@ async function phoneWith(browser, server, opts) {
   const phone = await lib.newPhone(browser, { timezoneId: fx.meta.tz, now: fx.meta.now });
   if (opts.clipboard) await phone.context.grantPermissions(['clipboard-read', 'clipboard-write']);
   if (opts.state !== null) await lib.seedV28(phone.context, fx);
+  if (opts.setup) await opts.setup(phone.context);   // e.g. another release's file for an address (routes added later win)
   const answer = { yes: true };
   const page = await lib.openApp(phone.context, server.url + '/index.html', { dialogs: (d) => (answer.yes ? d.accept() : d.dismiss()) });
   await T.copy(page, 'before-split', opts.state === null ? 0 : 5000);   // let the first start settle
@@ -497,7 +500,10 @@ async function signedIn(browser, server) {
   const file = T.writeFile(tmp, 'overload-backup-small-2.json', small.text);
   await run.step(name, 'the questions say the account\'s training data goes too and its food log is not changed', async () => {
     answer.yes = false;   // read the questions, change nothing
-    await page.evaluate(() => { window.__overloadSync = { user: { email: 'me@example.com', uid: 'u1' } }; });   // sync.js cannot load here (its Firebase files are on another host)
+    // sync.js cannot load here (its Firebase files are on another host). The stand-in is this release's module (the
+    // release backup.js names), signed in and linked: one of another release, signed in without a note of its
+    // account, holds Reset, Import and Restore back (review finding v28#1).
+    await page.evaluate(() => { window.__overloadSync = { release: window.__overloadBackup.release, user: { email: 'me@example.com', uid: 'u1' }, linked: true }; });
     await lib.openTab(page, 'settings');
     await page.click('[data-action="reset"]');
     await importFile(page, file);
@@ -518,6 +524,59 @@ async function signedIn(browser, server) {
   errors(name, phone); await phone.close();
 }
 
+// Round-5 finding ask#1: this page with v2.8's backup.js, as 2.8's worker can hand it out during the first starts of
+// 3.0 (tests/train-release.js runs that with real workers). overload.js uses no copy module of another release, so no
+// safety copy can be kept: Reset, Import and Remove the old food log refuse before asking anything (their questions
+// promise a copy) and say what helps, and nothing changes. Reset and Import keep their sheet with Export.
+async function noCopiesHere(browser, server) {
+  const name = 'automatic copies not available';
+  const v28Backup = require('child_process').execSync('git -C ' + JSON.stringify(lib.REPO) + ' show ' + T.V28 + ':backup.js').toString();
+  const { phone, page } = await phoneWith(browser, server, { setup: (ctx) => ctx.route(/\/backup\.js(\?|$)/, (r) => r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: v28Backup })) });
+  const file = T.writeFile(tmp, 'overload-backup-small-5.json', small.text);
+  const NOT = (did) => 'Automatic copies are not available right now, so nothing was ' + did + '. Close Overload and open it again with good signal.';
+  await run.step(name, 'set-up: the page runs v2.8\'s backup.js, which overload.js does not use (Settings: not available)', async () => {
+    need(await page.evaluate(() => !!window.__overloadBackup && !('release' in window.__overloadBackup) && !window.__overloadBackup.KEEP_REMOVALS), 'the backup.js that ran is not v2.8\'s (the check lost its point)');
+    await lib.openTab(page, 'settings');
+    await page.waitForFunction(() => !/Looking for copies/.test((document.getElementById('safety-copies') || {}).textContent || ''), null, { timeout: 6000 }).catch(() => {});
+    same(await T.text(page, '#safety-copies'), 'Automatic copies are not available.', 'the list of copies');
+    return 'v2.8\'s backup.js ran';
+  });
+  for (const [what, did, title, act] of [
+    ['Reset', 'erased', 'Reset all data', async () => { await lib.openTab(page, 'settings'); await page.click('[data-action="reset"]'); }],
+    ['Import', 'replaced', 'Import JSON', () => importFile(page, file)]
+  ]) {
+    await run.step(name, what + ': refused before any question, in its sheet with Export: "' + NOT(did) + '"', async () => {
+      await T.closeSheet(page);
+      page.dialogs.length = 0;
+      await act();
+      await page.waitForFunction(() => !document.querySelector('#sheet').hidden, null, { timeout: 8000 }).catch(() => {});
+      await lib.sleep(300);
+      const sheet = await page.evaluate(() => ({ open: !document.querySelector('#sheet').hidden, title: ((document.querySelector('#sheet .sheet-title h2') || {}).textContent || '').trim(), text: ((document.querySelector('#sheet .banner') || {}).textContent || '').trim(), exp: !!document.querySelector('#sheet [data-action="export"]') }));
+      const asked = page.dialogs.map((d) => JSON.stringify(plain(d).slice(0, 60)));
+      need(!asked.length, 'asked first: ' + asked.join(', ') + '; then the sheet: ' + sheet.text);
+      need(sheet.open && sheet.title === title && sheet.text === NOT(did) && sheet.exp, 'the sheet: ' + JSON.stringify(sheet));
+      need((await text(page)) === fx.text, 'the stored data changed');
+      return sheet.text;
+    });
+  }
+  await run.step(name, 'Remove the old food log: refused before any question, with the toast "' + NOT('removed') + '"', async () => {
+    await T.closeSheet(page);
+    await lib.openTab(page, 'settings');
+    const saved = page.waitForEvent('download', { timeout: 8000 });
+    await page.click('[data-action="handover-file"]'); await saved;   // the log saved as a file first, as Remove asks
+    page.dialogs.length = 0;
+    await page.click('[data-action="handover-remove"]');
+    const t = await T.toast(page, /nothing was removed|removed from|could not/);
+    const asked = page.dialogs.map((d) => JSON.stringify(plain(d).slice(0, 60)));
+    need(!asked.length, 'asked first: ' + asked.join(', ') + '; then: ' + t);
+    same(t, NOT('removed'), 'the toast');
+    const left = await page.evaluate(() => Object.keys(window.__overload.state.diary).length);
+    need(left === DAYS && JSON.stringify(JSON.parse(await text(page)).diary) === JSON.stringify(fx.state.diary), 'food days left: ' + left + ' of ' + DAYS);
+    return t;
+  });
+  errors(name, phone); await phone.close();
+}
+
 (async () => {
   const server = await lib.startServer(lib.REPO, PORT);
   const browser = await lib.launch();
@@ -534,6 +593,7 @@ async function signedIn(browser, server) {
     await changedMeanwhile(browser, server);
     await doubleTaps(browser, server);
     await signedIn(browser, server);
+    await noCopiesHere(browser, server);
   } finally { await browser.close(); await server.stop(); T.removeDir(tmp); }
   run.done();
 })().catch((e) => { console.error(e); T.removeDir(tmp); process.exit(1); });

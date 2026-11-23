@@ -403,8 +403,13 @@
   }
   // A copy that is already there is never written over. The phone's copy store sometimes does not answer at the
   // first try (backup.js gives up after 2 s): try once more a little later, with the same text.
+  // This one copy may also be kept by 2.8's backup.js (round-5 finding split#1). During the first starts of 3.0,
+  // 2.8's worker can hand this page 2.8's file, which part() refuses; the copy would then wait for a later start
+  // and hold what this release saved meanwhile. 2.8's take('split', text) stores it under the same id, in the same
+  // form ('before-split', which 2.8 never clears out). Any other module of another release is still not used.
+  const v28Backup = () => { const m = window.__overloadBackup; return m && m.release === undefined && typeof m.take === 'function' && typeof m.list === 'function' ? m : null; };
   function keepSplitCopy(raw, at, tries) {
-    const B = part('__overloadBackup'); if (!B) return;
+    const B = part('__overloadBackup') || v28Backup(); if (!B) return;
     B.list().then((list) => list.some((m) => m.id === 'before-split') || B.take('split', raw), () => false)
       .then((kept) => { if (kept) setSplit({ at }); else if (tries > 1) setTimeout(() => keepSplitCopy(raw, at, tries - 1), 5000); });
   }
@@ -1078,17 +1083,24 @@
     if (total != null && (rem || 0) + (deep || 0) > total) { toast('REM + deep is more than total sleep'); return; }
     const done = [];
     if (wt != null) {
+      let ex = state.bodyweight.find((b) => b.date === today);
+      const at = ex && ex.weight === wt && !state.deleted.bw[today] ? null : loggedAt('bw', today);
       unmarkDeleted('bw', today);
-      const ex = state.bodyweight.find((b) => b.date === today);
-      if (ex) ex.weight = wt; else state.bodyweight.push({ date: today, weight: wt });
+      if (ex) ex.weight = wt; else state.bodyweight.push(ex = { date: today, weight: wt });
+      if (at && !(ex.at >= at)) ex.at = at;   // changed in place: a time it has stays unless this one is later
       done.push(fmtW(wt) + ' ' + state.settings.units);
     }
     if (total != null) {
       const prev = state.sleep.find((x) => x.date === today) || {};
       const same = prev.total === total && prev.rem === rem && prev.deep === deep;
+      const at = same && !state.deleted.sleep[today] ? null : loggedAt('sleep', today);
       const next = { date: today, total, rem, deep };
       ['recovery', 'rhr', 'hrv', 'perf', 'light'].forEach((k) => { if (prev[k] != null && (k !== 'light' || same)) next[k] = prev[k]; });
       if (same && prev.src) next.src = prev.src;  // unchanged WHOOP night stays WHOOP's
+      // The night is written anew: a time it had goes with it (review finding relog#1: saved again with Edit, it lost
+      // its time, and a second phone holding the record deleted it everywhere).
+      const had = typeof prev.at === 'number' ? prev.at : 0;
+      if (at || had) next.at = Math.max(at || 0, had);
       state.sleep = state.sleep.filter((x) => x.date !== today).concat([next]);
       unmarkDeleted('sleep', today);
       done.push(fmtHM(total) + ' sleep');
@@ -2413,12 +2425,14 @@
   // So a Reset, Import or Restore on such a start says that the account changes too, keeps the note, and the next
   // link sends it, as when the module is there (review finding sync#2: the next start undid it). The note of this
   // release's sync.js has no email; a note marked signedOut (as Fuel's sync.js marks its own) counts as signed out.
+  // Without a note, a first link still to be made (linkPending) counts as signed in too (review finding link#1);
+  // cloudStillReading lets nothing start then anyway.
   function cloudAccount() {
     const sync = window.__overloadSync;
     if (sync && sync.user) return { email: sync.user.email || '' };
     if (sync && ui.authSeen) return null;
     const note = syncNote();
-    return note ? { email: typeof note.email === 'string' ? note.email : '' } : null;
+    return note ? { email: typeof note.email === 'string' ? note.email : '' } : linkPending() ? { email: '' } : null;
   }
   function syncNote() {
     try {
@@ -2438,6 +2452,7 @@
   function noteSignIn() {
     const sync = window.__overloadSync; if (!sync) return;
     ui.authSeen = true;
+    noteLinking(sync.user);
     let raw = null, n = null;
     try { raw = localStorage.getItem(SYNC_KEY); n = JSON.parse(raw); } catch (e) { n = null; }
     if (!isObj(n) || typeof n.uid !== 'string' || !n.uid) return;
@@ -2445,21 +2460,60 @@
     const text = raw.replace(/\s+$/, '') + (out ? '\n' : '');
     if (text !== raw) { try { localStorage.setItem(SYNC_KEY, text); } catch (e) { /* ignore */ } }
   }
+  // The account the stored note names, in either form, or ''.
+  function noteUid() {
+    try { const n = JSON.parse(localStorage.getItem(SYNC_KEY)); return isObj(n) && typeof n.uid === 'string' ? n.uid : ''; } catch (e) { return ''; }
+  }
+  // A first link still to be made, kept across starts (review finding link#1). The module says who is signed in only
+  // once it has loaded and Firebase has answered; until the first link has read the account there is no note. So a
+  // start where that read failed, then the app was closed, looked signed out to the next start without the module (or
+  // before Firebase answered): Reset and Import went ahead, and the next link merged the account's data back over
+  // them. overload.backup's `linking` holds the account's uid while the module reports it signed in and no note names
+  // it; it goes when the module reports nobody, or names it while a note does. Kept out of the note, which v2.8 would
+  // take as an account it has read. A note of that account (the first link worked, here or on 2.8) outweighs it.
+  function noteLinking(user) {
+    const want = user && user.uid && noteUid() !== user.uid ? user.uid : undefined;
+    if (backupInfo().linking !== want) setBackupInfo({ linking: want });
+  }
+  function linkPending() { const id = backupInfo().linking; return typeof id === 'string' && !!id && noteUid() !== id; }
   // Signed in, but cloud sync has not read the account yet (sync.js `linked`: the first read from the server is under
   // way, or failed and is tried again). A Reset, Import or Restore now would be undone without a word: once the read
   // works, the first link merges the account's data back over it, and the account is not changed (review finding
   // sync#6). So none of them starts, and the toast says when they can. A phone that linked before (it has a note) is
-  // linked at once, offline too. A sync module of another release has no `linked` and holds nothing up.
+  // linked at once, offline too. The same on a later start, before the module has said who is signed in (no module,
+  // or Firebase has not answered), while a first link is still to be made (linkPending; review finding link#1).
+  // A sync module of another release (2.8's, from a stale server) has no `linked` and is given nothing here (part):
+  // signed in without a note of that account, nothing would ever send the change, and the next start of this
+  // release would merge the account back over it (review finding v28#1). A phone with a note of the account is not
+  // held up: its change goes up at that next start.
   function cloudStillReading() {
-    const sync = window.__overloadSync;
-    if (ui.unreadable || !sync || !sync.user || sync.linked !== false) return false;
-    toast('Cloud sync is still reading your account. Try again once it says Synced.');
+    if (ui.unreadable) return false;
+    const sync = window.__overloadSync, ours = !!part('__overloadSync');
+    let why = '';
+    if (sync && sync.user) { if (ours ? sync.linked === false : noteUid() !== sync.user.uid) why = ours ? 'still' : 'not'; }
+    else if (!(sync && ui.authSeen) && linkPending()) why = sync && ours ? 'still' : 'not';
+    if (!why) return false;
+    toast(why === 'still' ? 'Cloud sync is still reading your account. Try again once it says Synced.' : 'Cloud sync is not available right now. It starts when the app opens with signal.');
     return true;
   }
   // When the training data on this phone was last replaced (Reset, Import, Restore), for sync.js (markLifted): a
   // deletion record missing after that may be gone with the replaced data, not because the entry was logged again.
   // Kept in overload.backup, so a start without the sync module counts too.
   function noteReplaced() { setBackupInfo({ replaced: Date.now() }); }
+  // The time a weigh-in or night logged in the check-in carries (`at`), or null (review findings sync#7, relog#1).
+  // Cloud sync keeps an entry over a deletion record of its date older than its time (sync.js settleDated). Given here,
+  // where he logs it, whatever a Reset, Import or Restore before says:
+  // - when this phone holds such a record (it is taken away now): later than it, whatever this phone's clock says;
+  // - for 90 days after a Reset, Import or Restore here (noteReplaced): the replaced data took this phone's records
+  //   with it, while the account and the other phones may still hold one of this date. Their merge would delete
+  //   again what he logs now (as with a second phone closed meanwhile, or no signal). sync.js markLifted gives no
+  //   time then: it cannot tell an entry logged by hand from one the file or copy brought back.
+  // An entry logged after a deletion made elsewhere that this phone has not seen yet then stays too (the later wins).
+  function loggedAt(kind, date) {
+    const t = state.deleted[kind][date], now = Date.now();
+    if (t) return Math.max(now, t + 1);
+    return now - (+backupInfo().replaced || 0) < 90 * 864e5 ? now : null;
+  }
   // Signed out, a reset or import must not keep the note of what the cloud holds: the next sign-in would treat
   // everything missing here as deleted and remove it from the cloud. Without the note, sign-in merges the cloud back.
   function forgetCloudIfSignedOut() {
@@ -2491,6 +2545,7 @@
   // and the questions say so. The copy "Before reset" is stored first: if it cannot be, nothing is erased.
   async function resetAll() {
     if (busy() || cloudStillReading()) return;
+    if (noCopies('erased', 'Reset all data')) return;   // before the questions (ask#1)
     const days = foodFacts().days;
     const food = days ? '\n\nThe old food log (' + plural(days, 'day') + ') is not erased. It stays on this phone until you remove it in Settings > Food.' : '';
     const link = state.settings.connUrl || state.settings.connKey ? ', the WHOOP link included' : '';
@@ -2511,6 +2566,7 @@
   const readText = (file) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = () => reject(r.error); r.readAsText(file); });
   async function importJson(file) {
     if (busy() || cloudStillReading()) return;
+    if (noCopies('replaced', 'Import JSON')) return;   // before the question (ask#1)
     ui.replacing = true;
     try {
       const parsed = JSON.parse(await readText(file), noProto);
@@ -2754,11 +2810,26 @@
   // forgetSyncedDays has taken the removed days off it.
   const otherSync = () => { const sync = window.__overloadSync; return !!(sync && sync.user && sync.release !== VERSION); };
   const UPDATE_FIRST = 'Finish the update first: open Overload once with good signal, then try again.';
+  // Round-5 finding ask#1: without a backup.js of this release (during the first starts of 3.0, 2.8's worker can hand
+  // out 2.8's file, or none arrives), no safety copy can be kept in this session. Remove the old food log, Reset and
+  // Import then refuse before their questions, which promise one, and say what helps: the app opened again with
+  // signal gets the right file. Restore is offered only from the list of copies, which needs backup.js. Data that
+  // could not be read is replaced without a copy (it has its own), so it is not held up. With a title: the sheet
+  // that Reset and Import show when their copy cannot be stored, with Export; without: a toast.
+  const noCopiesText = (did) => 'Automatic copies are not available right now, so nothing was ' + did + '. Close Overload and open it again with good signal.';
+  function noCopies(did, title) {
+    if (ui.unreadable || part('__overloadBackup')) return false;
+    if (!title) { toast(noCopiesText(did)); return true; }
+    openSheet(sheetHeader(title) + '<div class="banner warn" role="alert">' + icon('warning') + '<span>' + noCopiesText(did) + '</span></div>'
+      + '<button class="btn block mt12" data-action="export">' + icon('export') + 'Export backup</button>', 'copy-failed');
+    return true;
+  }
   async function removeFoodLog() {
     const h = handoverInfo(), f = h.f;
     if (ui.unreadable || busy() || !f.days) return;   // busy: a second tap while the safety copy is being stored, or a Restore, Import or Reset under way
     if (!h.current) { toast('Copy your food log or save it as a file first.'); return; }
     if (otherSync()) { toast(UPDATE_FIRST); return; }
+    if (noCopies('removed')) return;
     // Every removal keeps a safety copy of its own, and the newest few are kept (backup.js): when that lets an
     // older one go, the question says so. When the list cannot be read (backup.js gives up after a few seconds),
     // nothing is removed: the question could not say which copy is let go.
@@ -3171,6 +3242,9 @@
     // Sync status: only the top-bar pill and the status text in Settings change. Redrawing the screen here
     // threw away whatever was being typed in Settings (it changes twice for every upload).
     setSyncStatus(status, msg) {
+      // A sync module of another release syncs nothing here (see part), so what it reports is not true: no pill, as
+      // the Cloud sync card says sync is not available (round-5 finding pill#1: 2.8's said 'Synced' going offline).
+      if (window.__overloadSync && !part('__overloadSync')) { status = 'off'; msg = ''; }
       ui.sync = { status, msg: msg || '' };
       const pill = $('.sync-pill');
       if (pill && status !== 'off') { pill.className = 'pill sync-pill ' + status; pill.innerHTML = syncIcon(status); pill.title = ui.sync.msg; pill.setAttribute('aria-label', 'Cloud sync: ' + status); }

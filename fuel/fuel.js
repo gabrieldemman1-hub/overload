@@ -21,7 +21,7 @@
   const VERSION = '3.0';
   const STORAGE_KEY = 'fuel.state.v1';
   const SYNC_KEY = 'fuel.sync.v1';       // cloud sync's note of what the cloud holds (sync.js)
-  const BACKUP_KEY = 'fuel.backup';      // { since, lastExport, nagOff } (ms): this phone only, never synced
+  const BACKUP_KEY = 'fuel.backup';      // { since, lastExport, nagOff } (ms), linking (a uid): this phone only, never synced
   const THEME_KEY = 'fuel.theme';        // read by the page before first paint
   const HERE_KEY = 'fuel.here';          // sessionStorage: "Use it here anyway" was tapped in this Safari tab
   // Overload's saved data. Only ever read, and only where both apps share one storage (an ordinary browser,
@@ -626,6 +626,7 @@
     start(); window.scrollTo(0, 0);
     // Cloud sync was told to wait (see `unreadable` at the end of this file): it may go on now.
     const sync = window.__overloadSync;
+    if (sync && ui.authSeen) noteLinking(sync.user);   // not kept at the gate (link#1)
     if (sync && sync.user && sync.pushNow) Promise.resolve(sync.pushNow()).catch(() => {});
   }
 
@@ -682,6 +683,8 @@
     ui.welcome = false; ui.screen = 'food';
     applyTheme();   // now also remembered for the next start
     if (!backupInfo().since) setBackupInfo({ since: Date.now() });
+    const sync = window.__overloadSync;
+    if (sync && ui.authSeen) noteLinking(sync.user);   // not kept at Welcome (link#1)
   }
   function startFresh() {
     leaveWelcome();
@@ -1088,13 +1091,15 @@
   // once at every start, when Firebase first answers), its word counts. Before that (its files are slow to come, or
   // this start has no signal; or the module has loaded and Firebase has not answered yet), a note that names an
   // account and is not marked signed out (sync.js marks it) counts as signed in: it stays, and the next link sends the
-  // reset or restore (review findings sync#2, data#5), as Overload's cloudAccount does.
+  // reset or restore (review findings sync#2, data#5), as Overload's cloudAccount does. Without a note, a first link
+  // still to be made (linkPending) counts as signed in too (review finding link#1); cloudStillReading lets nothing
+  // start then anyway.
   function cloudAccount() {
     const sync = window.__overloadSync;
     if (sync && sync.user) return { email: sync.user.email || '' };
     if (sync && ui.authSeen) return null;
     const note = syncNote();
-    return note ? { email: typeof note.email === 'string' ? note.email : '' } : null;
+    return note ? { email: typeof note.email === 'string' ? note.email : '' } : linkPending() ? { email: '' } : null;
   }
   function syncNote() {
     try { const n = JSON.parse(localStorage.getItem(SYNC_KEY)); return isObj(n) && typeof n.uid === 'string' && n.uid && !n.signedOut ? n : null; } catch (e) { return null; }
@@ -1104,16 +1109,41 @@
   function forgetCloudIfSignedOut() {
     if (!cloudAccount()) { try { localStorage.removeItem(SYNC_KEY); } catch (e) { /* ignore */ } }
   }
+  // The account the stored note names, in either form (signedOut too), or ''.
+  function noteUid() {
+    try { const n = JSON.parse(localStorage.getItem(SYNC_KEY)); return isObj(n) && typeof n.uid === 'string' ? n.uid : ''; } catch (e) { return ''; }
+  }
+  // A first link still to be made, kept across starts (review finding link#1, as Overload's noteLinking). The module
+  // says who is signed in only once it has loaded and Firebase has answered, and until the first link has read the
+  // account there is no note. So a start where that read failed, then the app was closed, looked signed out to the
+  // next start without the module (or before Firebase answered): Reset and the imports went ahead, and the next link
+  // merged the account's log back over them. fuel.backup's `linking` (this phone only, never synced) holds the
+  // account's uid while the module reports it signed in and no note names it; it goes when the module reports nobody,
+  // or names it while a note does. Kept out of the note (fuel.sync.v1), which sync.js would take as an account it has
+  // read. A note of that account (the first link worked) outweighs it. Not set at Welcome, where nothing is stored
+  // until he chooses (the phone holds nothing a link could undo; leaving Welcome sets it), nor while held at Add to
+  // Home Screen, where this may be another app's storage (sync waits there; "Use it here anyway" sets it).
+  function noteLinking(user) {
+    const want = !ui.welcome && !ui.gate && user && user.uid && noteUid() !== user.uid ? user.uid : undefined;
+    if (backupInfo().linking !== want) setBackupInfo({ linking: want });
+  }
+  function linkPending() { const id = backupInfo().linking; return typeof id === 'string' && !!id && noteUid() !== id; }
   // Signed in, but cloud sync has not read the account yet (sync.js `linked`: the first read from the server is under
   // way, or failed and is tried again). A Reset, Restore or import now would be undone without a word: once the read
   // works, the first link merges the account's data back over it, and the account is not changed (review finding
   // sync#6). So none of them starts, and the toast says when they can, in Overload's words. A phone that linked
-  // before (it has a note) is linked at once, offline too. A sync module of another release has no `linked` and
-  // holds nothing up. Not on the unreadable-data screen: nothing syncs there.
+  // before (it has a note) is linked at once, offline too. The same on a later start, before the module has said who
+  // is signed in (no module, or Firebase has not answered), while a first link is still to be made (linkPending;
+  // review finding link#1). A sync module of another release has no `linked` and holds nothing up. Not on the
+  // unreadable-data screen: nothing syncs there.
   function cloudStillReading() {
+    if (ui.unreadable) return false;
     const sync = window.__overloadSync;
-    if (ui.unreadable || !sync || !sync.user || sync.linked !== false) return false;
-    toast('Cloud sync is still reading your account. Try again once it says Synced.');
+    let why = '';
+    if (sync && sync.user) { if (sync.linked === false) why = 'still'; }
+    else if (!(sync && ui.authSeen) && linkPending()) why = sync ? 'still' : 'not';
+    if (!why) return false;
+    toast(why === 'still' ? 'Cloud sync is still reading your account. Try again once it says Synced.' : 'Cloud sync is not available right now. It starts when the app opens with signal.');
     return true;
   }
   // Signed in, a reset or restore syncs out and replaces the cloud copy too. Say so, and what another phone
@@ -1641,7 +1671,9 @@
     },
     // Signed in or out: redraw the pill and the Cloud sync card only, not the screen.
     syncChanged() {
-      if (window.__overloadSync) ui.authSeen = true;   // the module has said who is signed in (cloudAccount)
+      const sync = window.__overloadSync;
+      // The module has said who is signed in (cloudAccount); a first link still to be made is kept (link#1).
+      if (sync) { ui.authSeen = true; noteLinking(sync.user); }
       renderTopbar();
       const card = $('#cloud-card');
       if (card) {

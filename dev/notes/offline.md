@@ -654,7 +654,10 @@ Built as proposed, with the training app's main script renamed `overload.js`, an
 Roll-back: publishing the v2.8 files again works for the training app. Its `sw.js` differs from 3.0's, so it
 installs, recreates `overload-v23` and deletes `overload-v24`. It leaves `fuel-…` caches alone (prefix test,
 v2.5 and later). A storage where a diet worker is active keeps running the diet app from its cache; the diet
-worker's update check just fails while `fuel/sw.js` is gone.
+worker's update check just fails while `fuel/sw.js` is gone. So after a roll-back, 3.0 may be published again only
+unchanged; a fix needs a number higher than any published before (round-5 finding pub#1: `fuel/sw.js` byte for byte
+the same never installs again, and the changed pages would run with `fuel-v1`'s old files). `sh bump.sh --check`
+compares with the newest commit of `origin/main`'s history that carries the tree's release, not only its newest commit.
 
 ## 7. Paths the workflows and tools depend on
 
@@ -910,3 +913,38 @@ preload checks start an ordinary page.
 
 Not covered: WebKit and a real notch; a phone with no worker at all (a Safari tab) meeting a stale `fuel/`
 file of another 3.x release, since only Overload's helper modules name a release the page reads.
+
+## 13. Review round 5 (release: pub#1, pub#2, split#1, pill#1, ask#1)
+
+Run by `tests/train-bump.js`, `tests/train-release.js` (section v28), `tests/train-mixed.js` (sync28) and
+`tests/train-replace.js` (automatic copies not available).
+
+**Published before, not only now** (pub#1). Check 5 read the published release only from `origin/main`'s newest
+commit. After a roll-back (v2.8's files published again, section 6) that is 2.8, so a 3.0 changed and published
+again under 3.0 passed, and phones that kept `fuel-v1` (and a phone not opened during the roll-back, `overload-v24`)
+ran the new pages with their old files: `fuel/sw.js` byte for byte the same never installs again. `bump.sh` now
+compares with the newest commit on `origin/main`'s own line (its first parents, each of them the published site
+for a while) whose `overload.js` carries the tree's release: the pages, the `?v=` files and the workers under the
+same cache name, with the same messages. The same 3.0 published again unchanged passes; a fix needs a number higher
+than any published before.
+
+**Fetched first** (pub#2). `origin/main` is the copy of the last fetch: with a pull request merged on GitHub and
+not fetched, a second branch with the same number passed. `bump.sh` now runs `git fetch -q origin main` (at most
+about 20 s: `timeout` where there is one, and git's low-speed limit) when a remote `origin` exists, and prints
+`published: origin/main at <commit>, release <N>`. A fetch that fails is a warning with the date of the copy it
+compared with; `BUMP_NO_FETCH=1` compares with the copy without fetching (the tests' copies of this repository,
+whose origin is GitHub, and any agent here).
+
+**2.8's helper modules during the first starts of 3.0** (split#1, pill#1, ask#1; round 4, rel#2 and rel#6, made
+them unused). The split copy is the one exception: with 2.8's `backup.js` on the page, `keepSplitCopy` stores it
+through 2.8's `take('split', raw)`, which writes `before-split` exactly as 3.0's does, and 2.8 never clears it out.
+Before, the copy waited for a start with 3.0's `backup.js` and then held what 3.0 had saved meanwhile (a setting
+changed in that start). `setSyncStatus` ignores what a sync module of another release reports: 2.8's said "Synced"
+whenever the signal dropped or came back, while the card said sync is not available. Without a `backup.js` of this
+release, Remove the old food log, Reset and Import refuse before their questions (which promise a safety copy), with
+"Automatic copies are not available right now, so nothing was … Close Overload and open it again with good signal."
+(Remove: a toast; Reset and Import: their sheet with Export). With the module there and a copy that cannot be
+stored, the order stays: the questions, then the refusal.
+
+Not covered: a start where no `backup.js` loaded at all still leaves the split copy to a later start, which then
+holds what was saved meanwhile.

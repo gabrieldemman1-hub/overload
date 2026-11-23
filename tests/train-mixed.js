@@ -24,7 +24,11 @@
  * sync28 (round 4, rel#6) this tree's page with v2.8's sync.js, as 2.8's worker hands it out from a stale edge:
  *       signed in after a Remove made on 3.0, the module is given nothing and sends nothing (2.8's would bring the
  *       old food log back onto the phone), the cloud card says sync is not available, the line at the top says part
- *       did not load; the next start of 3.0 whole sends what was logged meanwhile.
+ *       did not load; the next start of 3.0 whole sends what was logged meanwhile. Round 5, pill#1: going offline
+ *       and online in that start shows no sync pill in the top bar (2.8's module reports 'Synced' then). Round 5,
+ *       v28#1: a phone signed in on 3.0 whose first read failed (no note) gets v2.8's sync.js: Reset asks nothing
+ *       and changes nothing ("Cloud sync is not available right now. ..."); after the next start of 3.0 whole has
+ *       read the account, it asks with the account and reaches it.
  * v30  this tree installed under its own worker, then a 3.1 made with bump.sh in a temporary copy (every
  *       script and stylesheet of it made different from 3.0's): with the page slow the stored 3.0 page runs
  *       only 3.0's files, also with no signal, and the stored 3.0 copies are not overwritten; with the page
@@ -471,7 +475,7 @@ const updateOutcome = (page) => page.evaluate(async () => {
         return N + ' food days in the account, none left on the phone';
       });
       if (ok) {
-        await step('a start that gets v2.8\'s sync.js: the module is given nothing and sends nothing (the old food log stays off the phone, the account is unchanged, a weigh-in logged now is not sent yet), the cloud card says sync is not available, and the line at the top says part did not load', async () => {
+        await step('a start that gets v2.8\'s sync.js: the module is given nothing and sends nothing (the old food log stays off the phone, the account is unchanged, a weigh-in logged now is not sent yet), the cloud card says sync is not available, and the line at the top says part did not load; going offline and online shows no sync pill (pill#1)', async () => {
           site.root = stale;
           const before = JSON.stringify(cloud.snapshot('users/' + uid + '/')), mark = cloud.mark();
           page = await open(phone);
@@ -487,6 +491,14 @@ const updateOutcome = (page) => page.evaluate(async () => {
           const plain = await page.evaluate(() => (document.getElementById('boot-plain') || {}).textContent || null);
           await lib.openTab(page, 'settings');
           const card = (await T.text(page, '#cloud-card')).replace(/^Cloud sync\s*/, '');
+          // Round 5, pill#1: 2.8's module reports 'Synced' when the signal drops or comes back. It syncs nothing here,
+          // so the top bar shows no sync pill, as the card says.
+          const pills = [];
+          for (const ev of ['offline', 'online']) {
+            await page.evaluate((e) => window.dispatchEvent(new Event(e)), ev);
+            await sleep(300);
+            pills.push(ev + ': ' + await page.evaluate(() => { const b = document.querySelector('.sync-pill'); return b ? b.className + ' "' + b.getAttribute('aria-label') + '"' : 'none'; }));
+          }
           const days = Object.keys((await stored(page)).diary || {}).length;
           const ws = cloud.writes({ who: 'S', from: mark });
           await page.close();
@@ -495,7 +507,8 @@ const updateOutcome = (page) => page.evaluate(async () => {
           need(JSON.stringify(cloud.snapshot('users/' + uid + '/')) === before, 'the account changed');
           need(card === NOT_NOW, 'the cloud card reads: ' + card);
           need(plain === PLAIN_JS, 'the line at the top says: ' + plain);
-          return 'no write; ' + daysIn(uid) + ' food days in the account, none on the phone; "' + card.slice(0, 40) + '…"';
+          need(pills.join() === 'offline: none,online: none', 'the top bar\'s sync pill: ' + pills.join('; '));
+          return 'no write; ' + daysIn(uid) + ' food days in the account, none on the phone; "' + card.slice(0, 40) + '…"; no sync pill going offline and online';
         });
         await step('the next start of 3.0 whole sends what was logged meanwhile, and the old food log stays off the phone', async () => {
           site.root = base;
@@ -509,6 +522,52 @@ const updateOutcome = (page) => page.evaluate(async () => {
           need(w && w.weight === 77.7, 'the weigh-in of ' + day + ' in the account: ' + JSON.stringify(w));
           need(days === 0 && daysIn(uid) === N, days + ' food days on the phone, ' + daysIn(uid) + ' in the account');
           return 'the weigh-in of ' + day + ' is in the account; ' + N + ' food days there, none on the phone';
+        });
+        // Review finding v28#1: a phone signed in on 3.0 whose first read failed has no note. A start that gets
+        // v2.8's sync.js then reports the account signed in, but nothing would ever send a Reset made there (the
+        // module is given nothing, and no note records what changed): the question said the account is erased, and
+        // the next start of 3.0 merged the account back onto the phone. So Reset, Import and Restore do not start.
+        await step('a phone signed in on 3.0 whose first read failed (no note), then a start that gets v2.8\'s sync.js: Reset asks nothing, changes nothing, and the toast says cloud sync is not available (v28#1); the next start of 3.0 whole reads the account, and Reset then asks with the account and reaches it', async () => {
+          const D = await makePhone('D', { serviceWorkers: 'block' });
+          const NOT_YET = 'Cloud sync is not available right now. It starts when the app opens with signal.';
+          try {
+            site.root = base;
+            let pg = await open(D);
+            await pg.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+            await pg.evaluate(() => { const orig = window.__fakeFirebase; window.__fakeFirebase = (op, p) => (op === 'fs.server' && p && p.via === 'get' ? Promise.resolve({ error: 'unavailable', rev: 0 }) : orig(op, p)); });
+            await pg.evaluate(([e, p]) => window.__overloadSync.signIn(e, p), [EM, PASSWORD]);
+            await pg.waitForFunction(() => !!window.__overloadSync.user && /Could not reach the cloud/.test(window.__overloadSync.error), null, { timeout: 15000 });
+            need(!(await pg.evaluate(() => localStorage.getItem('overload.sync.v1'))), 'D has a note');
+            await pg.close();
+            site.root = stale;
+            pg = await open(D);
+            await pg.waitForFunction(signedIn, null, { timeout: 15000 });
+            need(await pg.evaluate(() => !('release' in window.__overloadSync)), 'the sync module that ran is not v2.8\'s');
+            const before = await lib.readStorageText(pg, lib.STATE_KEY), mark = cloud.mark();
+            await lib.openTab(pg, 'settings');
+            await pg.click('[data-action="reset"]');
+            const said = await T.toast(pg, /not available|still reading/).catch(() => 'no such toast');
+            await sleep(500);
+            const after = await lib.readStorageText(pg, lib.STATE_KEY), asked = pg.dialogs.slice();
+            await pg.close();
+            need(!asked.length, 'questions were asked: ' + asked.join(' / ').replace(/\n/g, ' | ').slice(0, 300));
+            need(after === before, 'D\'s data changed');
+            need(said === NOT_YET, 'the toast: ' + said);
+            need(!cloud.writes({ who: 'D', from: mark }).length, 'D wrote to the account');
+            site.root = base;
+            pg = await open(D);
+            await pg.waitForFunction(() => !!window.__overloadSync && window.__overloadSync.linked === true, null, { timeout: 15000 });
+            await settle();
+            await lib.openTab(pg, 'settings');
+            await pg.click('[data-action="reset"]');
+            await pg.waitForFunction(() => window.__overload.state.workouts.length === 0, null, { timeout: 15000 });
+            await settle();
+            const q = pg.dialogs.slice(), left = cloud.paths('users/' + uid + '/workouts').length;
+            await pg.close();
+            need(q.length === 2 && q[0].includes('You are signed in to cloud sync, so the training data in your account'), 'after the link, Reset asks: ' + q.join(' / ').replace(/\n/g, ' | ').slice(0, 300));
+            need(left === 0, 'the account still holds ' + left + ' workouts');
+            return '"' + said + '"; after the link Reset asks with the account and erases it';
+          } finally { site.root = null; await D.close(); }
         });
       }
       site.root = null;

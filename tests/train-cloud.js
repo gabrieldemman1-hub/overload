@@ -31,6 +31,9 @@
  *     sync#6): Reset, Import and Restore ask nothing, change nothing, and a toast says to try again once it says
  *     Synced. Once the read works, they ask as before and reach the account. A phone that linked before is not held
  *     up, also on a start without signal: Import, Restore and Reset made then go up once it is online.
+ *     The app closed before a read worked (review finding link#1): on the next start without the sync module they are
+ *     held back the same way ("Cloud sync is not available right now. ..."), and on a start whose module Firebase has
+ *     not answered yet too ("still reading"); before, such a start took the phone for signed out and let them run.
  *   - Signed out (the sign-out question says what a sign-in afterwards does): what is logged while signed out is
  *     sent at the next sign-in; a Reset done while signed out, also on a start without the sync module, is not:
  *     signing in again brings back what the account holds.
@@ -430,6 +433,69 @@ async function firstLinkPending(browser) {
     need(!chooser, 'Import opened the file picker');
     need(cloud.writes({ who: 'C' }).length === 0, 'C wrote to the account: ' + brief(cloud.writes({ who: 'C' })));
     need(await C.ev(() => window.__overloadSync.linked === false), 'sync.js does not say it has not read the account yet (linked)');
+    return SAYS;
+  });
+  // Review finding link#1: C is closed before a read has worked. The next start has no sync module (its files did not
+  // come: no signal), or the module has loaded and Firebase has not answered yet. There is no note, so such a start
+  // took C for signed out: Reset and Import went ahead, and the next link merged the account's data back over them.
+  // The first link still to be made is kept across starts (overload.backup's `linking`, not the note, which v2.8 reads).
+  const NOT_NOW = 'Cloud sync is not available right now. It starts when the app opens with signal.';
+  const heldBack = async (says) => {
+    const before = JSON.stringify(await C.live()), m = cloud.mark();
+    await lib.openTab(C.page, 'settings');
+    await C.page.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+    C.page.dialogs.length = 0;
+    let chooser = 0; const onChooser = () => { chooser++; };
+    C.page.on('filechooser', onChooser);
+    const said = [];
+    for (const [what, act] of [
+      ['Import JSON', () => C.page.click('[data-action="import"]')],
+      ['a backup file given to Import', () => C.page.setInputFiles('#import-file', filePath)],
+      ['Reset all data', () => C.page.click('[data-action="reset"]')],
+      ['Restore', () => C.page.click('[data-action="restore-copy"][data-id="before-import"]')]
+    ]) {
+      await quiet(C); await act();
+      said.push(what + ': ' + await T.toast(C.page, /still reading|not available/).catch(() => 'no such toast'));
+    }
+    await settle(world);
+    C.page.off('filechooser', onChooser);
+    need(!C.page.dialogs.length, 'questions were asked: ' + C.page.dialogs.join(' / ').replace(/\n/g, ' | ').slice(0, 200));
+    need(JSON.stringify(await C.live()) === before, 'C\'s data changed');
+    need(said.every((t) => t.endsWith(': ' + says)), 'the toasts: ' + said.join(' | '));
+    need(!chooser, 'Import opened the file picker');
+    need(cloud.writes({ who: 'C', from: m }).length === 0, 'C wrote to the account: ' + brief(cloud.writes({ who: 'C', from: m })));
+  };
+  await step('closed before a read worked; the next start has no sync module (no signal): Import, Reset and Restore ask nothing, change nothing, and a toast says cloud sync is not available (link#1)', async () => {
+    await startWithout(C);
+    need(!(await C.ev(() => localStorage.getItem('overload.sync.v1'))), 'C has a note');
+    await heldBack(NOT_NOW);
+    const mark = await C.ev(() => (JSON.parse(localStorage.getItem('overload.backup') || '{}')).linking);
+    need(mark === 'U1', 'overload.backup\'s linking is ' + mark);
+    return NOT_NOW + ' (overload.backup\'s linking: ' + mark + ')';
+  });
+  await step('the next start, with the sync module but before Firebase has said who is signed in: the same, and the toast says it is still reading the account (link#1); once Firebase answers and the read still fails, it holds them back as before', async () => {
+    // Firebase's first answer (who is signed in) waits until window.__releaseAuth(), on the start where
+    // test.holdAuth is set (as the verifier's b2-weak-first-signin.js --wait=auth).
+    await C.context.addInitScript(() => {
+      try { if (!localStorage.getItem('test.holdAuth')) return; } catch (e) { return; }
+      const orig = window.__fakeFirebase; if (typeof orig !== 'function') return;
+      let release; const gate = new Promise((r) => { release = r; });
+      window.__releaseAuth = release;
+      window.__fakeFirebase = (op, p) => (op === 'auth.current' ? gate.then(() => orig(op, p)) : orig(op, p));
+    });
+    await C.ev(() => localStorage.setItem('test.holdAuth', '1'));
+    await C.page.close(); C.device.blockSdk(false);
+    C.page = await lib.openApp(C.context, ORIGIN + '/index.html');
+    await C.page.waitForFunction(() => !!window.__overloadSync, null, { timeout: 15000 });
+    await C.ev(() => localStorage.removeItem('test.holdAuth'));
+    need(await C.ev(() => typeof window.__releaseAuth === 'function' && !window.__overloadSync.user), 'Firebase\'s first answer was not held back');
+    await heldBack(SAYS);
+    await failReads(C, true);
+    await C.ev(() => window.__releaseAuth());
+    await settle(world);
+    const st = await C.ev(() => ({ user: !!window.__overloadSync.user, linked: window.__overloadSync.linked, error: window.__overloadSync.error }));
+    need(st.user && st.linked === false && /Could not reach the cloud/.test(st.error), 'C once Firebase answered: ' + JSON.stringify(st));
+    await heldBack(SAYS);
     return SAYS;
   });
   await step('the read works (Sync now): C links, the card says Synced, and Import then asks, works and reaches the account', async () => {

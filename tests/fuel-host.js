@@ -20,7 +20,11 @@
  *     included; once the module has said nobody is, the note counts no more;
  *   - signed in while the module has not read the account yet (`linked` false): Reset, Restore, Import JSON, Paste from
  *     Overload, Choose a file and the paste box ask nothing, open nothing, change nothing, and a toast says why
- *     (sync#6); once linked they ask as before; on the unreadable-data screen nothing is held up.
+ *     (sync#6); once linked they ask as before; on the unreadable-data screen nothing is held up;
+ *   - closed before that read worked (link#1): fuel.backup keeps the first link still to be made, and the next start
+ *     without the module ("Cloud sync is not available right now. ...") or with the module before Firebase has
+ *     answered ("still reading") holds them back the same way; a note of the account, or the module saying nobody
+ *     is signed in, ends it.
  * Prints one PASS/FAIL line per check and exits 1 if anything failed.
  */
 'use strict';
@@ -230,6 +234,8 @@ const marked = (page) => page.evaluate(() => !!document.querySelector('#app').fi
       need((await F.sheetOpen(pg)) === false && (await F.screen(pg)) === 'food' && await pg.isVisible('.tabbar'), 'the diary did not open');
       const st = await F.stored(pg);
       need(st && st.app === 'fuel' && Object.keys(st.diary).length === 0, 'no state of its own was stored');
+      // Welcome kept nothing; leaving it keeps the first link still to be made (link#1: no note names u1 yet).
+      need(((await lib.readStorage(pg, 'fuel.backup')) || {}).linking === 'u1', 'fuel.backup after signing in at Welcome: ' + JSON.stringify(await lib.readStorage(pg, 'fuel.backup')));
       // what the account holds arrives a moment later
       await pg.evaluate((day) => { const o = window.__overload, n = JSON.parse(JSON.stringify(o.state)); n.diary[day] = [{ id: 'c1', food: null, meal: 0, qty: null, unit: null, amt: '', name: 'From the account', brand: '', kcal: 200, p: 1, c: 2, f: 3, at: 1 }]; o.setState(n); }, TODAY);
       need((await F.readDay(pg)).entries === 1, 'the data from the account is not on screen');
@@ -434,6 +440,103 @@ const marked = (page) => page.evaluate(() => !!document.querySelector('#app').fi
       return 'restored from the unreadable-data screen';
     });
     await p8.close();
+
+    // ---------------------------------------------------------------- a first link not done, on a later start
+    // The first link's read failed and the app was closed before it worked (review finding link#1). There is no note,
+    // so the next start, before the module had said who is signed in, took the phone for signed out: Reset and the
+    // imports went ahead, and the next link merged the account's log back over them. fuel.backup's `linking` now keeps
+    // the first link still to be made across starts, as overload.backup's does in Overload.
+    const p9 = await newPhone(browser);
+    const tmp9 = F.tempDir();
+    await run.step('a first link not done, on a later start', 'the next start without the module, and the next with the module before Firebase answers: Reset, Restore, Import JSON, Paste from Overload, Choose a file and the paste box ask nothing, open nothing and change nothing, and the toast says why; a note of the account, or the module saying nobody is signed in, ends it', async () => {
+      const NOT_NOW = 'Cloud sync is not available right now. It starts when the app opens with signal.';
+      const SAYS = 'Cloud sync is still reading your account. Try again once it says Synced.';
+      let pg = await F.open(p9, server);
+      await pg.click('[data-action="fuel-fresh"]');
+      await pg.waitForSelector('.f-meal');
+      await F.quickAdd(pg, 0, 'Porridge', 300, 10, 50, 6);
+      await pg.evaluate(() => window.__overloadBackup.take('import', JSON.stringify(window.__overload.state)));   // a copy to restore
+      const linking = () => pg.evaluate(() => (JSON.parse(localStorage.getItem('fuel.backup') || '{}')).linking);
+      const setNote = (n) => pg.evaluate((t) => { if (t) localStorage.setItem('fuel.sync.v1', t); else localStorage.removeItem('fuel.sync.v1'); }, n ? JSON.stringify(n) : null);
+      const quiet = () => pg.evaluate(() => { const t = document.querySelector('#toast'); t.hidden = true; t.textContent = ''; });
+      const file = tmp9.file('fuel-backup-2026-11-20.json', JSON.stringify(F.fuelStateFrom(fx.state)));
+      const text = F.foodText(F.payloadFrom(fx.state, fx.meta.now - 60000), true);
+      // Every way in, as in 'signed in, the account not read yet' above: nothing asked, opened, read or changed.
+      const heldBack = async (says, where) => {
+        await pg.evaluate(() => {
+          window.__clipboardReads = 0;
+          Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: () => { window.__clipboardReads++; return Promise.resolve(''); }, writeText: () => Promise.resolve() } });
+        });
+        let choosers = 0; const onChooser = () => { choosers++; };
+        pg.on('filechooser', onChooser);
+        await lib.openTab(pg, 'settings');
+        await pg.waitForSelector('[data-action="restore-copy"][data-id="before-import"]', { timeout: 5000 });
+        const before = await F.storedText(pg), asked = pg.dialogs.length, said = [];
+        for (const [what, act] of [
+          ['Reset all data', () => pg.click('[data-action="reset"]')],
+          ['Restore', () => pg.click('[data-action="restore-copy"][data-id="before-import"]')],
+          ['Import JSON', () => pg.click('[data-action="import"]')],
+          ['a file given to Import', () => pg.setInputFiles('#import-file', file)],
+          ['Paste from Overload', async () => { await pg.click('[data-action="fuel-import"]'); await pg.click('#sheet [data-action="fuel-paste"]'); }],
+          ['Choose a file', () => pg.click('#sheet [data-action="fuel-file"]')],
+          ['the paste box', async () => { await pg.click('#sheet [data-action="fuel-paste-box"]'); await pg.fill('#fuel-paste', text); await pg.click('#fuel-paste-form button[type="submit"]'); }]
+        ]) {
+          await quiet(); await act();
+          said.push(what + ': ' + await F.toast(pg, /still reading|not available/).catch(() => 'no such toast'));
+          need(pg.dialogs.length === asked, where + ', ' + what + ': questions were asked: ' + pg.dialogs.slice(asked).join(' / ').replace(/\n/g, ' | ').slice(0, 300));
+        }
+        await lib.sleep(300);
+        pg.off('filechooser', onChooser);
+        await F.closeSheet(pg);
+        need(said.every((t) => t.endsWith(': ' + says)), where + ', the toasts: ' + said.join(' | '));
+        need(!choosers && (await pg.evaluate(() => window.__clipboardReads)) === 0, where + ': the file picker opened ' + choosers + ' times, the clipboard was read ' + await pg.evaluate(() => window.__clipboardReads) + ' times');
+        need((await F.storedText(pg)) === before && (await F.live(pg)).diary[TODAY].length === 1, where + ': the data changed');
+      };
+      // Signed in to u1, the first read failing (`linked` false). A note of another account, signed out of, is no
+      // note of this one.
+      await setNote({ uid: 'u0', email: 'old@example.com', core: 'h0', days: {}, signedOut: true });
+      await standIn(pg, { email: 'alex@example.com', uid: 'u1' });
+      await pg.evaluate(() => { window.__overloadSync.linked = false; });
+      // Closed before the read worked. The next start has no module (no signal).
+      await pg.close();
+      pg = await F.open(p9, server);
+      need(await pg.evaluate(() => window.__overloadSync === undefined), 'a sync module is in the page: this check needs none');
+      await heldBack(NOT_NOW, 'no module');
+      need((await linking()) === 'u1', 'signed in, no note of the account: fuel.backup\'s linking is ' + await linking());
+      // The module has loaded; Firebase has not said who is signed in (no syncChanged yet).
+      await pg.evaluate(() => { window.__overloadSync = { user: null, linked: false, lastSync: null, error: '', async signIn() {}, async createAccount() {}, async resetPassword() {}, async signOut() {}, pushNow() {} }; });
+      await heldBack(SAYS, 'Firebase not answered');
+      need((await linking()) === 'u1', 'the mark went before the module said anything: ' + await linking());
+      // The first link worked (on 2.8's phone or here: a note of the account), on a start that has not said so yet:
+      // the mark, still stored, holds nothing up, and the Reset says the account is erased too.
+      await pg.close();
+      pg = await F.open(p9, server);
+      await setNote({ uid: 'u1', email: 'alex@example.com', core: 'h1', days: {} });
+      await lib.openTab(pg, 'settings');
+      let asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      need(/the food log in your account \(alex@example\.com\) is erased too/.test(pg.dialogs[asked] || ''), 'a note of the account: the Reset question reads ' + (pg.dialogs[asked] || '').replace(/\n/g, ' | '));
+      // The module says u1, with the note: the mark goes.
+      await standIn(pg, { email: 'alex@example.com', uid: 'u1' });
+      need((await linking()) === undefined, 'the module named the account a note names: the mark stayed (' + await linking() + ')');
+      // A mark and no note; the module says nobody is signed in: the mark goes, and the Reset is this phone's only.
+      await pg.close();
+      pg = await F.open(p9, server);
+      await setNote(null);
+      await pg.evaluate(() => { const b = JSON.parse(localStorage.getItem('fuel.backup') || '{}'); b.linking = 'u1'; localStorage.setItem('fuel.backup', JSON.stringify(b)); });
+      await standIn(pg, null);
+      need((await linking()) === undefined, 'the module said nobody is signed in: the mark stayed (' + await linking() + ')');
+      await lib.openTab(pg, 'settings');
+      asked = pg.dialogs.length;
+      await quiet(); await pg.click('[data-action="reset"]');
+      await F.toast(pg, /Reset/);
+      need(pg.dialogs.length === asked + 2 && !/account/.test(pg.dialogs.slice(asked).join(' / ')), 'signed out, the Reset questions: ' + pg.dialogs.slice(asked).join(' / ').replace(/\n/g, ' | '));
+      F.assertClean(p9, 'a first link not done');
+      return NOT_NOW + ' / ' + SAYS;
+    });
+    tmp9.rm();
+    await p9.close();
 
     // ---------------------------------------------------------------- unreadable data and cloud sync
     const p4 = await newPhone(browser);

@@ -46,6 +46,10 @@
  *     sync#10, #10b: signed out on 3.0, signed in on v2.8: a 3.0 start without the sync module counts as signed in
  *       (Reset says so, keeps the note, and stands). Signed in on 3.0, signed out on v2.8: it counts as signed in too
  *       (nothing it can read says otherwise); the Reset reaches the account at the next sign-in, as its question said.
+ *   - Review round 5 (run relog): relog#1: logged again after a Reset, Import or Restore on A (B open, or B closed
+ *       from before the replace until after the re-log), they stay in the account and on both phones, also logged
+ *       once more and after B is opened again; and a night logged again keeps its time when the check-in is saved
+ *       again with Edit while B, holding the record, is closed.
  *
  * How: every phone is a browser context with its own storage. The app's files are answered from a folder on
  * disk by a Playwright route (nothing listens on the port), so one phone can be switched between v2.8 (taken
@@ -1237,6 +1241,19 @@ async function relogRun(browser, trees, fx) {
   t = await three();
   c(all(t, 182.4, 444), 'logged again without a time (the record taken away, as the check-in does): they stay everywhere', show(t) + '; writes ' + brief(cloud.writes({ from: mark })));
 
+  // 4b. Review finding relog#1, the Edit case: B takes A's deletion and is then closed; A logs them again, then saves
+  // the check-in again with Edit (another weight, the night as it is filled in); B is opened. The night was written
+  // anew without its time, so B's merge put the record back and deleted it everywhere.
+  await uiDeleteToday(A, today); await settle(run);
+  const bHeld = !!(await memState(B)).deleted.sleep[today];
+  await B.page.close();
+  await uiCheckin(A, today, 181.0, 433); await settle(run);
+  await uiCheckin(A, today, 180.8, 433); await settle(run);
+  const edited = (await memState(A)).sleep.find((x) => x.date === today) || null;
+  await B.open(); await settle(run);
+  t = await three();
+  c(bHeld && all(t, 180.8, 433), 'B takes the deletion and is closed; A logs them again, then saves the check-in again with Edit (another weight, the night as filled in); B is opened: they stay everywhere', show(t) + '; B held the record: ' + bHeld + '; A\'s night after the Edit ' + JSON.stringify(edited));
+
   // 5. Deleted after that, on B: gone everywhere (the new record is later than the time it was logged again).
   await uiDeleteToday(B, today); await settle(run);
   t = await three();
@@ -1254,6 +1271,54 @@ async function relogRun(browser, trees, fx) {
   t = await three();
   c(t.bw.every((x) => x === undefined) && bwAt(v, today) === undefined, 'with a phone still on 2.8 holding the record, the weigh-in logged again goes again (v2.8\'s merge; dev/notes/sync.md says so)', show(t) + '; V ' + bwAt(v, today));
   await V.page.close();
+
+  // 7. Review finding relog#1: deleted, then a Reset, Import or Restore on A, then logged again in the check-in. The
+  // replace took A's deletion records with it while B still holds them: B sends them back, or holds them until it is
+  // opened. sync.js gives no time after a replace (it cannot tell an entry logged by hand from one the file or copy
+  // brought back), so the check-in gives it where he logs it. With B open: logged again, logged once more, B closed
+  // and opened again. With B closed before the replace: logged again, then B opened.
+  let rest2 = 300;
+  const withRest = () => { const f = JSON.parse(fx.text); f.settings.restSec = ++rest2; return f; };
+  const restIs = (v) => A.page.waitForFunction((x) => window.__overload.state.settings.restSec === x, v, { timeout: 8000 });
+  const replaceOn = {
+    reset: () => uiReset(A),
+    import: async () => {
+      const f = withRest();
+      await settings(A);
+      await A.page.setInputFiles('#import-file', { name: 'overload-backup-2026-11-21.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(f)) }, { timeout: 5000 });
+      await restIs(f.settings.restSec);
+    },
+    restore: async () => {
+      const f = withRest();
+      await A.ev((x) => window.__overloadBackup.take('import', x), JSON.stringify(f));   // the copy, in A's Automatic copies
+      await lib.openTab(A.page, 'today'); await settings(A);
+      await A.page.click('#safety-copies [data-action="restore-copy"][data-id="before-import"]', { timeout: 8000 });
+      await restIs(f.settings.restSec);
+    }
+  };
+  for (const closed of [false, true]) {
+    for (const how of ['reset', 'import', 'restore']) {
+      const L = how + (closed ? ' with B closed' : '') + ': ';
+      const a0 = await memState(A);
+      if (bwAt(a0, today) === undefined || nightAt(a0, today) === undefined) { await uiCheckin(A, today, 185.5, 425); await settle(run); }
+      await uiDeleteToday(A, today); await settle(run);
+      if (closed) await B.page.close();
+      await replaceOn[how](); await settle(run);
+      await uiCheckin(A, today, 186.1, 426); await settle(run);
+      const a1 = await memState(A), entry = JSON.stringify([a1.bodyweight.find((x) => x.date === today) || null, a1.sleep.find((x) => x.date === today) || null]);
+      if (!closed) {
+        t = await three();
+        c(all(t, 186.1, 426), L + 'A deletes today\'s weigh-in and night, then ' + (how === 'import' ? 'an ' : 'a ') + how + ' on A, then A logs them again in the check-in: they stay, in the account, on A and on B', show(t) + '; A\'s entries ' + entry);
+        await uiCheckin(A, today, 186.4, 426); await settle(run);
+        t = await three();
+        c(all(t, 186.4, 426), L + 'A logs the weigh-in once more: it stays everywhere', show(t));
+        await B.page.close();
+      }
+      await B.open(); await settle(run);
+      t = await three();
+      c(all(t, closed ? 186.1 : 186.4, 426), L + (closed ? 'A deletes them, B (holding the records) is closed, ' + (how === 'import' ? 'an ' : 'a ') + how + ' on A, A logs them again in the check-in, B is opened: they stay everywhere' : 'B closed and opened again: they stay everywhere'), show(t) + '; A\'s entries ' + entry);
+    }
+  }
   const errors = run.phones.reduce((all2, p) => all2.concat(p.pageErrors.map((x) => p.name + ': ' + x.split('\n')[0])), []);
   c(errors.length === 0, 'no page error on any phone', errors.slice(0, 3).join(' | '));
   for (const p of run.phones) await p.close();
